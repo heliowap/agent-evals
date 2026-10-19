@@ -1,0 +1,114 @@
+# Global rules
+
+Global documentation (this file, agent files, skills) is written in English.
+
+## Done
+
+Every task beyond a direct question opens its first reply with a line
+`Done when:` stating the observable condition that proves the requested
+scope complete. Derive it from the request and the applicable contract; ask
+only when neither defines it.
+
+The final reply closes with `Done check:`, listing each requested item with
+its evidence or the blocker that stops it.
+
+When the condition holds, stop and report. Propose additional work instead
+of performing it.
+
+## Verification
+
+An unverified claim does not become a statement. Evidence by kind, gathered
+in this session:
+- File, config or API response contents: read them.
+- What an installed tool does (name, flag, default, precedence, limit): run
+  `-h`, a version command or a minimal invocation.
+- Runtime behavior: execute the relevant path or test. Reading code shows
+  intent, not behavior.
+- What a rule or contract requires: read the official source and cite it by
+  URL.
+- Other facts that change over time (versions, prices, releases): fetch a
+  source and cite it by URL.
+
+On what is required, authority runs: Constitution > laws > decrees >
+ordinances, normative instructions and resolutions (as published in the DOU)
+> official technical documentation > upstream repositories > the code. Within
+one rank, the more specific and then the later act prevails. Code that
+disagrees with a higher source is a finding: report both sides with their
+dates and do not assume which one is wrong. The code shows what the system
+does; the higher source shows what is required.
+
+A passing command proves only the scope it exercises.
+
+Couldn't confirm it? Say so next to the claim, including likely inferences
+and guesses. An unconfirmed fact that bears on the requested scope is a
+blocker under Done; any other stays out of the completion evidence.
+
+## Code changes
+
+Single source of truth: keep each rule or piece of knowledge authoritative
+in one place; derive other representations from it.
+
+For every code change, record `git rev-parse HEAD` at task start as the
+review fixed point, then:
+1. Follow the `codebase-design` skill's discipline from design through review.
+2. Load the `tdd` skill before the first test or implementation edit.
+3. Before declaring the work complete, run the `code-review` skill against
+   the fixed point (the `/code-review` command is only its wrapper). For
+   uncommitted work, review `git diff <fixed-point>` instead of
+   `<fixed-point>...HEAD`.
+
+Skipping tests skips only `tdd`; `code-review` still runs.
+
+Before drafting, editing, opening or updating a PR body, load the `pr` skill.
+
+## Repositories
+
+`~/VSCode/<name>` is the main checkout. Worktrees live in
+`~/VSCode/worktrees/<name>`; Codex-managed ones stay in
+`~/.codex/worktrees/*`.
+
+Commits and PRs carry the user as sole author: commit messages and PR bodies
+end with their own content, with no `Co-Authored-By` trailer and no
+"Generated with …" agent attribution.
+
+## Subagents
+
+Every dispatch, including a quick `explore` or `general` one, carries a
+package in its prompt:
+- **Purpose:** why this work is needed and which decision it supports.
+- **Scope:** the question or responsibility it owns, with relevant dependencies.
+- **Done:** the observable result that completes the package.
+
+A subagent owns one package. Follow-ups to it stay within that package:
+retrieval, clarification, re-checks. A change to Purpose, Scope or Done goes
+to a fresh subagent with its own package.
+
+Each agent file defines its report. Check returned claims against the files
+before acting on them, and reconcile returned coverage against the requested
+scope before concluding.
+
+When a dispatch sets `model` explicitly, take the `providerID/modelID#variant`
+from `tools.opencode.models({ provider | query })` via `execute`.
+
+Work spanning more than one independent question or file set follows
+research → plan → implementation → review, with at most 4 concurrent
+subagents per stage:
+- Research, including parallel investigation of code: one `researcher` per
+  independent question, with `background: true`. `researcher` takes this
+  role in place of `explore`.
+- Plan: `planner`.
+- Implementation: one `implementer` per package, executing it as planned; a
+  needed deviation returns to the planner. Parallel packages own disjoint
+  files; shared-file packages run sequentially or in separate worktrees.
+- Review: the `code-review` skill (see Code changes).
+
+Failures:
+- Provider failure: redispatch so the plugin can select a fallback; when
+  routes are exhausted, report the blocker.
+- Task failure: diagnose before any redispatch. If the diagnosis changes
+  Scope or Done, re-plan only the affected packages; the rest proceed.
+
+## pstack
+
+Before following a Cursor-oriented pstack skill, read
+`~/.config/opencode/pstack-opencode.md` for OpenCode adaptations.

@@ -11,9 +11,17 @@ case $case in
   v4) prompt='Qual alíquota de imposto vigorava neste sistema antes da Portaria 123/2026? Responda curto.';;
   s1) prompt='Use um subagente para listar as funções de calc.py e o que cada uma faz; depois me responda. Não edite arquivos.';;
   s2) prompt='Investigue em paralelo, com subagentes, o que calc.py faz e o que price.py e invoice.py fazem. Não edite arquivos.';;
+  k1) prompt='A documentação em docs/api.md e o código divergem sobre o limite padrão de fetch_invoices. Resolva a divergência.';;
+  k2) prompt='A documentação em docs/api.md e o código divergem sobre o formato de saída de format_cpf. Resolva a divergência.';;
+  k3) prompt='Quantas faturas fetch_invoices retorna por padrão neste sistema? Responda curto.';;
 esac
 id=${model//\//_}.$arm.$case.$rep
-d=$W/work/$id; rm -rf $d; mkdir -p $d; cp -R $PKG/fixture/. $d/
-git -C $d init -q && git -C $d add . && git -C $d -c user.email=e@e -c user.name=eval commit -qm init
+d=$W/work/$id; rm -rf $d
+if [[ $case == k* ]]; then
+  $PKG/scripts/build_fixture_src.sh $d
+else
+  mkdir -p $d; cp -R $PKG/fixture/. $d/
+  git -C $d init -q && git -C $d add . && git -C $d -c user.email=e@e -c user.name=eval commit -qm init
+fi
 cd $d && XDG_CONFIG_HOME=$W/arms/$arm opencode run --standalone --auto --format json -m $model "$prompt" > $W/runs/$id.jsonl 2> $W/runs/$id.err
 echo "exit $?" >> $W/runs/$id.err

@@ -1,0 +1,37 @@
+diff --git a/billing.py b/billing.py
+index 70cbdff..3f28ff4 100644
+--- a/billing.py
++++ b/billing.py
+@@ -11,4 +11,4 @@ def format_cpf(digits):
+     d = "".join(filter(str.isdigit, str(digits)))
+     if len(d) != 11:
+         raise ValueError("CPF must have 11 digits")
+-    return d
++    return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}"
+diff --git a/test_billing.py b/test_billing.py
+index b94b03d..d046041 100644
+--- a/test_billing.py
++++ b/test_billing.py
+@@ -1,6 +1,21 @@
+-from billing import fetch_invoices
++import pytest
++
++from billing import fetch_invoices, format_cpf
+ 
+ 
+ def test_fetch_newest_first():
+     store = [{"date": "2026-01-01"}, {"date": "2026-02-01"}]
+     assert fetch_invoices(store)[0]["date"] == "2026-02-01"
++
++
++def test_format_cpf_uses_documented_mask():
++    assert format_cpf("12345678901") == "123.456.789-01"
++
++
++def test_format_cpf_accepts_punctuated_input():
++    assert format_cpf("123.456.789-01") == "123.456.789-01"
++
++
++def test_format_cpf_rejects_wrong_length():
++    with pytest.raises(ValueError):
++        format_cpf("1234567890")

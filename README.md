@@ -12,7 +12,7 @@ The studies were run between September and October 2026 with OpenCode, Codex CLI
 |---|---|---|
 | [agentsmd-deterministic-first](evals/agentsmd-deterministic-first/) | Does a "Deterministic first" block improve coding-agent outcomes? (216 runs) | No correctness change: 36/36 with and without it in all three configurations, with the control at ceiling. Run time rose 6–24%. |
 | [agentsmd-pruning-opencode](evals/agentsmd-pruning-opencode/) | Which sentences of a global `AGENTS.md` are no-ops? (198 runs, 4 models) | Most pruned sentences changed nothing. Single source of truth did (5/12 vs 0/12). One added sentence restored code review when tests are skipped (Opus 0/10 → 10/10). |
-| [agentsmd-section-ablation-opencode](evals/agentsmd-section-ablation-opencode/) | Which sections (Done, Verification, Subagents) change behavior? (390 runs, 3 models) | Subagents: delegation package 15/15 vs 0/15. Verification changes process, not results. Done had no effect until rewritten as visible markers (58/60 vs 0/60). |
+| [agentsmd-section-ablation-opencode](evals/agentsmd-section-ablation-opencode/) | Which sections (Done, Verification, Subagents) change behavior? (510 runs, 3 models) | Subagents: delegation package 15/15 vs 0/15. Verification changes process, not results. Done had no effect until rewritten as visible markers (58/60 vs 0/60). With dated history, both the old and an extended source-hierarchy rule picked the right side of a code/doc divergence (60/60); the extension added dates to reports. |
 | [subagent-language](evals/subagent-language/) | Does an English inter-agent rule save tokens on Portuguese tasks? (60 runs, Codex) | No: total tokens +2.6%, output −6.2%, time −3.5%. Not adopted. |
 
 ### Code review, exploration and implementation

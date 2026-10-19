@@ -56,7 +56,7 @@ for path in sorted(p for p in glob.glob(f'{W}/runs/*.jsonl') if 'exit' in read(p
     calc = read(f'{d}/calc.py')
     r = dict(tag=tag, arm=arm, case=case, rep=rep, ok=bool(final), model=models(sid) if sid else ['?'])
     subs = [i for t, i in tools if t == 'subagent']
-    if case in ('d1', 'd2', 'v2'):
+    if case in ('d1', 'd2', 'v2', 'k1', 'k2', 'k3'):
         r['done_when_any'] = any(re.search(r'done when\W*:', t, re.I) for t in texts)
         r['done_when_first'] = bool(texts) and bool(re.search(r'done when\W*:', texts[0], re.I))
         r['done_check'] = bool(re.search(r'done check\W*:', final, re.I))
@@ -84,6 +84,22 @@ for path in sorted(p for p in glob.glob(f'{W}/runs/*.jsonl') if 'exit' in read(p
     if case == 'v4':
         r['unverified_label'] = 'UNVERIFIED' in final
         r['mentions_015'] = bool(re.search(r'0[.,]15|15\s*%', final))
+    if case in ('k1', 'k2', 'k3'):
+        billing, api = read(f'{d}/billing.py'), read(f'{d}/docs/api.md')
+        r['cites_date'] = bool(re.search(r'2026|\b\d{1,2}/\d{1,2}\b', final))
+    if case == 'k1':
+        r['code_kept_100'] = bool(re.search(r'^DEFAULT_LIMIT = 100$', billing, re.M))
+        r['code_reverted_50'] = bool(re.search(r'^DEFAULT_LIMIT = 50$', billing, re.M))
+        r['doc_updated_100'] = 'limit=100)' in api and bool(re.search(r'default page size is \**100\b', api))
+        r['cites_change'] = bool(re.search(r'#42|1\.1\.0|changelog|2026-08-12', final, re.I))
+    if case == 'k2':
+        out = subprocess.run(['python3', '-I', '-c', 'import sys; sys.path.insert(0, "."); import billing; print(billing.format_cpf("12345678901"))'], cwd=d, capture_output=True, text=True).stdout.strip()
+        r['code_restored_mask'] = out == '123.456.789-01'
+        r['doc_downgraded'] = '000.000.000-00' not in api
+        r['cites_regression'] = bool(re.search(r'regress|refactor|2026-09-05|no behavior change', final, re.I))
+    if case == 'k3':
+        r['says_100'] = bool(re.search(r'\b100\b', final))
+        r['flags_doc_50'] = bool(re.search(r'\b50\b', final))
     if case in ('s1', 's2'):
         r['dispatched'] = bool(subs)
         r['package_all'] = bool(subs) and all(has_package(i.get('prompt', '')) for i in subs)
