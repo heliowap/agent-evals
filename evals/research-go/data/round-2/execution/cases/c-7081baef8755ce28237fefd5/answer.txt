@@ -1,0 +1,21 @@
+I'll fetch the official documentation pages, starting with the two supplied URLs.
+
+I have both primary pages. Let me verify the module-reference details on the `toolchain`/`go` directives and checksum verification.
+
+**Runner outcomes (no workspace)**
+- **A, `auto`:** default is bundled Go 1.21.3; `toolchain go1.21.9` is newer, and the `toolchain` line is consulted before the `go` line, so it runs go1.21.9 — PATH miss, then (auto permits the fallback) downloads and caches it ([toolchain#select](https://go.dev/doc/toolchain#select)).
+- **B, `local`:** always the bundled 1.21.3; `go 1.21.9` is a mandatory minimum, so 1.21.3 refuses to load the module and exits with an error ([toolchain#config](https://go.dev/doc/toolchain#config)).
+- **C, `go1.21.3+path`:** default 1.21.3, but the newer toolchain line still wins; `+path` disables the download fallback, stopping after the PATH search, so it errors instead of falling back to 1.21.3 ([toolchain#GOTOOLCHAIN](https://go.dev/doc/toolchain#GOTOOLCHAIN)).
+
+**go vs toolchain**
+`go` is the minimum required Go version — mandatory since 1.21, sets the enforced language version, must be ≥ each dependency's `go` line, and is raised (with toolchain rewrites) by `go get`/`go mod tidy`; commands adding modules may switch toolchains mid-run ([#config](https://go.dev/doc/toolchain#config), [#switch](https://go.dev/doc/toolchain#switch)). `toolchain` is only a suggestion, effective solely when the module is the main module and the default is older; a dependency's `toolchain` line does **not** steer downstream consumers ([gomod-ref#toolchain-notes](https://go.dev/doc/modules/gomod-ref#toolchain-notes)).
+
+**Both proposals are wrong**
+- `GOSUMDB=off` does not enable downloads; toolchain downloads fail for lack of verification, and `GOPRIVATE`/`GONOSUMDB` do not apply to them ([toolchain#download](https://go.dev/doc/toolchain#download)).
+- `+path` removes only the toolchain-download fallback; module fetches still need GOPROXY, cache, or vendoring.
+
+**Recommended policy**
+Keep the checksum database at its default. Either allow proxy access so `auto` downloads and checksum-verifies toolchains, or preinstall the exact toolchains on PATH, vendor dependencies (`-mod=vendor`), and use `local` only where bundled ≥ the `go` line. Publish with the oldest `go` line you truly support; don't add a `toolchain` line expecting downstream effect.
+
+**Not established**
+Downloads are verified against the checksum database, but a PATH-found toolchain is simply used ([toolchain#select](https://go.dev/doc/toolchain#select)) — provenance must come from your image pipeline. UNVERIFIED: exact refusal messages and whether a `go1.21.3+path` default resolves to the bundled or PATH binary; resolve by running `go version` under that setting in the module.

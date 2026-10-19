@@ -1,0 +1,29 @@
+## Answer
+
+**1. Launch-time enabling flag (Node.js 22.0.0 announcement, April 24, 2024)**
+
+The launch post "Node.js 22 is now available!" states: "This release adds `require()` support for synchronous ESM graphs under the flag `--experimental-require-module`." When that flag is enabled and the module meets the requirements — explicitly marked as an ES module ("type": "module" in the closest package.json or a `.mjs` extension) and "fully synchronous (contains no top-level await)" — `require()` loads it as an ES module and returns the namespace object. The post adds: "We intend to eventually enable `require(esm)` by default in the future, without the flag" (nodejs.org/en/blog/announcements/v22-release-announce).
+
+**2. Reconciliation with the 22.12.0 release notes (December 3, 2024, 'Jod' LTS)**
+
+The 22.12.0 notes carry the headline "require(esm) is now enabled by default": support "had been available on v20.x and v22.x under the command line flag --experimental-require-module," and "in this release, it is now no longer behind a flag on v22.x." This is exactly the future default-on the launch post promised — the 22.12.0 notes cite Joyee Cheung's unflagging commit `58d6871c45` (SEMVER-MINOR) in #55085 (nodejs.org/en/blog/release/v22.12.0).
+
+**Does default-on make it stable?** No. The same notes state explicitly: "This feature is still experimental, and we are looking for user feedback to make more final tweaks before fully stabilizing it." On first encountering a native ES module via `require()`, an experimental warning is emitted (unless the `require()` comes from a path containing `node_modules`) — this is a warning-on-use experimental feature, not a stable one. (Minor sourcing caveat: the nodejs.org blog copy of the note attributes the warning sentence to "on v23.x," while the GitHub release tag for v22.12.0 reads "on v22.x"; the surrounding text is identical.)
+
+**3. Top-level await error**
+
+With the feature enabled, "Node.js will no longer throw `ERR_REQUIRE_ESM` if `require()` is used to load a ES module. It can, however, throw **`ERR_REQUIRE_ASYNC_MODULE`** if the ES module being loaded or its dependencies contain top-level `await`." This mirrors the launch-time constraint: at 22.0.0 only "fully synchronous" ESM graphs were requirable, and in 22.12.0 the async case surfaces as `ERR_REQUIRE_ASYNC_MODULE` rather than silently succeeding.
+
+**4. Disabling flag**
+
+**`--no-experimental-require-module`** — documented in the 22.12.0 notes as the workaround: "this feature can also be disabled using `--no-experimental-require-module` as a workaround." The v22.12.0 CLI API docs list both flags; the `--experimental-require-module` entry's version table reads "v22.12.0 | This is now true by default" (nodejs.org/download/release/v22.12.0/docs/api/cli.html, fetched TOC plus search-retrieved entry text).
+
+**5. Runtime feature check documented for 22.12.0**
+
+**`process.features.require_module`** — "Users can check `process.features.require_module` to see whether `require(esm)` is enabled in the current Node.js instance." The v22.12.0 Process docs list this property (fetched TOC for process.html). The release notes also document a package-level companion check: the **"module-sync" exports condition**, which lets packages detect `require(esm)` support and allow both `require()` and `import` to load the same native ES module.
+
+**Scope and limitations**
+
+- Everything above is stated as of Node 22.0.0 (launch) and 22.12.0 (release notes/docs); I deliberately did not use any later release's behavior (e.g., later stabilization of `require(esm)`), per the question's constraint.
+- I verified the two blog posts by direct fetch, and the CLI flag descriptions and `process.features.require_module` listing via version-pinned v22.12.0 API documentation (fetch of page TOC plus search-retrieved excerpt). I did not run the binaries, so runtime warning/error behavior is attested only by these documents.
+- The "v23.x" vs "v22.x" wording discrepancy between the two published copies of the 22.12.0 note (nodejs.org blog vs GitHub release tag) is unresolved from these sources alone; it does not affect the flags, the error code, or the feature check, which are identical in both copies.

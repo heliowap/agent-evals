@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/lifecycle.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.resource import Rows\nfrom src.service import stream_rows\nfrom src.consumer import take\n\n\nclass Boom(Exception):\n    pass\n\n\nclass FailingRead(Rows):\n    def __init__(self, rows, fail_at):\n        super().__init__(rows)\n        self.fail_at = fail_at\n\n    def read_next(self):\n        if self.reads == self.fail_at:\n            self.reads += 1\n            raise Boom(\"read\")\n        return super().read_next()\n\n\nclass FailingClose(Rows):\n    def close(self):\n        super().close()\n        raise Boom(\"close\")\n\n\n# Unstarted: construct and close perform no read or close.\nr = Rows([1, 2])\ng = stream_rows(r, lambda v: v)\nassert (r.reads, r.closes) == (0, 0)\ng.close()\nassert (r.reads, r.closes) == (0, 0)\nassert list(g) == []\nassert (r.reads, r.closes) == (0, 0)\n\n# Exhaustion: lazy, ordered, closed exactly once.\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v * 2)\nassert next(g) == 2 and (r.reads, r.closes) == (1, 0)\nassert list(g) == [4, 6]\nassert (r.reads, r.closes) == (4, 1)\nassert list(g) == []\nassert r.closes == 1\n\n# Explicit close of a started generator: closes once, no further reads.\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v)\nnext(g)\ng.close()\ng.close()\nassert (r.reads, r.closes) == (1, 1)\n\n# Transform error: propagates, no further read, closed once.\nr = Rows([1, 2, 3])\ndef bad(v):\n    if v == 2:\n        raise Boom(\"transform\")\n    return v\ng = stream_rows(r, bad)\nassert next(g) == 1\ntry:\n    next(g)\n    raise AssertionError(\"expected Boom\")\nexcept Boom as e:\n    assert str(e) == \"transform\"\nassert (r.reads, r.closes) == (2, 1)\nassert list(g) == []\nassert (r.reads, r.closes) == (2, 1)\n\n# Iteration error: propagates, closed once.\nr = FailingRead([1, 2, 3], fail_at=1)\ng = stream_rows(r, lambda v: v)\nassert next(g) == 1\ntry:\n    next(g)\n    raise AssertionError(\"expected Boom\")\nexcept Boom as e:\n    assert str(e) == \"read\"\nassert r.closes == 1\n\n# Cleanup error during transform error: original error preserved.\nr = FailingClose([1, 2])\ndef bad2(v):\n    raise Boom(\"transform\")\ng = stream_rows(r, bad2)\ntry:\n    next(g)\n    raise AssertionError(\"expected Boom\")\nexcept Boom as e:\n    assert str(e) == \"transform\", str(e)\nassert r.closes == 1\n\n# Cleanup error on exhaustion: propagates.\nr = FailingClose([1])\ng = stream_rows(r, lambda v: v)\nassert next(g) == 1\ntry:\n    next(g)\n    raise AssertionError(\"expected Boom\")\nexcept Boom as e:\n    assert str(e) == \"close\"\nassert r.closes == 1\n\n# Cleanup error on explicit close: propagates.\nr = FailingClose([1, 2])\ng = stream_rows(r, lambda v: v)\nnext(g)\ntry:\n    g.close()\n    raise AssertionError(\"expected Boom\")\nexcept Boom as e:\n    assert str(e) == \"close\"\nassert r.closes == 1\n\n# take: positive limit reads exactly that many rows and closes once.\nr = Rows([1, 2, 3, 4])\nassert take(r, lambda v: v + 10, 2) == [11, 12]\nassert (r.reads, r.closes) == (2, 1)\n\n# take: limit larger than available closes on exhaustion.\nr = Rows([1])\nassert take(r, lambda v: v, 5) == [1]\nassert (r.reads, r.closes) == (2, 1)\n\n# take: limit zero returns [] without starting the stream.\nr = Rows([1, 2])\nassert take(r, lambda v: v, 0) == []\nassert (r.reads, r.closes) == (0, 0)\n\n# take: transform error propagates and closes once.\nr = Rows([1, 2, 3])\ndef bad3(v):\n    if v == 2:\n        raise Boom(\"transform\")\n    return v\ntry:\n    take(r, bad3, 3)\n    raise AssertionError(\"expected Boom\")\nexcept Boom:\n    pass\nassert (r.reads, r.closes) == (2, 1)\n\n# take: cleanup error after successful take propagates.\nr = FailingClose([1, 2, 3])\ntry:\n    take(r, lambda v: v, 1)\n    raise AssertionError(\"expected Boom\")\nexcept Boom as e:\n    assert str(e) == \"close\"\nassert r.closes == 1\n\nprint(\"lifecycle checks passed\")\n",
+      "src/consumer.py": "from .service import stream_rows\n\ndef take(resource, transform, limit):\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    finally:\n        # Closing a generator that already failed or finished is a no-op,\n        # so this only performs cleanup when we stopped early.\n        stream.close()\n    return result\n",
+      "src/service.py": "def _close_after_error(resource):\n    # Called while an iteration or transform error is propagating. A cleanup\n    # failure must not replace that original error, so it is discarded here.\n    try:\n        resource.close()\n    except Exception:\n        pass\n\n\ndef stream_rows(resource, transform):\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            value = transform(row)\n            yield value\n    except GeneratorExit:\n        # Explicit close() of a started generator: no iteration/transform\n        # error is active, so a cleanup failure propagates to the caller.\n        resource.close()\n        raise\n    except BaseException:\n        # Iteration or transform error: close once, then re-raise the original.\n        _close_after_error(resource)\n        raise\n    else:\n        # Exhaustion: close once; a cleanup failure propagates.\n        resource.close()\n"
+    },
+    "changed_files": [
+      "checks/lifecycle.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 201,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.046964375011157244
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.052441291976720095,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.046369834046345204,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

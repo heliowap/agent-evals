@@ -1,0 +1,60 @@
+{
+  "scope": {
+    "files": {
+      "checks/export_pipeline.py": "import os\nimport sys\n\nsys.path.insert(0, os.getcwd())\n\nfrom src.csv_exporter import export_csv\nfrom src.exporter import export_rows\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\n\ndef test_wrappers_delegate_to_shared_entry_point():\n    rows = [{\"id\": 1, \"name\": \"Alice\"}]\n    assert export_csv(rows) == export_rows(rows, \"csv\")\n    assert export_json(rows) == export_rows(rows, \"json\")\n\n\ndef test_exact_output():\n    rows = [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": 2, \"name\": \"Bob\"}]\n    assert export_csv(rows) == \"id,name\\n1,Alice\\n2,Bob\\n\"\n    assert export_json(rows) == '[{\"id\":\"1\",\"name\":\"Alice\"},{\"id\":\"2\",\"name\":\"Bob\"}]'\n    assert export_csv([]) == \"id,name\\n\"\n    assert export_json([]) == \"[]\"\n\n\ndef test_one_shot_iterables():\n    csv_out = export_csv({\"id\": n, \"name\": \"n\" + str(n)} for n in (1, 2))\n    assert csv_out == \"id,name\\n1,n1\\n2,n2\\n\"\n    json_out = export_json({\"id\": n, \"name\": \"n\" + str(n)} for n in (1, 2))\n    assert json_out == '[{\"id\":\"1\",\"name\":\"n1\"},{\"id\":\"2\",\"name\":\"n2\"}]'\n    assert export_rows(({\"id\": n} for n in (1, 2)), \"csv\") == \"id,name\\n1,\\n2,\\n\"\n    assert export_rows(({\"id\": n} for n in (1, 2)), \"json\") == '[{\"id\":\"1\",\"name\":\"\"},{\"id\":\"2\",\"name\":\"\"}]'\n\n\ndef test_normalization_and_ordering():\n    rows = [\n        {\"name\": None, \"id\": 1, \"extra\": \"ignored\"},\n        {\"id\": None, \"name\": \"Keep\"},\n        {\"name\": \"no id\"},\n        {\"id\": 0, \"name\": \"\"},\n        {\"id\": -1.5, \"name\": True},\n    ]\n    assert export_csv(rows) == 'id,name\\n1,\\n,Keep\\n,no id\\n0,\\n-1.5,True\\n'\n    assert export_json(rows) == (\n        '[{\"id\":\"1\",\"name\":\"\"},{\"id\":\"\",\"name\":\"Keep\"},{\"id\":\"\",\"name\":\"no id\"},'\n        '{\"id\":\"0\",\"name\":\"\"},{\"id\":\"-1.5\",\"name\":\"True\"}]'\n    )\n\n\ndef test_input_not_mutated():\n    rows = [{\"id\": None, \"name\": \"A\", \"extra\": [1]}]\n    export_rows(rows, \"csv\")\n    export_rows(rows, \"json\")\n    assert rows == [{\"id\": None, \"name\": \"A\", \"extra\": [1]}]\n\n\ndef test_csv_quoting_and_lf():\n    out = export_csv([{\"id\": 1, \"name\": 'a,b\\n\"c\"'}])\n    assert out == 'id,name\\n1,\"a,b\\n\"\"c\"\"\"\\n'\n    assert \"\\r\" not in out\n\n\ndef test_json_unicode_unseparated():\n    out = export_json([{\"id\": 1, \"name\": \"héllo\"}])\n    assert out == '[{\"id\":\"1\",\"name\":\"héllo\"}]'\n    assert \", \" not in out\n    assert \": \" not in out\n\n\ndef test_unsupported_format():\n    for bad in (\"xml\", \"\", None, \"CSV\", 1):\n        try:\n            export_rows([], bad)\n        except ValueError:\n            pass\n        else:\n            raise AssertionError(\"expected ValueError for %r\" % (bad,))\n\n\ndef main():\n    tests = [v for k, v in sorted(globals().items()) if k.startswith(\"test_\")]\n    for test in tests:\n        test()\n    print(\"export_pipeline: %d checks passed\" % len(tests))\n\n\nif __name__ == \"__main__\":\n    main()\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\nFIELDS = (\"id\", \"name\")\n\n\ndef _normalize_row(row):\n    normalized = {}\n    for key in FIELDS:\n        value = row.get(key)\n        normalized[key] = \"\" if value is None else str(value)\n    return normalized\n\n\ndef _normalize_rows(rows):\n    return [_normalize_row(row) for row in rows]\n\n\ndef _serialize_csv(rows):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(FIELDS)\n    for row in rows:\n        writer.writerow([row[key] for key in FIELDS])\n    return buffer.getvalue()\n\n\ndef _serialize_json(rows):\n    return json.dumps(rows, ensure_ascii=False, separators=(\",\", \":\"))\n\n\ndef export_rows(rows, format):\n    if format == \"csv\":\n        return _serialize_csv(_normalize_rows(rows))\n    if format == \"json\":\n        return _serialize_json(_normalize_rows(rows))\n    raise ValueError(\"unsupported format\")\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/export_pipeline.py",
+      "src/csv_exporter.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 136,
+    "removed_lines": 18
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.046303166018333286
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04600787500385195,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04552641700138338,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.047786374983843416,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

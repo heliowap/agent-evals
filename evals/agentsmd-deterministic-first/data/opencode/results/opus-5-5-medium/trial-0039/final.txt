@@ -1,0 +1,43 @@
+I found the defect in `parser.py`. I didn't change any files.
+
+## The defect
+
+```python
+def parse_enabled(value):
+    return bool(value)
+```
+
+`bool()` doesn't read the text of a string. It only checks whether the string is empty, so every non-empty string counts as `True`. I ran it to confirm:
+
+| Input | Result | Expected |
+|---|---|---|
+| `"true"` | `True` | `True` |
+| `"false"` | **`True`** | `False` |
+| `""` | `False` | `ValueError` |
+| `"yes"` | `True` | `ValueError` |
+| `"False"` | `True` | `ValueError` |
+| `0` | `False` | `ValueError` |
+
+There are two problems:
+1. **`"false"` turns on the setting.** This is the most serious one: a user who explicitly disables something gets it enabled.
+2. **It never raises `ValueError`.** Any input, valid or not, is silently turned into a true/false value instead of being rejected.
+
+## Recommended fix
+
+```python
+def parse_enabled(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected 'true' or 'false', got {value!r}")
+```
+
+Compare against the two allowed strings exactly, and raise for anything else. Don't use `bool()`, and don't add case-folding or whitespace trimming unless the spec changes to allow them.
+
+## Preventing recurrence
+
+- **Add tests.** The repo has no tests at all, which is how this got through. A parametrized test should check that `"true"` gives `True`, `"false"` gives `False`, and that inputs like `""`, `"False"`, `"TRUE"`, `" true"`, `"yes"`, `"1"`, `"0"`, `None`, `0`, `1` and `True` all raise `ValueError`.
+- **Make the rule clear in the code.** Add a docstring or type hint (`value: str -> bool`) that says only those two exact strings are accepted.
+- **Catch it in review or with a linter.** Flag `bool(...)` used on strings that come from outside the program, like config, environment variables or CLI arguments. It's a common Python mistake.
+- **Fail loudly on bad input.** Config parsers should reject values they don't recognise instead of guessing, so mistakes show up at startup rather than as wrong behaviour later.

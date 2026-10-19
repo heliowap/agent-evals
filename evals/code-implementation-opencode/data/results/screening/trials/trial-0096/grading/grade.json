@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_import.py": "import os\nimport sqlite3\nimport sys\nimport unittest\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))\n\nfrom src.api import handle_add, handle_import\nfrom src.repository import initialize, list_contacts\nfrom src.service import import_contacts\n\n\nclass ImportTests(unittest.TestCase):\n    def setUp(self):\n        self.connection = sqlite3.connect(\":memory:\")\n        initialize(self.connection)\n        handle_add(self.connection, {\"email\": \"a@b\", \"name\": \"Alice\"})\n        self.addCleanup(self.connection.close)\n\n    def test_counts_and_normalization(self):\n        self.assertEqual(handle_import(self.connection, {\"contacts\": [\n            {\"email\": \" A@B \", \"name\": \" Alice \"},\n            {\"email\": \" C@D \", \"name\": \" Carol \"},\n        ]}), {\"inserted\": 1, \"updated\": 1})\n        self.assertEqual(list_contacts(self.connection),\n                         [(\"a@b\", \"Alice\"), (\"c@d\", \"Carol\")])\n        self.assertEqual(import_contacts(self.connection, [\n            {\"email\": \"a@b\", \"name\": \"New name\"}\n        ]), {\"inserted\": 0, \"updated\": 1})\n        self.assertEqual(list_contacts(self.connection)[0], (\"a@b\", \"New name\"))\n        self.assertEqual(handle_import(self.connection, {\"contacts\": []}),\n                         {\"inserted\": 0, \"updated\": 0})\n\n    def test_invalid_rows_leave_contacts_unchanged(self):\n        invalid = [None, [], \"row\", {}, {\"email\": \"a@b\"},\n                   {\"email\": \"a@b\", \"name\": \"A\", \"extra\": 1},\n                   {\"email\": 1, \"name\": \"A\"},\n                   {\"email\": \"a@b\", \"name\": None}]\n        invalid += [{\"email\": email, \"name\": \"A\"} for email in\n                    [\"\", \"ab\", \"@b\", \"a@\", \"a@@b\", \"a @b\", \"a@b\\tc\"]]\n        invalid.append({\"email\": \"a@b\", \"name\": \" \\t \"})\n        for row in invalid:\n            with self.subTest(row=row), self.assertRaises(ValueError):\n                import_contacts(self.connection, [\n                    {\"email\": \"a@b\", \"name\": \"Changed\"}, row])\n            self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n        with self.assertRaises(ValueError):\n            import_contacts(self.connection, [\n                {\"email\": \"new@b\", \"name\": \"One\"},\n                {\"email\": \" NEW@B \", \"name\": \"Two\"}])\n        self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n\n    def test_invalid_envelopes(self):\n        for payload in [None, [], {}, {\"contacts\": None}, {\"contacts\": {}},\n                        {\"contacts\": ()}, {\"contacts\": [], \"extra\": 1}]:\n            with self.subTest(payload=payload), self.assertRaises(ValueError):\n                handle_import(self.connection, payload)\n\n    def test_database_failure_rolls_back_in_both_transaction_modes(self):\n        for isolation_level in [\"\", None]:\n            with self.subTest(isolation_level=isolation_level):\n                self.connection.isolation_level = isolation_level\n                self.connection.execute(\"\"\"\n                    CREATE TRIGGER fail_import BEFORE INSERT ON contacts\n                    WHEN NEW.email = 'fail@b'\n                    BEGIN SELECT RAISE(ABORT, 'rejected'); END\n                \"\"\")\n                self.connection.commit()\n                with self.assertRaises(sqlite3.DatabaseError):\n                    import_contacts(self.connection, [\n                        {\"email\": \"a@b\", \"name\": \"Changed\"},\n                        {\"email\": \"new@b\", \"name\": \"New\"},\n                        {\"email\": \"fail@b\", \"name\": \"Fail\"}])\n                self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n                self.assertFalse(self.connection.in_transaction)\n                self.connection.execute(\"DROP TRIGGER fail_import\")\n                self.connection.commit()\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if (not isinstance(payload, dict) or set(payload) != {\"contacts\"}\n            or not isinstance(payload[\"contacts\"], list)):\n        raise ValueError(\"Expected an object containing a contacts list\")\n    return import_contacts(connection, payload[\"contacts\"])\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\ndef contact_exists(connection, email):\n    return connection.execute(\n        \"SELECT 1 FROM contacts WHERE email = ?\", (email,)\n    ).fetchone() is not None\n",
+      "src/service.py": "from .repository import contact_exists, put_contact\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef import_contacts(connection, rows):\n    \"\"\"Validate and atomically insert or update a batch of contacts.\"\"\"\n    try:\n        iterator = iter(rows)\n    except TypeError as exc:\n        raise ValueError(\"Contacts must be an iterable of objects\") from exc\n\n    contacts = []\n    emails = set()\n    for row in iterator:\n        if not isinstance(row, dict) or set(row) != {\"email\", \"name\"}:\n            raise ValueError(\"Each contact must contain exactly email and name\")\n        if not isinstance(row[\"email\"], str) or not isinstance(row[\"name\"], str):\n            raise ValueError(\"Email and name must be strings\")\n        email = row[\"email\"].strip().lower()\n        name = row[\"name\"].strip()\n        if email.count(\"@\") != 1 or any(char.isspace() for char in email):\n            raise ValueError(\"Invalid email\")\n        local, domain = email.split(\"@\")\n        if not local or not domain or not name:\n            raise ValueError(\"Email sides and name must be nonempty\")\n        if email in emails:\n            raise ValueError(\"Duplicate email in batch\")\n        emails.add(email)\n        contacts.append((email, name))\n\n    summary = {\"inserted\": 0, \"updated\": 0}\n    if not contacts:\n        return summary\n    with connection:\n        # Explicitly begin so atomicity also holds for autocommit connections.\n        connection.execute(\"BEGIN\")\n        for email, name in contacts:\n            key = \"updated\" if contact_exists(connection, email) else \"inserted\"\n            put_contact(connection, email, name)\n            summary[key] += 1\n    return summary\n"
+    },
+    "changed_files": [
+      "checks/test_import.py",
+      "src/api.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 149,
+    "removed_lines": 25
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.047173500002827495
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.049319208977976814,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05412891699234024,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

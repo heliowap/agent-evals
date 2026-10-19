@@ -1,0 +1,19 @@
+{
+  "files": {
+    "checks/test_exporter.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\nrows = [\n    {\"id\": 1, \"name\": \"Ann, \\\"A\\\"\", \"extra\": \"x\"},\n    {\"id\": None},\n    {\"name\": \"Zoë\\nline\"},\n    {\"id\": 0, \"name\": False},\n]\nsnapshot = [dict(r) for r in rows]\nassert export_csv(rows) == 'id,name\\n1,\"Ann, \"\"A\"\"\"\\n,\\n,\"Zoë\\nline\"\\n0,False\\n'\nassert export_json(rows) == '[{\"id\":\"1\",\"name\":\"Ann, \\\\\"A\\\\\"\"},{\"id\":\"\",\"name\":\"\"},{\"id\":\"\",\"name\":\"Zoë\\\\nline\"},{\"id\":\"0\",\"name\":\"False\"}]'\nassert rows == snapshot, \"inputs mutated\"\nfor fmt in (\"csv\", \"json\"):\n    assert export_rows(rows, fmt) == export(rows, fmt)\n    assert export_rows(iter(rows), fmt) == export_rows(rows, fmt)\n    assert export_rows((r for r in rows), fmt) == export_rows(rows, fmt)\nassert export_csv([]) == \"id,name\\n\" and export_json(iter([])) == \"[]\"\nfor bad in (\"xml\", \"CSV\", None, [\"csv\"]):\n    try:\n        export_rows(rows, bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(bad)\n    try:\n        export(rows, bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(bad)\n# wrappers delegate to the shared entry point\nimport src.exporter as ex\ncalls = []\norig = ex.export_rows\nimport src.csv_exporter as c, src.json_exporter as j\nc.export_rows = j.export_rows = lambda r, f: calls.append(f) or orig(r, f)\nexport_csv([]); export_json([])\nassert calls == [\"csv\", \"json\"]\nprint(\"ok\")\n",
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/exporter.py": "\"\"\"Shared export pipeline used by the CSV and JSON exporters.\"\"\"\nimport csv\nimport io\nimport json\n\nFIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Yield new dicts with only FIELDS; None/missing -> '', others str().\n\n    Consumes ``rows`` exactly once, preserves order and never mutates input.\n    \"\"\"\n    for row in rows:\n        clean = {}\n        for key in FIELDS:\n            value = row.get(key)\n            clean[key] = \"\" if value is None else str(value)\n        yield clean\n\n\ndef _to_csv(records):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(FIELDS)\n    for record in records:\n        writer.writerow([record[key] for key in FIELDS])\n    return buffer.getvalue()\n\n\ndef _to_json(records):\n    return json.dumps(list(records), ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\"csv\": _to_csv, \"json\": _to_json}\n\n\ndef export_rows(rows, format):\n    \"\"\"Serialize ``rows`` to ``format`` ('csv' or 'json').\"\"\"\n    try:\n        serializer = _SERIALIZERS[format]\n    except (KeyError, TypeError):\n        raise ValueError(\"unsupported format\") from None\n    return serializer(_normalize(rows))\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "checks/test_exporter.py",
+    "src/csv_exporter.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 4,
+  "added_lines": 98,
+  "removed_lines": 18
+}

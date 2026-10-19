@@ -1,0 +1,1 @@
+Users whose password contains a colon can't log in with HTTP Basic auth. For those users `request.auth` returns None, and routes protected with `auth_basic` reject them even with the right password. Users without a colon in their password are fine. Please fix it.

@@ -1,0 +1,59 @@
+### Existing Test Location
+
+The existing test that exercises a non-chained group invoking a default child command when no subcommand is selected is **`test_invoked_subcommand`**, located in **`tests/test_commands.py:279–300`**.
+
+In that test:
+- The group is defined with `@click.group(invoke_without_command=True)` and decorated with `@click.pass_context` (`tests/test_commands.py:280–282`).
+- A child command `sync` is registered via `@cli.command()` (`tests/test_commands.py:289–291`).
+- The group callback checks `if ctx.invoked_subcommand is None:` (`tests/test_commands.py:283`). If `None`, it prints `"no subcommand, use default"` and programmatically invokes the child via `ctx.invoke(sync)` (`tests/test_commands.py:284–285`). Otherwise, it prints `"invoke subcommand"` (`tests/test_commands.py:286–287`).
+
+---
+
+### Assertions: Explicit Selection vs. No Selection
+
+The test makes explicit assertions using `runner.invoke` for both execution paths:
+
+1. **Explicit child selection** (`runner.invoke(cli, ["sync"])`, `tests/test_commands.py:293`):
+   - **`assert not result.exception`** (`tests/test_commands.py:294`): Verifies the runner execution raised no exception.
+   - **`assert result.output == "invoke subcommand\nin subcommand\n"`** (`tests/test_commands.py:295`): Verifies standard output contains the group's branch message followed by the child command's output.
+
+2. **No subcommand selection** (`runner.invoke(cli)`, `tests/test_commands.py:297`):
+   - **`assert not result.exception`** (`tests/test_commands.py:298`): Verifies execution raised no exception.
+   - **`assert result.output == "no subcommand, use default\nin subcommand\n"`** (`tests/test_commands.py:299`): Verifies standard output contains the fallback message followed by the child output from `ctx.invoke(sync)`.
+
+---
+
+### Implementation: Callback Ordering and Child Context Creation
+
+The implementation governing non-chained command invocation is defined in `MultiCommand.invoke` in **`src/click/core.py:2052–2086`**, specifically within the `if not self.chain:` block (**`src/click/core.py:2076–2086`**):
+
+1. **Callback Ordering**:
+   - The group resolves the child command name, command object, and remaining arguments via `cmd_name, cmd, args = self.resolve_command(ctx, args)` (`src/click/core.py:2080`).
+   - It sets `ctx.invoked_subcommand = cmd_name` (`src/click/core.py:2082`).
+   - It invokes the group's own callback **before** creating or executing the child context by calling `super().invoke(ctx)` (`src/click/core.py:2083`), which delegates to `Command.invoke(ctx)` (`src/click/core.py:1432, 1445–1446`).
+2. **Child Context Creation**:
+   - Once `super().invoke(ctx)` completes, the child context is constructed with `sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)` (`src/click/core.py:2084`). This passes the resolved subcommand name (`cmd_name`), the remaining argument tokens (`args`), and sets the current group context as the parent (`parent=ctx`).
+   - The child command is then executed within its context manager via `with sub_ctx: return _process_result(sub_ctx.command.invoke(sub_ctx))` (`src/click/core.py:2085–2086`).
+
+---
+
+### Tested Assertions vs. Untested Generalizations
+
+Directly read from **`tests/test_commands.py:279–300`**, the assertions are limited to checking:
+- `not result.exception` in both runs.
+- The exact captured stdout string (`result.output`).
+
+The following broader assumptions or behaviors remain **untested generalizations** in this specific test:
+- **No direct assertion on `ctx.invoked_subcommand`**: The test relies on internal branching (`if ctx.invoked_subcommand is None`), but never directly asserts `assert ctx.invoked_subcommand == "sync"` or checks its runtime type or value.
+- **No exit code assertions**: The test does not assert `result.exit_code == 0`.
+- **No return value assertions**: Neither `result.return_value` nor function return values are inspected.
+- **No context hierarchy verification**: The test does not inspect `sub_ctx.parent is ctx`, nor does it verify context isolation or cleanup.
+- **No parameter or argument passing**: The child `sync` command takes no CLI parameters, options, or arguments; argument forwarding into default or explicit child commands is not exercised here.
+- **No multiple child resolution**: Only a single child subcommand exists; selection among multiple sibling subcommands or aliases is not tested in this function.
+- **No result callbacks**: Group post-processing callbacks (`@cli.result_callback`) are not present in this test.
+
+---
+
+### Unresolved Limitations
+
+No tests or code were executed in accordance with instructions. Any runtime behavior outside what is statically verified in `tests/test_commands.py:279–300` and `src/click/core.py:2052–2086` remains inferred from source code inspection rather than execution trace.

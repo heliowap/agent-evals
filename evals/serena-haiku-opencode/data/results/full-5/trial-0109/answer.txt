@@ -1,0 +1,16 @@
+`import_contacts` is implemented in `src/service.py` and exposed through `src/api.py.handle_import`. `python3 checks/public.py` and a new `checks/import_checks.py` both pass.
+
+**What changed**
+
+- **`src/repository.py`**: added `existing_emails(connection, emails)`, which returns the subset of emails already in the table. It queries in chunks of 500 to stay under SQLite's variable limit. `initialize`, `list_contacts` and `put_contact` are unchanged.
+- **`src/service.py`**:
+  - `_clean_row` rejects non-object rows, rows whose keys are not exactly `email` and `name`, non-string values, and invalid emails or names. It trims both fields, lowercases the email, and checks for exactly one `@` with nonempty sides and no whitespace.
+  - `import_contacts` validates and normalizes the whole batch first, then rejects duplicate normalized emails. Only after that does it write, inside a single `with connection:` block. Existing emails are looked up before writing so they can be counted as updated. Empty batches return zero counts without touching the database.
+  - `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the `contacts` key and a list value, raising `ValueError` otherwise, then returns the summary from `import_contacts`. `handle_add` is unchanged.
+- **`checks/import_checks.py`** (new): covers counting and normalization, about 15 invalid-batch cases that must leave the table unchanged, a mid-batch database failure forced by triggers that must roll back, the API envelope, and `add_contact` still working.
+
+**Things to be aware of**
+
+- Matching is on the normalized email. `add_contact` does not lowercase, so a pre-existing row such as `Old@x.com` will not match an imported `old@x.com`; the import inserts a new row alongside it.
+- I did not change the database schema or `add_contact`, since the request said to preserve them.

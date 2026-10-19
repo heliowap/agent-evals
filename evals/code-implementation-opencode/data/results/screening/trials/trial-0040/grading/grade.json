@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { ProfileService } = require('../.build/service');\n        const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n        assert.deepEqual(service.patch({ displayName: 'after' }), { displayName: 'after', tags: ['old'] });\n        assert.deepEqual(service.patch({ tags: ['new'] }), { displayName: 'after', tags: ['new'] });\n        assert.throws(() => service.patch(null), /invalid profile/);\n\n{\n  const s = new ProfileService({ displayName: 'a', tags: ['x'] });\n  const bad = [undefined, 1, 'x', [], { foo: 1 }, { displayName: 1 }, { displayName: '  ' }, { displayName: 'x'.repeat(41) },\n    { tags: 'a' }, { tags: [1] }, { tags: ['a', ' a '] }, { tags: ['  '] }, { tags: ['x'.repeat(13)] },\n    { tags: ['1', '2', '3', '4', '5', '6'] }, { displayName: 'ok', tags: [1] }, Object.create({ displayName: 'x' }), new Date()];\n  for (const b of bad) assert.throws(() => s.patch(b), /invalid profile/);\n  assert.deepEqual(s.profile, { displayName: 'a', tags: ['x'] });\n  assert.deepEqual(s.patch({}), { displayName: 'a', tags: ['x'] });\n  const tags = [' p ', 'q'];\n  const input = { displayName: ' Bob ', tags };\n  assert.deepEqual(s.patch(input), { displayName: 'Bob', tags: ['p', 'q'] });\n  assert.notEqual(s.profile.tags, tags);\n  assert.deepEqual(tags, [' p ', 'q']);\n  assert.equal(input.displayName, ' Bob ');\n  assert.deepEqual(s.patch({ displayName: null, tags: null }), { displayName: null, tags: [] });\n  s.patch({ tags: ['z'] });\n  assert.deepEqual(s.patch({ tags: [] }).tags, []);\n  const np = Object.assign(Object.create(null), { displayName: 'n' });\n  assert.equal(s.patch(np).displayName, 'n');\n}\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst invalid = () => new Error('invalid profile');\n\nfunction readData(obj: object, key: string): unknown {\n  const desc = Object.getOwnPropertyDescriptor(obj, key);\n  if (!desc || !('value' in desc)) throw invalid();\n  return desc.value;\n}\n\nfunction parseDisplayName(value: unknown): string | null {\n  if (value === null) return null;\n  if (typeof value !== 'string') throw invalid();\n  const trimmed = value.trim();\n  if (trimmed.length < 1 || trimmed.length > 40) throw invalid();\n  return trimmed;\n}\n\nfunction parseTags(value: unknown): string[] {\n  if (value === null) return [];\n  if (!Array.isArray(value)) throw invalid();\n  if (value.length > 5) throw invalid();\n  const result: string[] = [];\n  const seen = new Set<string>();\n  for (let i = 0; i < value.length; i++) {\n    const desc = Object.getOwnPropertyDescriptor(value, String(i));\n    if (!desc || !('value' in desc) || typeof desc.value !== 'string') throw invalid();\n    const tag = desc.value.trim();\n    if (tag.length < 1 || tag.length > 12 || seen.has(tag)) throw invalid();\n    seen.add(tag);\n    result.push(tag);\n  }\n  return result;\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw invalid();\n  const proto = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) throw invalid();\n  for (const key of Reflect.ownKeys(input)) {\n    if (key !== 'displayName' && key !== 'tags') throw invalid();\n  }\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n  if (Object.prototype.hasOwnProperty.call(input, 'displayName')) {\n    displayName = { kind: 'set', value: parseDisplayName(readData(input, 'displayName')) };\n  }\n  if (Object.prototype.hasOwnProperty.call(input, 'tags')) {\n    tags = { kind: 'set', value: parseTags(readData(input, 'tags')) };\n  }\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    // Parse and validate everything first so a failure leaves storage untouched.\n    const parsed = parseProfile(input);\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = [...parsed.tags.value];\n    return this.profile;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 92,
+    "removed_lines": 33
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5933998750115279
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.059833249979419634,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06496429198887199,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

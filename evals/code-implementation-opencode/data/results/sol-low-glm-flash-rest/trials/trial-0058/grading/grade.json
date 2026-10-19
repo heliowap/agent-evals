@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/cursor.cjs": "const assert = require('node:assert/strict');\nconst { OrderHandler } = require('../.build/handler');\nconst { OrderRepository } = require('../.build/repository');\n\nconst rows = [\n  { id: 'b', tenant: 'a', createdAt: '2026-01-02', total: 2 },\n  { id: 'x', tenant: 'b', createdAt: '2026-01-01', total: 3 },\n  { id: 'a', tenant: 'a', createdAt: '2026-01-01', total: 1 },\n  { id: 'c', tenant: 'a', createdAt: '2026-01-01', total: 4 },\n  { id: 'd', tenant: 'a', createdAt: '2026-01-02', total: 5 }\n];\nconst handler = new OrderHandler(new OrderRepository(rows));\n\n// Sorted ascending by createdAt then id, tenant filter kept.\nconst p1 = handler.list({ tenant: 'a', limit: 10 });\nassert.deepEqual(p1.items.map(x => x.id), ['a', 'c', 'b', 'd']);\nassert.equal(p1.nextCursor, null);\n\n// Page one at a time via nextCursor; no repeats, no skips.\nlet seen = [];\nlet cursor;\nfor (let i = 0; i < 10; i++) {\n  const p = handler.list({ tenant: 'a', limit: 1, cursor });\n  assert.ok(p.items.length === 1 || (p.items.length === 0 && p.nextCursor === null));\n  if (p.items.length === 0) break;\n  seen.push(p.items[0].id);\n  cursor = p.nextCursor;\n  if (seen.length < 4) assert.notEqual(cursor, null);\n  else assert.equal(cursor, null);\n  if (cursor === null) break;\n}\nassert.deepEqual(seen, ['a', 'c', 'b', 'd']);\n\n// Cursor resumes strictly after the pair even if that row was deleted.\nconst sparse = new OrderHandler(new OrderRepository(rows.filter(r => r.id !== 'c')));\nconst p2 = sparse.list({ tenant: 'a', limit: 10, cursor: '2026-01-01|c' });\nassert.deepEqual(p2.items.map(x => x.id), ['b', 'd']);\n\n// Cursor pair belonging to another tenant: still resumes strictly after the pair.\n// Same-date tenant rows with smaller ids are not strictly after it.\nconst p3 = handler.list({ tenant: 'a', limit: 1, cursor: '2026-01-01|x' });\nassert.deepEqual(p3.items.map(x => x.id), ['b']);\nassert.equal(p3.nextCursor, '2026-01-02|b');\nconst p3c = handler.list({ tenant: 'a', limit: 10, cursor: '2026-01-01|x' });\nassert.deepEqual(p3c.items.map(x => x.id), ['b', 'd']);\nassert.equal(p3c.nextCursor, null);\n\n// Filtering precedes the limit: a foreign early cursor must not shrink the page\n// by consuming the limit with other tenants' rows.\nconst p3b = handler.list({ tenant: 'a', limit: 2, cursor: '2020-01-01|z' });\nassert.deepEqual(p3b.items.map(x => x.id), ['a', 'c']);\nassert.equal(p3b.nextCursor, '2026-01-01|c');\n\n// Filtering precedes pagination with an early foreign cursor.\nconst p4 = handler.list({ tenant: 'b', limit: 10, cursor: '2020-01-01|z' });\nassert.deepEqual(p4.items.map(x => x.id), ['x']);\nconst p5 = handler.list({ tenant: 'b', limit: 10, cursor: '2026-01-01|x' });\nassert.deepEqual(p5.items, []);\nassert.equal(p5.nextCursor, null);\n\n// Cursor before everything starts at the first row.\nconst p6 = handler.list({ tenant: 'a', limit: 2, cursor: '2020-01-01|a' });\nassert.deepEqual(p6.items.map(x => x.id), ['a', 'c']);\nassert.equal(p6.nextCursor, '2026-01-01|c');\n\n// Repository input is not mutated.\nassert.deepEqual(rows.map(r => r.id), ['b', 'x', 'a', 'c', 'd']);\n\n// Invalid requests.\nfor (const bad of [\n  { tenant: '', limit: 1 },\n  { tenant: 'a', limit: 0 },\n  { tenant: 'a', limit: 101 },\n  { tenant: 'a', limit: 1.5 },\n  { tenant: 'a', limit: 1, cursor: '' },\n  { tenant: 'a', limit: 1, cursor: '2026-01-01' },\n  { tenant: 'a', limit: 1, cursor: '2026-01-01|' },\n  { tenant: 'a', limit: 1, cursor: '|c' },\n  { tenant: 'a', limit: 1, cursor: '2026-01-01|c|extra' }\n]) {\n  assert.throws(() => handler.list(bad), /invalid request/, JSON.stringify(bad));\n}\n\nconsole.log('checks/cursor.cjs passed');\n",
+      "src/handler.ts": "import { OrderRepository } from './repository';\nimport { ListRequest, Page } from './types';\nexport class OrderHandler {\n  constructor(private readonly repository: OrderRepository) {}\n  list(request: ListRequest): Page {\n    if (!request.tenant || !Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {\n      throw new Error('invalid request');\n    }\n    let cursor: { createdAt: string; id: string } | undefined;\n    if (request.cursor !== undefined) {\n      if (typeof request.cursor !== 'string') throw new Error('invalid request');\n      const parts = request.cursor.split('|');\n      if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error('invalid request');\n      cursor = { createdAt: parts[0], id: parts[1] };\n    }\n    return this.repository.page(request.tenant, request.limit, cursor);\n  }\n}\n",
+      "src/repository.ts": "import { Order } from './types';\n\ninterface CursorPair { createdAt: string; id: string }\n\nexport class OrderRepository {\n  constructor(private readonly rows: Order[]) {}\n  list(tenant: string): Order[] {\n    return this.sorted(this.matching(tenant));\n  }\n  page(tenant: string, limit: number, cursor?: CursorPair): { items: Order[]; nextCursor: string | null } {\n    // Filtering precedes pagination, so a cursor pair from another tenant or a\n    // since-deleted row cannot skip or repeat any of this tenant's orders.\n    const sorted = this.sorted(this.matching(tenant));\n    let start = 0;\n    if (cursor) {\n      // Resume strictly after the cursor pair; never at or before it.\n      start = sorted.findIndex(row => this.compare(row, cursor) > 0);\n      if (start === -1) start = sorted.length;\n    }\n    const items = sorted.slice(start, start + limit);\n    const last = items.length > 0 ? items[items.length - 1] : undefined;\n    const hasMore = last !== undefined && sorted.some(row => this.compare(row, last) > 0);\n    return { items, nextCursor: hasMore ? `${last.createdAt}|${last.id}` : null };\n  }\n  private matching(tenant: string): Order[] {\n    // filter returns a new array, so this.rows is never mutated.\n    return this.rows.filter(row => row.tenant === tenant);\n  }\n  private sorted(rows: Order[]): Order[] {\n    return rows.sort((a, b) => this.compare(a, b));\n  }\n  private compare(a: CursorPair, b: CursorPair): number {\n    if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;\n    if (a.id !== b.id) return a.id < b.id ? -1 : 1;\n    return 0;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/cursor.cjs",
+      "src/handler.ts",
+      "src/repository.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 139,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5880105830146931
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0688522910058964,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06389895800384693,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

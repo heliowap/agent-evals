@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/authorization.cjs": "const assert = require('node:assert/strict');\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\nconst fresh = () => {\n  const repo = new DocumentRepository([\n    { id: 'own', tenant: 'a', owner: 'ed', deleted: false, archived: false },\n    { id: 'other', tenant: 'a', owner: 'x', deleted: false, archived: false },\n    { id: 'done', tenant: 'a', owner: 'x', deleted: false, archived: true },\n    { id: 'del', tenant: 'a', owner: 'ed', deleted: true, archived: false },\n    { id: 'foreign', tenant: 'b', owner: 'ed', deleted: false, archived: false },\n  ]);\n  return { repo, service: new DocumentService(repo) };\n};\nconst admin = { tenant: 'a', user: 'ad', role: 'admin' };\nconst editor = { tenant: 'a', user: 'ed', role: 'editor' };\nconst viewer = { tenant: 'a', user: 'vi', role: 'viewer' };\nconst unchanged = (fn, re) => {\n  const { repo, service } = fresh();\n  const before = JSON.stringify(repo.documents);\n  assert.throws(() => fn(service), re);\n  assert.equal(JSON.stringify(repo.documents), before);\n  assert.deepEqual(repo.audit, []);\n};\nfor (const actor of [admin, editor, viewer]) for (const id of ['missing', 'del', 'foreign'])\n  unchanged(s => s.archive(actor, id), /^Error: not found$/);\nunchanged(s => s.archive(editor, 'other'), /^Error: forbidden$/);\nunchanged(s => s.archive(editor, 'done'), /^Error: forbidden$/);\nfor (const id of ['own', 'other', 'done']) unchanged(s => s.archive(viewer, id), /^Error: forbidden$/);\nunchanged(s => s.archive({ tenant: 'a', user: 'z', role: 'owner' }, 'own'), /^Error: forbidden$/);\n{ const { repo, service } = fresh();\n  service.archive(editor, 'own'); service.archive(editor, 'own');\n  assert.equal(repo.documents[0].archived, true);\n  assert.deepEqual(repo.audit, [{ actor: 'ed', document: 'own' }]); }\n{ const { repo, service } = fresh();\n  service.archive(admin, 'other'); service.archive(admin, 'done');\n  assert.equal(repo.documents[1].archived, true);\n  assert.deepEqual(repo.audit, [{ actor: 'ad', document: 'other' }]);\n  assert.equal(repo.documents.filter(d => d.archived).length, 2); }\nconsole.log('authorization checks passed');\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    // Missing, deleted and foreign-tenant documents are indistinguishable to the caller.\n    if (!document || document.deleted || document.tenant !== actor.tenant) throw new Error('not found');\n    // Permission is enforced before the idempotency check, so repeats are still authorized.\n    if (!canArchive(actor, document)) throw new Error('forbidden');\n    if (!document.archived) this.repository.archive(document, actor.user);\n  }\n}\nfunction canArchive(actor: Actor, document: Document): boolean {\n  switch (actor.role) {\n    case 'admin': return true;\n    case 'editor': return document.owner === actor.user;\n    default: return false; // viewer and any unknown role are denied\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/authorization.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 59,
+    "removed_lines": 10
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.49428891701973043
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06811829199432395,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05581145899486728,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

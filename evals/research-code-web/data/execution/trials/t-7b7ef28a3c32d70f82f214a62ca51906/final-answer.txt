@@ -1,0 +1,32 @@
+## Launch announcement (Node.js 22.0.0, 24 April 2024)
+
+The project's announcement, "Node.js 22 is now available!", lists "Support `require()`ing synchronous ESM graphs" as a headline feature: "This release adds `require()` support for synchronous ESM graphs under the flag `--experimental-require-module`." Two preconditions are stated for the module being `require()`d:
+
+- it is "Explicitly marked as an ES module with a `\"type\": \"module\"` field in the closest package.json or a `.mjs` extension", and
+- it is "Fully synchronous (contains no top-level await)".
+
+With the flag on, `require()` loads the module as an ES module and "return[s] the module name space object", similar to dynamic `import()` but synchronous. The announcement also states the forward plan: "We intend to eventually enable `require(esm)` by default in the future, without the flag." The v22.0.0 release post attributes it to Joyee Cheung (#51977).
+
+## What changed in exactly 22.12.0
+
+The v22.12.0 (LTS, 3 December 2024) release notes carry the heading "**require(esm) is now enabled by default**": support "had been available on v20.x and v22.x under the command line flag `--experimental-require-module`, and available by default on v23.x. In this release, it is now no longer behind a flag on v22.x." The same changelog lists the enabling commit as `[58d6871c45] - (SEMVER-MINOR) module: unflag --experimental-require-module (Joyee Cheung) #55085`.
+
+**Being enabled by default is not the same as being stable.** The release notes say explicitly: "This feature is still experimental, and we are looking for user feedback to make more final tweaks before fully stabilizing it." Because of that, on first encounter with a native ES module, the instance emits an experimental warning (with a `node_modules` exemption), and the notes call the opt-out a "workaround." The v22.12.0 documentation for CommonJS likewise says "Support for loading ES modules using `require()` is currently experimental", with the history entry: "v22.12.0 | This feature is no longer behind the `--experimental-require-module` CLI flag." So 22.12.0 changes the default, not the stability status.
+
+## Top-level await, opt-out, and the runtime check
+
+- **Top-level await error:** with the feature enabled, "Node.js will no longer throw `ERR_REQUIRE_ESM` if `require()` is used to load a ES module. It can, however, throw `ERR_REQUIRE_ASYNC_MODULE` if the ES module being loaded **or its dependencies** contain top-level `await`."
+- **Disabling flag:** "this feature can also be disabled using `--no-experimental-require-module` as a workaround."
+- **Runtime feature check:** "Users can check `process.features.require_module` to see whether `require(esm)` is enabled in the current Node.js instance." The v22.12.0 docs phrase it as "This feature can be detected by checking if `process.features.require_module` is `true`." For packages, the `"module-sync"` exports condition is documented as a way to detect `require(esm)` support.
+
+## Reconciliation
+
+The two sources line up on substance: the launch announcement introduced the capability behind `--experimental-require-module`, flagged as experimental, with a stated intent to enable it by default; 22.12.0 delivered that default via an unflagging commit, while retaining experimental status. The only tension is textual: the announcement gated the feature on synchronicity/no-TLA, and 22.12.0 preserves that same constraint, now expressed as an `ERR_REQUIRE_ASYNC_MODULE` throw.
+
+## Limitations and caveats
+
+- The 22.12.0 blog page has one infelicity: the warning-sentence says "on v23.x, when the Node.js instance encounters a native ES module… it will emit an experimental warning," whereas the CHANGELOG_V22.md copy of the same release text says "on v22.x." All other wording is identical, so this appears to be a copy/paste slip in the blog version; I quote both rather than resolve it.
+- Both listed behaviors are scoped to 22.12.0. Later releases changed them (e.g., the warning being dropped by default in v22.13.0, and the v23 line), and those later behaviors were not used here.
+- The release-notes page was retrieved only through its Notable Changes section (the commit list was truncated), and the raw v22.12.0 `modules.md` fetch returned no readable text, so the doc quotations above come from search-indexed copies of the official v22.12.0 documentation pages.
+
+Sources: https://nodejs.org/en/blog/announcements/v22-release-announce; https://nodejs.org/en/blog/release/v22.12.0; https://github.com/nodejs/node/blob/main/doc/changelogs/CHANGELOG_V22.md; https://nodejs.org/download/release/v22.12.0/docs/api/modules.html; https://github.com/nodejs/node/pull/56040.

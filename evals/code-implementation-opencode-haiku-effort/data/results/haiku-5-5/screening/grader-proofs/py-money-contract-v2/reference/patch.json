@@ -1,0 +1,15 @@
+{
+  "files": {
+    "src/api.py": "from decimal import Decimal, localcontext\nfrom .money import parse_amount, format_amount\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"amounts must be a list\")\n    clean = [parse_amount(item) for item in amounts]\n    with localcontext() as context:\n        context.prec = 32\n        total = sum(clean, Decimal(\"0.00\"))\n    if total > Decimal(\"1000000.00\"):\n        raise ValueError(\"invoice exceeds limit\")\n    return {\"total\": format_amount(total), \"count\": len(clean)}\n",
+    "src/money.py": "from decimal import Decimal, InvalidOperation, localcontext\nimport re\n\ndef parse_amount(value):\n    if isinstance(value, str):\n        if re.fullmatch(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\", value) is None:\n            raise ValueError(\"invalid decimal spelling\")\n    elif not isinstance(value, Decimal) and type(value) is not int:\n        raise ValueError(\"invalid amount type\")\n    try:\n        number = Decimal(value)\n        if not number.is_finite() or number <= 0 or number > Decimal(\"1000000.00\"):\n            raise ValueError(\"amount outside limits\")\n        with localcontext() as context:\n            context.prec = max(32, len(number.as_tuple().digits) + 4)\n            cents = number.quantize(Decimal(\"0.01\"))\n        if cents != number:\n            raise ValueError(\"fractional cent\")\n        return cents\n    except InvalidOperation as exc:\n        raise ValueError(\"invalid amount\") from exc\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+  },
+  "changed_files": [
+    "src/api.py",
+    "src/money.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 2,
+  "added_lines": 37,
+  "removed_lines": 12
+}

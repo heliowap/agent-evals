@@ -1,0 +1,129 @@
+{
+  "id": "trial-0011",
+  "configuration": "haiku-medium-native",
+  "effort": "medium",
+  "arm": "native",
+  "case": "py-money-contract",
+  "role": "implementation",
+  "rep": 1,
+  "position": 3,
+  "status": "completed",
+  "passed": false,
+  "grade": {
+    "passed": false,
+    "scope": {
+      "files": {
+        "checks/test_amounts.py": "import decimal\nimport os\nimport sys\nimport unittest\n\nsys.path.insert(0, os.getcwd())\nfrom decimal import Decimal\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\nclass ParseAmountTests(unittest.TestCase):\n    def test_accepted_inputs(self):\n        cases = [\n            (Decimal(\"12.50\"), \"12.50\"),\n            (Decimal(\"1.2000\"), \"1.20\"),\n            (Decimal(\"1E+2\"), \"100.00\"),\n            (12, \"12.00\"),\n            (\"12.50\", \"12.50\"),\n            (\"12\", \"12.00\"),\n            (\"+3.1\", \"3.10\"),\n            (\"0.01\", \"0.01\"),\n            (\"1.10000\", \"1.10\"),\n            (\".5\", \"0.50\"),\n            (1000000, \"1000000.00\"),\n            (\"1000000.00\", \"1000000.00\"),\n            (Decimal(\"1000000.0000\"), \"1000000.00\"),\n        ]\n        for value, expected in cases:\n            with self.subTest(value=value):\n                result = parse_amount(value)\n                self.assertIsInstance(result, Decimal)\n                self.assertEqual(result.as_tuple().exponent, -2)\n                self.assertEqual(format_amount(result), expected)\n\n    def test_rejected_types(self):\n        for value in [1.5, 1.0, True, False, None, b\"1.00\", [1], (\"1\",), 1j]:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_rejected_strings(self):\n        for value in [\" 1.00\", \"1.00 \", \"1.00\\n\", \"1,000.00\", \"1e2\", \"1E2\",\n                      \"1_000\", \"\\u0661.00\", \"\", \"-\", \".\", \"+\", \"1.2.3\",\n                      \"NaN\", \"inf\", \"-Infinity\", \"0x10\"]:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_rejected_non_finite_decimals(self):\n        for value in [Decimal(\"NaN\"), Decimal(\"sNaN\"), Decimal(\"Infinity\"),\n                      Decimal(\"-Infinity\")]:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_rejected_zero_and_negative(self):\n        for value in [0, \"0\", \"0.00\", Decimal(\"0E-10\"), \"-0.00\", -0.0,\n                      -1, \"-1.00\", Decimal(\"-0.01\")]:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_rejected_over_max(self):\n        for value in [1000000.01, \"1000000.01\", 1000001, Decimal(\"1E+7\"),\n                      \"10000000\", Decimal(\"1E+999999999\")]:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_rejected_fractional_cents(self):\n        for value in [\"1.001\", Decimal(\"0.005\"), \"0.001\", \"1.000000000001\",\n                      Decimal(\"1E-1000000\"), \"1.0000000000000000000001\"]:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_global_context_unchanged(self):\n        before = decimal.getcontext().copy()\n        parse_amount(\"12.50\")\n        parse_amount(Decimal(\"1.2000\"))\n        make_invoice([\"1.20\", \"2.30\"])\n        after = decimal.getcontext()\n        self.assertEqual(before.prec, after.prec)\n        self.assertEqual(before.rounding, after.rounding)\n        self.assertEqual(before.traps, after.traps)\n        self.assertEqual(before.Emax, after.Emax)\n        self.assertEqual(before.Emin, after.Emin)\n\n\nclass MakeInvoiceTests(unittest.TestCase):\n    def test_basic_total(self):\n        self.assertEqual(make_invoice([\"1.20\", \"2.30\"]), {\"total\": \"3.50\", \"count\": 2})\n\n    def test_empty(self):\n        self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n\n    def test_mixed_types_and_duplicates(self):\n        self.assertEqual(\n            make_invoice([1, Decimal(\"0.10\"), \"0.10\", \"2.5000\"]),\n            {\"total\": \"3.70\", \"count\": 4},\n        )\n\n    def test_total_at_max_allowed(self):\n        self.assertEqual(\n            make_invoice([\"999999.99\", \"0.01\"]),\n            {\"total\": \"1000000.00\", \"count\": 2},\n        )\n\n    def test_total_over_max_rejected(self):\n        with self.assertRaises(ValueError):\n            make_invoice([\"999999.99\", \"0.02\"])\n        with self.assertRaises(ValueError):\n            make_invoice([1000000, 1])\n\n    def test_invalid_item_rejected(self):\n        for bad in [[1.5], [\"0\"], [True], [\"1.001\"], [-1], [\"1e2\"]]:\n            with self.subTest(bad=bad):\n                with self.assertRaises(ValueError):\n                    make_invoice(bad)\n\n    def test_input_not_mutated(self):\n        amounts = [\"1.20\", Decimal(\"2.30\")]\n        snapshot = list(amounts)\n        make_invoice(amounts)\n        self.assertEqual(amounts, snapshot)\n        self.assertIsInstance(amounts, list)\n        self.assertEqual(len(amounts), 2)\n\n    def test_accepts_tuple_input(self):\n        self.assertEqual(make_invoice((\"1.00\",)), {\"total\": \"1.00\", \"count\": 1})\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+        "src/api.py": "from .money import MAX_CENTS, cents_to_amount, format_amount, parse_cents\n\n\ndef make_invoice(amounts):\n    items = list(amounts)  # copy; caller's input is never mutated\n    total_cents = 0\n    for item in items:\n        total_cents += parse_cents(item)\n    if total_cents > MAX_CENTS:\n        raise ValueError(\"invoice total exceeds 1000000.00\")\n    return {\"total\": format_amount(cents_to_amount(total_cents)), \"count\": len(items)}\n",
+        "src/money.py": "import re\nfrom decimal import Decimal\n\nMAX_CENTS = 100_000_000  # 1000000.00\n\n# Plain decimal string: optional sign, digits with optional fraction.\n# No whitespace, no exponent, ASCII digits only.\n_PLAIN_DECIMAL = re.compile(r\"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)\")\n\n\ndef _to_decimal(value):\n    if isinstance(value, bool):\n        raise ValueError(\"booleans are not amounts\")\n    if isinstance(value, Decimal):\n        return value\n    if isinstance(value, int):\n        return Decimal(value)\n    if isinstance(value, str):\n        if not _PLAIN_DECIMAL.fullmatch(value):\n            raise ValueError(f\"not a plain decimal string: {value!r}\")\n        return Decimal(value)\n    raise ValueError(f\"unsupported amount type: {type(value).__name__}\")\n\n\ndef parse_cents(value):\n    \"\"\"Validate an amount and return it as a positive int number of cents.\n\n    Uses only integer/string operations so the global decimal context\n    is never consulted or modified.\n    \"\"\"\n    d = _to_decimal(value)\n    if not d.is_finite():\n        raise ValueError(\"amount must be finite\")\n    sign, digits, exp = d.as_tuple()\n    raw = \"\".join(map(str, digits))\n    stripped = raw.rstrip(\"0\")\n    if not stripped:\n        raise ValueError(\"amount must be nonzero\")\n    if sign:\n        raise ValueError(\"amount must be positive\")\n    # Exponent of the last nonzero digit.\n    e = exp + (len(raw) - len(stripped))\n    if e < -2:\n        raise ValueError(\"amount is not exactly representable in cents\")\n    # cents = int(stripped) * 10**(e + 2); check digit count before building\n    # the integer so huge exponents cannot cause large allocations.\n    if len(stripped) + e + 2 > len(str(MAX_CENTS)):\n        raise ValueError(\"amount exceeds 1000000.00\")\n    cents = int(stripped + \"0\" * (e + 2))\n    if cents > MAX_CENTS:\n        raise ValueError(\"amount exceeds 1000000.00\")\n    return cents\n\n\ndef cents_to_amount(cents):\n    \"\"\"Return a Decimal with exponent -2 for a non-negative int of cents.\"\"\"\n    return Decimal((0, tuple(int(c) for c in str(cents)), -2))\n\n\ndef parse_amount(value):\n    return cents_to_amount(parse_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+      },
+      "changed_files": [
+        "checks/test_amounts.py",
+        "src/api.py",
+        "src/money.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 211,
+      "removed_lines": 12
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.06390862498665228
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.058760124957188964,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": false,
+        "exit_code": 1,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"/workspace/.runner-acceptance.py\", line 2, in <module>\n    runpy.run_path('.acceptance.py', run_name='__main__')\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \".acceptance.py\", line 18, in <module>\n    raise AssertionError(\"invalid amount accepted: \" + repr(value))\nAssertionError: invalid amount accepted: '.1'\n",
+        "wall_s": 0.05136412498541176,
+        "check_completed": false
+      }
+    },
+    "patch_correct": false,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 49.58121683297213,
+  "preparation_s": 2.973387875012122,
+  "export_s": 0.3475344579783268,
+  "grading_s": 0.3423037090105936,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "used": false,
+    "tool_calls": 0,
+    "useful_successful_calls": 0,
+    "errors": 0,
+    "catalog_ready_s": null
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 4,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_f9e43e9839c5b0f72adf",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "medium"
+  },
+  "usage": {
+    "input_tokens": 8,
+    "output_tokens": 4301,
+    "reasoning_tokens": 6369,
+    "cached_input_tokens": 6583,
+    "cache_write_tokens": 11972
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 3,
+  "error_events": [],
+  "reported_cost_usd": 0.006898130000000001,
+  "total_trial_s": 53.31716287502786
+}

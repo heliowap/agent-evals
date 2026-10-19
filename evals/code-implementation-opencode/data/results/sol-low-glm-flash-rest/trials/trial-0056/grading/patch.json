@@ -1,0 +1,15 @@
+{
+  "files": {
+    "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst MAX_DISPLAY_NAME_LENGTH = 40;\nconst MAX_TAGS = 5;\nconst MAX_TAG_LENGTH = 12;\n\nfunction invalid(): never {\n  throw new Error('invalid profile');\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) invalid();\n  const record = input as Record<string, unknown>;\n  const prototype = Object.getPrototypeOf(record);\n  if (prototype !== Object.prototype && prototype !== null) invalid();\n  for (const key of Object.keys(record)) {\n    if (key !== 'displayName' && key !== 'tags') invalid();\n  }\n\n  const patch: ProfilePatch = { displayName: { kind: 'keep' }, tags: { kind: 'keep' } };\n\n  if ('displayName' in record) {\n    const value = record.displayName;\n    if (value === null) {\n      patch.displayName = { kind: 'set', value: null };\n    } else if (typeof value === 'string') {\n      const trimmed = value.trim();\n      if (trimmed.length < 1 || trimmed.length > MAX_DISPLAY_NAME_LENGTH) invalid();\n      patch.displayName = { kind: 'set', value: trimmed };\n    } else {\n      invalid();\n    }\n  }\n\n  if ('tags' in record) {\n    const value = record.tags;\n    if (value === null || (Array.isArray(value) && value.length === 0)) {\n      patch.tags = { kind: 'set', value: [] };\n    } else if (Array.isArray(value)) {\n      if (value.length > MAX_TAGS) invalid();\n      const seen = new Set<string>();\n      const tags: string[] = [];\n      for (const entry of value) {\n        if (typeof entry !== 'string') invalid();\n        const trimmed = entry.trim();\n        if (trimmed.length < 1 || trimmed.length > MAX_TAG_LENGTH) invalid();\n        if (seen.has(trimmed)) invalid();\n        seen.add(trimmed);\n        tags.push(trimmed);\n      }\n      patch.tags = { kind: 'set', value: tags };\n    } else {\n      invalid();\n    }\n  }\n\n  return patch;\n}\n",
+    "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\n\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    const parsed = parseProfile(input);\n    // Storage is only touched once the whole patch parsed successfully,\n    // so an invalid input never leaves a partial update behind.\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = parsed.tags.value;\n    return this.profile;\n  }\n}\n"
+  },
+  "changed_files": [
+    "src/parser.ts",
+    "src/service.ts"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 2,
+  "added_lines": 72,
+  "removed_lines": 26
+}

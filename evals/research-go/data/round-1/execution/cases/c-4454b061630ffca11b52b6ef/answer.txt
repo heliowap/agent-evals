@@ -1,0 +1,24 @@
+## Decision (Compose plugin 2.18.0)
+
+**Correct these two premises**
+
+1. Short-form `depends_on` never waits for health: it only means "started" ordering ([services short syntax](https://docs.docker.com/reference/compose-file/services/#short-syntax-1)); Compose "does not wait until a container is ready, only until it's running" ([startup order](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)). Moving to long syntax with `condition: service_healthy` is required.
+2. `required: false` was **introduced in Compose 2.20.0** ([depends_on](https://docs.docker.com/reference/compose-file/services/#long-syntax-1)), so it is not supported at 2.18.0. Your "no upgrade" constraint and the optional-telemetry proposal are mutually exclusive here. UNVERIFIED whether 2.18.0 errors or silently ignores the key at config parse; resolve by running `docker compose config` on 2.18.0. Meanwhile gate telemetry with `profiles` instead.
+
+**Recommended `depends_on` / lifecycle**
+
+- api → db: `condition: service_healthy`, `restart: true` (available since 2.17.0).
+- api → migrate: `condition: service_completed_successfully`; do **not** put `restart: true` on the migration edge, or a later db restart may re-run the one-shot.
+- migrate → db: `condition: service_healthy`.
+- telemetry: `condition: service_started`, behind a profile until the plugin reaches ≥2.20.0.
+- Keep `restart: always` on db, and add an api `healthcheck` ([healthcheck](https://docs.docker.com/reference/compose-file/services/#healthcheck)).
+
+**What cannot be relied on**
+
+- Explicit operator restart: `restart: true` does restart dependents after "an explicit Compose operation, for example `docker compose restart`" ([example](https://docs.docker.com/compose/how-tos/startup-order/#example)). Documented — this part works.
+- Runtime crash restart: the same field "excludes automated restart by the container runtime after the container dies" ([depends_on](https://docs.docker.com/reference/compose-file/services/#long-syntax-1)). So `restart: always` re-creating db after a crash will **not** restart the api. Your assumption is wrong.
+- Health/readiness beyond start: `service_healthy` gates creation only; nothing in `depends_on` re-evaluates health later.
+- Migration completion: `service_completed_successfully` proves a successful exit once; it is not re-verified on restarts.
+- Startup vs health vs restarts are distinct; your config controls ordering and explicit-restart cascades only.
+
+**Readiness through later DB failures:** no. This file alone cannot justify that promise — the api must implement reconnect/retry/backoff and its own readiness endpoint, verified by testing (recommendation).

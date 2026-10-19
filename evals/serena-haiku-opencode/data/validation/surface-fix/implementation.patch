@@ -1,0 +1,379 @@
+--- full-1/frozen-source/domain.py
++++ domain.py
+@@ -63,7 +63,7 @@
+     return tuple(name for name, editing, useful in TOOLS if role == 'implementation' or not editing)
+ 
+ def native_tools(role):
+-    return ('read', 'glob', 'grep', 'list') if role == 'exploration' else ('terminal',)
++    return ('read', 'glob', 'grep') if role == 'exploration' else ('terminal',)
+ 
+ def allowed_tools(role, arm):
+     return (*native_tools(role), *(f'serena_{name}' for name in mcp_tools(role))) if arm == 'serena' else native_tools(role)
+--- full-1/frozen-source/runtime.py
++++ runtime.py
+@@ -73,7 +73,7 @@
+     shutil.copyfile(ROOT / 'surface.js', surface / 'server.js')
+     save(surface / 'package.json', {'name': 'haiku-serena-surface', 'type': 'module'})
+     config = capture.configuration(candidate, observer)
+-    config['plugins'].append(str(surface))
++    config['plugins'].extend(['-opencode.browser', str(surface)])
+     config['agents'][AGENT]['system'] = ('You explore source code and return only the requested JSON evidence. Do not modify files.'
+         if case.role == 'exploration' else 'Implement the exact request in this isolated project. Use the supplied terminal to inspect and run checks. Change only permitted source and check files. Finish with a concise description of your implementation and verification.')
+     permissions = [{'action': '*', 'resource': '*', 'effect': 'deny'}] + [
+@@ -89,8 +89,9 @@
+         upstream = write_serena(root, work, case.role, args)
+         bridge = [args.python, '-B', str(ROOT / 'mcp_bridge.py'), '--work', str(work), '--role', case.role,
+                   '--log', str(root / 'mcp.jsonl'), '--', *upstream]
+-        config['mcp'] = {'serena': {'type': 'local', 'command': bridge, 'cwd': str(work), 'enabled': True,
+-                                    'timeout': 180000, 'environment': {'SERENA_HOME': env['SERENA_HOME'], 'HOME': env['HOME'], 'UV_OFFLINE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}}}
++        config['mcp'] = {'serena': {'type': 'local', 'command': bridge, 'cwd': str(work), 'disabled': False, 'codemode': False,
++                                    'timeout': {'startup': 180000, 'catalog': 180000, 'execution': 180000},
++                                    'environment': {'SERENA_HOME': env['SERENA_HOME'], 'HOME': env['HOME'], 'UV_OFFLINE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}}}
+     save(root / 'config/opencode/opencode.json', config)
+     (root / 'config/opencode/AGENTS.md').write_text('')
+     shutil.copyfile(args.cache, root / 'cache/opencode/models.json')
+@@ -141,6 +142,8 @@
+         ids = [tool['id'] for tool in row['tools']]
+         if len(names) != len(set(names)) or len(ids) != len(set(ids)):
+             raise ValueError('Duplicate native tool names or identities')
++        if any(tool['id'] != tool['name'] or tool.get('codemode') is not False or tool.get('permission') != tool['name'] for tool in row['tools']):
++            raise ValueError('Native tools must have canonical identities, direct exposure and allowed permission actions')
+     exact = [row for row in rows if {tool['name'] for tool in row['tools']} == set(allowed_tools(role, arm))]
+     if not exact:
+         observed = sorted({tool['name'] for row in rows for tool in row['tools']})
+@@ -186,7 +189,8 @@
+         raise ValueError('Effective configuration or skills changed')
+     external = [plugin for plugin in plugins if plugin.get('source', {}).get('type') != 'builtin']
+     expected_plugins = {'navigation-observer': root / 'observer/server.js', 'haiku-serena-surface': root / 'surface/server.js'}
+-    if ({plugin['id'] for plugin in external} != set(expected_plugins)
++    if (any(plugin['id'] == 'opencode.browser' for plugin in plugins)
++        or {plugin['id'] for plugin in external} != set(expected_plugins)
+         or any(plugin.get('source', {}).get('type') != 'local' or Path(plugin.get('source', {}).get('path', '')).resolve() != expected_plugins[plugin['id']] for plugin in external)
+         or any(plugin['state']['status'] != 'active' for plugin in plugins)):
+         raise ValueError('Unexpected or inactive plugin')
+--- full-1/frozen-source/surface.js
++++ surface.js
+@@ -50,10 +50,8 @@
+     const allowed = new Set(JSON.parse(process.env.EVAL_ALLOWED_TOOLS))
+     const role = process.env.EVAL_ROLE
+     const log = process.env.EVAL_SURFACE_LOG
+-    let allowedIds = new Set()
+     const record = (tools) => {
+-      allowedIds = new Set(tools.filter((tool) => allowed.has(exposedToolName(tool))).map((tool) => tool.id))
+-      appendFileSync(log, JSON.stringify({ event: "surface", at_ms: Date.now(), tools: tools.map((tool) => ({ id: tool.id, name: exposedToolName(tool), raw_name: tool.name, namespace: tool.options?.namespace })) }) + "\n", { mode: 0o600 })
++      appendFileSync(log, JSON.stringify({ event: "surface", at_ms: Date.now(), tools: tools.map((tool) => ({ id: tool.id, name: exposedToolName(tool), raw_name: tool.name, namespace: tool.options?.namespace, codemode: tool.options?.codemode, permission: tool.options?.permission ?? tool.id })) }) + "\n", { mode: 0o600 })
+     }
+     const registration = await ctx.tool.transform((editor) => {
+       for (const tool of editor.list()) if (!allowed.has(exposedToolName(tool)) || exposedToolName(tool) === "terminal") editor.remove(tool.id)
+@@ -71,7 +69,7 @@
+       record(editor.list())
+     })
+     const guard = await ctx.tool.hook("execute.before", (event) => {
+-      if (!allowedIds.has(event.tool)) throw new Error("Tool execution outside the frozen surface refused")
++      if (!allowed.has(event.tool)) throw new Error("Tool execution outside the frozen surface refused")
+     })
+     const poll = setInterval(async () => { try { record(await ctx.tool.list()) } catch {} }, 1000)
+     record(await ctx.tool.list())
+--- full-1/frozen-source/test_bench.py
++++ test_bench.py
+@@ -1,17 +1,18 @@
+ import copy
+-from contextlib import ExitStack
++from contextlib import ExitStack, nullcontext
+ from itertools import count
+ import json
+ from pathlib import Path
+ import subprocess
+ import sys
+ import tempfile
++from types import SimpleNamespace
+ import unittest
+ from unittest.mock import patch
+ 
+ import bench
+ import cases
+-from domain import CONFIGURATIONS, allowed_tools, mcp_tools
++from domain import CONFIGURATIONS, Configuration, allowed_tools, mcp_tools, native_tools
+ import mcp_bridge
+ import runtime
+ from vendor import grader
+@@ -269,7 +270,7 @@
+     def test_surface_rejects_duplicate_names_and_ids(self):
+         with tempfile.TemporaryDirectory() as folder:
+             root = Path(folder)
+-            tools = [{'id': name, 'name': name} for name in ('read', 'glob', 'grep', 'list')]
++            tools = [{'id': name, 'name': name, 'codemode': False, 'permission': name} for name in ('read', 'glob', 'grep')]
+             path = root / 'surface.jsonl'
+             path.write_text(json.dumps({'event': 'surface', 'tools': tools}) + '\n')
+             self.assertEqual(runtime.surface(root, 'exploration', 'native')['tools'], tools)
+@@ -304,5 +305,119 @@
+             self.assertEqual((result['status'], receipt['status'], receipt['model_inference_calls']), ('blocked', 'blocked', 0))
+ 
+ 
++class DirectSurfaceTests(unittest.TestCase):
++    def tools(self, role='exploration', arm='native'):
++        native = ('read', 'glob', 'grep') if role == 'exploration' else ('terminal',)
++        names = (*native, *(f'serena_{name}' for name in mcp_tools(role))) if arm == 'serena' else native
++        return [{'name': name, 'id': name, 'codemode': False, 'permission': name} for name in names]
++
++    def save_surface(self, root, tools):
++        (root / 'surface.jsonl').write_text(json.dumps({'event': 'surface', 'tools': tools}) + '\n')
++
++    def test_exploration_baseline_matches_observed_native_catalog(self):
++        observed = json.loads((bench.ROOT / 'validation/surface-fix/observed-catalog.json').read_text())
++        self.assertNotIn('list', observed)
++        self.assertEqual(native_tools('exploration'), ('read', 'glob', 'grep'))
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            tools = self.tools()
++            self.save_surface(root, tools)
++            self.assertEqual(runtime.surface(root, 'exploration', 'native')['tools'], tools)
++
++    def test_each_role_and_arm_is_direct_with_canonical_permission(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            for role in ('exploration', 'implementation'):
++                for arm in ('native', 'serena'):
++                    with self.subTest(role=role, arm=arm):
++                        tools = self.tools(role, arm)
++                        self.save_surface(root, tools)
++                        self.assertEqual(runtime.surface(root, role, arm)['tools'], tools)
++                        for mutation in ({'codemode': True}, {'codemode': None}, {'permission': 'denied'}, {'id': 'changed-id'}):
++                            changed = copy.deepcopy(tools)
++                            changed[0].update(mutation)
++                            self.save_surface(root, changed)
++                            with self.assertRaises(ValueError):
++                                runtime.surface(root, role, arm)
++                        changed = copy.deepcopy(tools)
++                        changed[0].pop('codemode')
++                        self.save_surface(root, changed)
++                        with self.assertRaises(ValueError):
++                            runtime.surface(root, role, arm)
++
++    def test_raw_post_browser_catalog_is_rejected_without_hiding_rows(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            tools = self.tools()
++            self.save_surface(root, tools)
++            with (root / 'surface.jsonl').open('a') as stream:
++                stream.write(json.dumps({'event': 'surface', 'tools': tools + [{'name': 'browser_click', 'id': 'browser_click', 'codemode': True, 'permission': 'browser'}]}) + '\n')
++            before = (root / 'surface.jsonl').read_bytes()
++            with self.assertRaises(ValueError):
++                runtime.surface(root, 'exploration', 'native')
++            self.assertEqual((root / 'surface.jsonl').read_bytes(), before)
++
++    def test_private_preparation_removes_browser_and_exposes_serena_directly(self):
++        args = SimpleNamespace(binary='~/.opencode/bin/opencode',
++                               serena='~/.local/bin/serena', node='~/.local/bin/node',
++                               python=sys.executable, docker='/usr/local/bin/docker', cache=bench.ROOT / 'models.json')
++        for role in ('exploration', 'implementation'):
++            for configuration in CONFIGURATIONS:
++                arm = configuration.arm
++                with self.subTest(role=role, configuration=configuration.id), tempfile.TemporaryDirectory() as folder:
++                    root = Path(folder)
++                    work = root / 'work'
++                    work.mkdir()
++                    env, config = runtime.prepare(root, work, configuration, SimpleNamespace(role=role), args, import_auth=False)
++                    saved = json.loads((root / 'config/opencode/opencode.json').read_text())
++                    self.assertEqual(saved, config)
++                    self.assertIn('-opencode.browser', config['plugins'])
++                    self.assertEqual(env['HOME'], str(root / 'home'))
++                    expected_permissions = [{'action': '*', 'resource': '*', 'effect': 'deny'}] + [
++                        {'action': name, 'resource': '*', 'effect': 'allow'} for name in [tool['name'] for tool in self.tools(role, arm)]] + [
++                        {'action': 'external_directory', 'resource': '*', 'effect': 'deny'}]
++                    self.assertEqual(config['permissions'], expected_permissions)
++                    self.assertEqual(config['agents'][runtime.AGENT]['permissions'], expected_permissions)
++                    if arm == 'serena':
++                        self.assertIs(config['mcp']['serena']['codemode'], False)
++                        self.assertIs(config['mcp']['serena']['disabled'], False)
++                        self.assertNotIn('enabled', config['mcp']['serena'])
++                        self.assertEqual(config['mcp']['serena']['timeout'], {'startup': 180000, 'catalog': 180000, 'execution': 180000})
++                    else:
++                        self.assertEqual(config['mcp'], {})
++
++    def audit_fixture(self, root, browser=False, changed_permission=False):
++        work = root / 'work'
++        work.mkdir()
++        configuration = Configuration('medium', 'native')
++        permissions = [{'action': '*', 'resource': '*', 'effect': 'deny'}, {'action': 'read', 'resource': '*', 'effect': 'allow'}]
++        expected = {'permissions': permissions, 'agents': {runtime.AGENT: {'permissions': permissions}}}
++        info = copy.deepcopy(expected)
++        if changed_permission:
++            info['permissions'][1]['effect'] = 'deny'
++        plugins = [{'id': name, 'source': {'type': 'local', 'path': str(root / path)}, 'state': {'status': 'active'}}
++                   for name, path in [('navigation-observer', 'observer/server.js'), ('haiku-serena-surface', 'surface/server.js')]]
++        if browser:
++            plugins.append({'id': 'opencode.browser', 'source': {'type': 'builtin'}, 'state': {'status': 'active'}})
++        responses = {'integration.list': {}, 'config.get': [{'type': 'document', 'path': str(root / 'config/opencode/opencode.json'), 'info': info}],
++                     'skill.list': {'data': []}, 'plugin.list': {'data': plugins}, 'model.list': {'data': [
++                         {'providerID': configuration.candidate.provider, 'id': configuration.candidate.model,
++                          'modelID': configuration.candidate.wire_model, 'variants': [{'id': 'medium', 'settings': {'effort': 'medium'}}]}]}}
++        args = SimpleNamespace(binary='unused')
++        self.save_surface(root, self.tools())
++        with patch('runtime.local_server', return_value=nullcontext({})), patch('runtime.api', side_effect=lambda binary, work, server, operation: responses[operation]), patch('runtime.surface', return_value={'tools': self.tools()}):
++            return runtime.audit(root, work, configuration, SimpleNamespace(role='exploration'), args, {}, expected)
++
++    def test_audit_rejects_builtin_browser_even_with_an_exact_surface(self):
++        with tempfile.TemporaryDirectory() as folder:
++            with self.assertRaises(ValueError):
++                self.audit_fixture(Path(folder), browser=True)
++
++    def test_audit_preserves_exact_effective_configuration_gate(self):
++        with tempfile.TemporaryDirectory() as folder:
++            with self.assertRaises(ValueError):
++                self.audit_fixture(Path(folder), changed_permission=True)
++
++
+ if __name__ == '__main__':
+     unittest.main()
+--- full-1/frozen-source/test_surface.mjs
++++ test_surface.mjs
+@@ -1,7 +1,48 @@
+ import assert from 'node:assert/strict'
+ import { test } from 'node:test'
+-import { readFileSync } from 'node:fs'
+-import { executeTerminal, exposedToolName } from './surface.js'
++import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import plugin, { executeTerminal, exposedToolName } from './surface.js'
++
++function registry(initial = []) {
++  const transforms = [], hooks = new Map()
++  let tools
++  const snapshot = () => {
++    tools = initial.map((tool) => ({ ...tool }))
++    const editor = {
++      list: () => tools,
++      remove: (id) => { tools = tools.filter((tool) => tool.id !== id) },
++      add: (tool) => { tools.push({ ...tool, id: exposedToolName(tool) }) },
++    }
++    for (const transform of transforms) transform(editor)
++    return tools
++  }
++  return {
++    tool: {
++      transform: async (fn) => { transforms.push(fn); snapshot(); return { dispose: async () => { transforms.splice(transforms.indexOf(fn), 1) } } },
++      hook: async (name, fn) => { hooks.set(name, fn); return { dispose: async () => { hooks.delete(name) } } },
++      list: async () => snapshot(),
++    },
++    snapshot,
++    before: (tool) => hooks.get('execute.before')({ tool }),
++  }
++}
++
++async function privateSurface(role, names, run) {
++  const folder = mkdtempSync(join(tmpdir(), 'surface-proof-'))
++  const before = { ...process.env }
++  Object.assign(process.env, {
++    EVAL_ALLOWED_TOOLS: JSON.stringify(names), EVAL_ROLE: role,
++    EVAL_SURFACE_LOG: join(folder, 'surface.jsonl'), OPENCODE_TERMINAL_LOG: join(folder, 'terminal.jsonl'),
++    OPENCODE_DOCKER_BINARY: '/does-not-exist', OPENCODE_CODE_CONTAINER: 'a'.repeat(64),
++  })
++  try { await run(folder) } finally {
++    for (const key of Object.keys(process.env)) if (!(key in before)) delete process.env[key]
++    Object.assign(process.env, before)
++    rmSync(folder, { recursive: true, force: true })
++  }
++}
+ 
+ test('terminal refuses wrong container and invalid timeout before spawning', async () => {
+   assert.throws(() => executeTerminal('pwd', 1, null, { docker: '/does-not-exist', container: 'invalid' }))
+@@ -17,37 +58,71 @@
+ test('terminal command is passed only through Docker exec', () => {
+   const source = readFileSync(new URL('./surface.js', import.meta.url), 'utf8')
+   assert.match(source, /spawn\(docker, \["exec", "--workdir", "\/workspace", container, "sh", "-c", command\]/)
+-  assert.match(source, /if \(!allowedIds.has\(event.tool\)\)/)
++  assert.match(source, /if \(!allowed(?:Ids)?.has\(event.tool\)\)/)
+ })
+ 
+ test('surface replaces an existing host terminal and rejects unknown execution', async () => {
+-  const { default: plugin } = await import('./surface.js')
+-  const { mkdtempSync, rmSync } = await import('node:fs')
+-  const { tmpdir } = await import('node:os')
+-  const { join } = await import('node:path')
+-  const folder = mkdtempSync(join(tmpdir(), 'surface-proof-'))
+-  const before = { ...process.env }
+-  let tools = [{ id: 'host-terminal', name: 'terminal', execute: () => { throw new Error('HOST EXECUTED') } }, { id: 'host-bash', name: 'bash' }, { id: 'serena_find_symbol', name: 'find_symbol', options: { namespace: 'serena' } }]
+-  let guard
+-  process.env.EVAL_ALLOWED_TOOLS = '["terminal","serena_find_symbol"]'
+-  process.env.EVAL_ROLE = 'implementation'
+-  process.env.EVAL_SURFACE_LOG = join(folder, 'surface.jsonl')
+-  process.env.OPENCODE_TERMINAL_LOG = join(folder, 'terminal.jsonl')
+-  process.env.OPENCODE_DOCKER_BINARY = '/does-not-exist'
+-  process.env.OPENCODE_CODE_CONTAINER = 'a'.repeat(64)
+-  const editor = { list: () => tools, remove: (id) => { tools = tools.filter((tool) => tool.id !== id) }, add: (tool) => { tools.push({ ...tool, id: 'private-terminal' }) } }
+-  try {
+-    const dispose = await plugin.setup({ tool: { transform: async (fn) => { fn(editor); return { dispose: async () => {} } }, hook: async (name, fn) => { guard = fn; return { dispose: async () => {} } }, list: async () => tools } })
++  await privateSurface('implementation', ['terminal', 'serena_find_symbol'], async () => {
++    const ctx = registry([{ id: 'terminal', name: 'terminal', execute: () => { throw new Error('HOST EXECUTED') } }, { id: 'bash', name: 'bash' },
++                          { id: 'serena_find_symbol', name: 'find_symbol', options: { namespace: 'serena', codemode: false } }])
++    const dispose = await plugin.setup(ctx)
+     try {
++      const tools = ctx.snapshot()
+       assert.deepEqual(tools.map(exposedToolName), ['serena_find_symbol', 'terminal'])
+-      assert.equal(tools[1].id, 'private-terminal')
+-      assert.doesNotThrow(() => guard({ tool: 'serena_find_symbol' }))
+-      assert.throws(() => guard({ tool: 'bash' }), /refused/)
++      assert.equal(tools[1].id, 'terminal')
++      assert.doesNotThrow(() => ctx.before('serena_find_symbol'))
++      assert.throws(() => ctx.before('bash'), /refused/)
+       await assert.rejects(tools[1].execute({ command: 'pwd' }, { signal: AbortSignal.abort() }), /aborted/)
+     } finally { await dispose() }
+-  } finally {
+-    for (const key of Object.keys(process.env)) if (!(key in before)) delete process.env[key]
+-    Object.assign(process.env, before)
+-    rmSync(folder, { recursive: true, force: true })
+-  }
++  })
+ })
++
++test('late MCP registration remains callable before the telemetry timer', async () => {
++  await privateSurface('exploration', ['read', 'glob', 'grep', 'serena_find_symbol'], async () => {
++    const ctx = registry(['read', 'glob', 'grep'].map((name) => ({ id: name, name, options: { codemode: false } })))
++    const dispose = await plugin.setup(ctx)
++    const late = await ctx.tool.transform((editor) => editor.add({ name: 'find_symbol', options: { namespace: 'serena', codemode: false } }))
++    try {
++      assert.equal(ctx.snapshot().at(-1).id, 'serena_find_symbol')
++      assert.doesNotThrow(() => ctx.before('serena_find_symbol'))
++      assert.throws(() => ctx.before('serena_execute_shell_command'), /refused/)
++      assert.throws(() => ctx.before('execute'), /refused/)
++    } finally { await late.dispose(); await dispose() }
++  })
++})
++
++test('raw receipts preserve post-plugin browser additions in real registry order', async () => {
++  await privateSurface('exploration', ['read', 'glob', 'grep'], async (folder) => {
++    const ctx = registry(['read', 'glob', 'grep'].map((name) => ({ id: name, name, options: { codemode: false } })))
++    const dispose = await plugin.setup(ctx)
++    const post = await ctx.tool.transform((editor) => editor.add({ name: 'click', options: { namespace: 'browser', codemode: true, permission: 'browser' } }))
++    try {
++      assert.deepEqual((await ctx.tool.list()).map(exposedToolName).sort(), ['browser_click', 'glob', 'grep', 'read'])
++      await new Promise((resolve) => setTimeout(resolve, 1100))
++      const rows = readFileSync(join(folder, 'surface.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
++      const browser = rows.flatMap((row) => row.tools).find((tool) => tool.name === 'browser_click')
++      assert.equal(browser.id, 'browser_click')
++      assert.equal(browser.codemode, true)
++      assert.equal(browser.permission, 'browser')
++      assert.throws(() => ctx.before('browser_click'), /refused/)
++    } finally { await post.dispose(); await dispose() }
++  })
++})
++
++test('direct tool receipts include effective fallback and explicit permissions', async () => {
++  await privateSurface('exploration', ['read', 'glob', 'grep', 'serena_find_symbol'], async (folder) => {
++    const ctx = registry([
++      ...['read', 'glob', 'grep'].map((name) => ({ id: name, name, options: { codemode: false } })),
++      { id: 'serena_find_symbol', name: 'find_symbol', options: { namespace: 'serena', codemode: false, permission: 'serena_find_symbol' } },
++    ])
++    const dispose = await plugin.setup(ctx)
++    try {
++      const rows = readFileSync(join(folder, 'surface.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
++      for (const tool of rows.at(-1).tools) {
++        assert.equal(tool.id, tool.name)
++        assert.equal(tool.codemode, false)
++        assert.equal(tool.permission, tool.name)
++      }
++    } finally { await dispose() }
++  })
++})

@@ -1,0 +1,182 @@
+[
+  {
+    "type": "tool",
+    "id": "toolu_01XwT3pbjiasYKmATd2y8eZn",
+    "name": "serena_initial_instructions",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {},
+      "content": [
+        {
+          "type": "text",
+          "text": "<serena>\nYou have semantic coding functions/tools that you rely on heavily. Work resource-efficiently: don't read or\ngenerate content the task doesn't need.\n\nSome tasks require understanding a large part of the codebase; others need only a few symbols or a\nsingle file. Avoid reading whole files unless necessary — acquire information step by step, using\nthe symbolic functions to get an overview of symbols and their relations, then reading only the bodies\nyou need. Once you have read a full file, there is no point re-analysing it with the symbolic read\ntools — you already have it. \n\nFor searches beyond named symbols, you can use `search_for_pattern` and flexible search for patterns in the codebase. In this way, you can first find candidates for symbols or files to explore,\nand then proceed with symbolic operations.\n\n\n\nSymbols are identified by their `name_path` and `relative_path`.\nYou can get an overview of the symbols in a file by using `get_symbols_overview`, or search for a specific symbol with `find_symbol`.\nYou only read the bodies of symbols when you need to (e.g. if you want to fully understand or edit it).\nFor example, if you are working with Python code and already know that you need to read the body of the constructor of the class Foo, you can directly\nuse `find_symbol` with name path pattern `Foo/__init__` and `include_body=True`. If you don't know yet which methods in `Foo` you need to read or edit,\nyou can use `find_symbol` with name path pattern `Foo`, `include_body=False` and `depth=1` to get all (top-level) members of `Foo` before proceeding\nto read the desired methods with `include_body=True`.\nYou can understand relationships between symbols by using `find_referencing_symbols`.\n\n\n\n\nLine numbers returned by Serena's tools are 0-based!\n\nSerena executes tool calls one at a time internally, even when you request several at once. So whenever you have\nindependent operations to perform, you can safely issue them as parallel tool calls in a single turn: they are applied\nin the order issued and cannot race with or corrupt one another, and batching them this way saves round-trips. Every\nseparate round-trip re-sends the whole growing context, so maximizing parallel tool calls is the single biggest lever\non cost — err on the side of batching. Only call tools sequentially when one genuinely depends on the result of another.\n\nThe context and modes of operation are described below. These determine how to interact with your user\nand which kinds of interactions are expected of you.\n\n<context>\nYou work on the single project supplied at startup. Use your allowed native tools and Serena tools when useful. Read initial_instructions before using Serena. Follow the task contract, including one-based evidence lines. Do not seek external files, memory, network or a different project.\n</context>\n\n\n<mode name=\"evaluation\">\nComplete the requested task autonomously. The task determines read-only exploration or source implementation. Return the exact requested output.\n</mode>\n\n\nYou have hereby read the 'Serena Instructions Manual' and do not need to read it again.\n\n<active-project>\nThe project with name 'trial' at /private/tmp/haiku-serena-trials-4rkyzl2x/trial-0063/work is activated.\nActive language servers: python.\nFile encoding: utf-8.\n</active-project>\n\n<session>\nYour Serena session id is `30be1253`. Pass it as the `session_id` parameter to tools which require it.\n</session>\n</serena>"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874634634,
+      "ran": 1791874634636,
+      "completed": 1791874634705
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_01MS3wDnNU2dew4eDMkXtptC",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && find . -type f -not -path '*/.git/*' | head -100 && echo '---' && cat src/money.py && echo '---API---' && cat src/api.py && echo '---TESTS---' && ls tests 2>/dev/null; ls -la"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"./checks/public.py\\n./README.md\\n./src/__init__.py\\n./src/money.py\\n./src/api.py\\n---\\nfrom decimal import Decimal\\n\\ndef parse_amount(value):\\n    return Decimal(str(round(float(value), 2)))\\n\\ndef format_amount(value):\\n    return format(value, \\\".2f\\\")\\n---API---\\nfrom .money import parse_amount, format_amount\\n\\ndef make_invoice(amounts):\\n    total = sum((parse_amount(item) for item in amounts), start=parse_amount(\\\"0\\\"))\\n    return {\\\"total\\\": format_amount(total), \\\"count\\\": len(amounts)}\\n---TESTS---\\ntotal 8\\ndrwxr-xr-x 5  501 dialout  160 Oct 13 06:57 .\\ndrwxr-xr-x 1 root root    4096 Oct 13 06:57 ..\\n-rw-r--r-- 1  501 dialout  913 Oct 13 06:57 README.md\\ndrwxr-xr-x 3  501 dialout   96 Oct 13 06:57 checks\\ndrwxr-xr-x 5  501 dialout  160 Oct 13 06:57 src\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874634636,
+      "ran": 1791874634655,
+      "completed": 1791874634716
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_01S8sqtFvLEu1UhoxJnk9Uuk",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && cat README.md && echo '---CHECKS---' && cat checks/public.py && ls -R checks && echo '---INIT---' && cat src/__init__.py && find . -name '*.py' -path '*checks*' -o -name 'conftest*' | head"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"# Service component\\n\\nReplace float-based parsing in src/money.py. parse_amount accepts Decimal, integers excluding bool, and plain decimal strings without whitespace or exponents, optionally signed. Reject floats, other types, non-finite numbers, zero, negatives, values over 1000000.00, and values not exactly representable in cents with ValueError. Extra trailing zeros are fine; never round a nonzero fractional cent. Return a Decimal with exponent -2. Preserve format_amount and make src/api.py.make_invoice apply the same rules. The API accepts a list of amounts and returns {'total': a two-decimal string, 'count': N}; its total must also be at most 1000000.00 and an empty list totals 0.00. Do not mutate the global decimal context or the caller's input. Start in src/money.py and src/api.py.\\n\\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\\n---CHECKS---\\nimport os, sys\\nsys.path.insert(0, os.getcwd())\\nfrom src.money import parse_amount, format_amount\\nfrom src.api import make_invoice\\nassert format_amount(parse_amount(\\\"12.50\\\")) == \\\"12.50\\\"\\nassert make_invoice([\\\"1.20\\\", \\\"2.30\\\"]) == {\\\"total\\\": \\\"3.50\\\", \\\"count\\\": 2}\\nassert make_invoice([]) == {\\\"total\\\": \\\"0.00\\\", \\\"count\\\": 0}\\nchecks:\\npublic.py\\n---INIT---\\n./checks/public.py\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874635768,
+      "ran": 1791874636233,
+      "completed": 1791874636284
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_01FWKi9maX2HVVCJczNoyTXQ",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && cat > src/money.py <<'EOF'\nimport re\nfrom decimal import Decimal\n\nMAX_CENTS = 100_000_000  # 1000000.00\n\n_PLAIN_DECIMAL = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n\n\ndef amount_to_cents(value):\n    \"\"\"Validate an amount and return it as an exact integer number of cents.\n\n    Uses integer and tuple arithmetic only, so the global decimal context is\n    never consulted or changed.\n    \"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"boolean is not a valid amount\")\n    if isinstance(value, int):\n        if value <= 0:\n            raise ValueError(\"amount must be positive\")\n        if value > MAX_CENTS // 100:\n            raise ValueError(\"amount exceeds 1000000.00\")\n        return value * 100\n    if isinstance(value, str):\n        if not _PLAIN_DECIMAL.fullmatch(value):\n            raise ValueError(\"amount string must be a plain decimal\")\n        return _decimal_to_cents(Decimal(value))\n    if isinstance(value, Decimal):\n        return _decimal_to_cents(value)\n    raise ValueError(f\"unsupported amount type: {type(value).__name__}\")\n\n\ndef _decimal_to_cents(value):\n    if not value.is_finite():\n        raise ValueError(\"amount must be finite\")\n    sign, digits, exp = value.as_tuple()\n    if sign:\n        raise ValueError(\"amount must be positive\")\n    full = \"\".join(map(str, digits))\n    significant = full.rstrip(\"0\")\n    if not significant:\n        raise ValueError(\"amount must be nonzero\")\n    # Trailing zeros carry no value; fold them into the exponent.\n    exp += len(full) - len(significant)\n    if exp < -2:\n        # Lowest nonzero digit lies below the cent.\n        raise ValueError(\"amount is not exactly representable in cents\")\n    if len(significant) + exp > 7:\n        # Magnitude is at least 10**7, above the 1000000.00 limit.\n        raise ValueError(\"amount exceeds 1000000.00\")\n    cents = int(significant) * 10 ** (exp + 2)\n    if cents > MAX_CENTS:\n        raise ValueError(\"amount exceeds 1000000.00\")\n    return cents\n\n\ndef cents_to_amount(cents):\n    \"\"\"Return an integer number of cents as a Decimal with exponent -2.\"\"\"\n    whole, frac = divmod(cents, 100)\n    return Decimal(f\"{whole}.{frac:02d}\")\n\n\ndef parse_amount(value):\n    return cents_to_amount(amount_to_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\nEOF\ncat > src/api.py <<'EOF'\nfrom .money import MAX_CENTS, amount_to_cents, cents_to_amount, format_amount\n\n\ndef make_invoice(amounts):\n    items = list(amounts)  # copy; the caller's input is never mutated\n    total = 0\n    for item in items:\n        total += amount_to_cents(item)\n    if total > MAX_CENTS:\n        raise ValueError(\"total exceeds 1000000.00\")\n    return {\"total\": format_amount(cents_to_amount(total)), \"count\": len(items)}\nEOF\ncat > checks/test_amounts.py <<'EOF'\nimport os\nimport sys\nimport unittest\nfrom decimal import Decimal, localcontext, Context, getcontext\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\nclass ParseAmountTests(unittest.TestCase):\n    def test_accepted_inputs(self):\n        cases = {\n            \"12.50\": \"12.50\",\n            \"12.5\": \"12.50\",\n            \"7\": \"7.00\",\n            \"+3.10\": \"3.10\",\n            \"0.01\": \"0.01\",\n            \"1.500000\": \"1.50\",\n            \"1000000\": \"1000000.00\",\n            \"1000000.00\": \"1000000.00\",\n            Decimal(\"2.5\"): \"2.50\",\n            Decimal(\"2.5000\"): \"2.50\",\n            Decimal(\"1E+6\"): \"1000000.00\",\n            5: \"5.00\",\n            1000000: \"1000000.00\",\n        }\n        for value, expected in cases.items():\n            with self.subTest(value=value):\n                result = parse_amount(value)\n                self.assertIsInstance(result, Decimal)\n                self.assertEqual(result.as_tuple().exponent, -2)\n                self.assertEqual(format_amount(result), expected)\n\n    def test_rejected_inputs(self):\n        bad = [\n            1.5, 0.0, float(\"nan\"), float(\"inf\"),\n            True, False,\n            None, [1], b\"1.00\", (1,),\n            Decimal(\"NaN\"), Decimal(\"Infinity\"), Decimal(\"-Infinity\"), Decimal(\"sNaN\"),\n            0, -1, \"0\", \"0.00\", \"-0\", \"-1.00\", \"+0.00\",\n            Decimal(\"-2.50\"), Decimal(\"0E-5\"),\n            1000001, \"1000000.01\", Decimal(\"1000000.01\"), \"1000001\",\n            \"1E+3\", \"1e3\", \" 1.00\", \"1.00 \", \"\\n1.00\", \"1,00\", \"1_000\", \"١.٠٠\",\n            \"\", \".5\", \"5.\", \"--1\", \"1.2.3\", \"abc\",\n            \"0.001\", \"1.005\", Decimal(\"0.001\"), Decimal(\"1.005\"),\n            \"0.0000000000000000000000000000000000000000001\",\n            \"1000000.0000001\",\n            Decimal(\"1E+7\"), \"1E-400\",\n        ]\n        for value in bad:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_global_context_unchanged(self):\n        before = getcontext().copy()\n        parse_amount(\"12.50\")\n        make_invoice([\"1.20\", 2])\n        self.assertEqual(getcontext(), before)\n\n    def test_low_precision_context_does_not_affect_results(self):\n        with localcontext(Context(prec=3)):\n            self.assertEqual(parse_amount(\"1000000.00\"), Decimal(\"1000000.00\"))\n            self.assertEqual(make_invoice([\"999999.99\", \"0.01\"]),\n                             {\"total\": \"1000000.00\", \"count\": 2})\n\n\nclass MakeInvoiceTests(unittest.TestCase):\n    def test_totals(self):\n        self.assertEqual(make_invoice([\"1.20\", \"2.30\"]), {\"total\": \"3.50\", \"count\": 2})\n        self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n        self.assertEqual(make_invoice([Decimal(\"0.10\"), 0 + 1]), {\"total\": \"1.10\", \"count\": 2})\n        self.assertEqual(make_invoice([\"1000000.00\"]), {\"total\": \"1000000.00\", \"count\": 1})\n\n    def test_total_limit(self):\n        with self.assertRaises(ValueError):\n            make_invoice([\"999999.99\", \"0.02\"])\n        with self.assertRaises(ValueError):\n            make_invoice([\"1000000.00\", \"0.01\"])\n\n    def test_item_rules_apply(self):\n        for bad in [[1.5], [True], [\"0\"], [\"1.001\"], [\"1e2\"], [-1], [None]]:\n            with self.subTest(bad=bad):\n                with self.assertRaises(ValueError):\n                    make_invoice(bad)\n\n    def test_input_not_mutated(self):\n        amounts = [\"1.20\", Decimal(\"2.30\")]\n        snapshot = list(amounts)\n        make_invoice(amounts)\n        self.assertEqual(amounts, snapshot)\n        self.assertIsInstance(amounts[0], str)\n        self.assertIsInstance(amounts[1], Decimal)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\nEOF\npython3 checks/public.py && echo PUBLIC_OK && python3 -m unittest checks/test_amounts.py -v 2>&1 | tail -30"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"PUBLIC_OK\\ntest_input_not_mutated (checks.test_amounts.MakeInvoiceTests.test_input_not_mutated) ... ok\\ntest_item_rules_apply (checks.test_amounts.MakeInvoiceTests.test_item_rules_apply) ... ok\\ntest_total_limit (checks.test_amounts.MakeInvoiceTests.test_total_limit) ... ok\\ntest_totals (checks.test_amounts.MakeInvoiceTests.test_totals) ... ok\\ntest_accepted_inputs (checks.test_amounts.ParseAmountTests.test_accepted_inputs) ... ok\\ntest_global_context_unchanged (checks.test_amounts.ParseAmountTests.test_global_context_unchanged) ... FAIL\\ntest_low_precision_context_does_not_affect_results (checks.test_amounts.ParseAmountTests.test_low_precision_context_does_not_affect_results) ... ok\\ntest_rejected_inputs (checks.test_amounts.ParseAmountTests.test_rejected_inputs) ... ok\\n\\n======================================================================\\nFAIL: test_global_context_unchanged (checks.test_amounts.ParseAmountTests.test_global_context_unchanged)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/workspace/checks/test_amounts.py\\\", line 61, in test_global_context_unchanged\\n    self.assertEqual(getcontext(), before)\\nAssertionError: Conte[84 chars], flags=[], traps=[InvalidOperation, DivisionByZero, Overflow]) != Conte[84 chars], flags=[], traps=[InvalidOperation, DivisionByZero, Overflow])\\n\\n----------------------------------------------------------------------\\nRan 8 tests in 0.001s\\n\\nFAILED (failures=1)\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874684007,
+      "ran": 1791874687941,
+      "completed": 1791874688033
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_014Wc4XySQif69eA8KNMomQx",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && python3 -c \"\nfrom decimal import getcontext, Decimal\nimport sys; sys.path.insert(0,'.')\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\nc=getcontext()\nprint('before', c.prec, c.rounding, c.flags, c.traps)\nparse_amount('12.50'); print('after parse', getcontext().flags)\nmake_invoice(['1.20',2]); print('after invoice', getcontext().flags)\n\" ; python3 -c \"\nfrom decimal import getcontext, Decimal\nfrom src.money import format_amount\nprint(getcontext().flags); format(Decimal('1.00'),'.2f'); print(getcontext().flags)\" 2>&1; python3 -c \"\nfrom decimal import getcontext, Decimal\nprint(getcontext().flags); Decimal('1.00'); print(getcontext().flags)\""
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"before 28 ROUND_HALF_EVEN {<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False} {<class 'decimal.InvalidOperation'>:True, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:True, <class 'decimal.Overflow'>:True, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\nafter parse {<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\nafter invoice {<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\n{<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\n{<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\n{<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\n{<class 'decimal.InvalidOperation'>:False, <class 'decimal.FloatOperation'>:False, <class 'decimal.DivisionByZero'>:False, <class 'decimal.Overflow'>:False, <class 'decimal.Underflow'>:False, <class 'decimal.Subnormal'>:False, <class 'decimal.Inexact'>:False, <class 'decimal.Rounded'>:False, <class 'decimal.Clamped'>:False}\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874692591,
+      "ran": 1791874692598,
+      "completed": 1791874692674
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_011vN3U4CZeDRD5BJUYm6fnb",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && python3 -m unittest checks.test_amounts.ParseAmountTests.test_global_context_unchanged 2>&1 | tail -3; python3 -c \"\nimport sys; sys.path.insert(0,'.')\nfrom decimal import getcontext\nfrom src.money import parse_amount\nfrom src.api import make_invoice\nb=getcontext().copy()\nparse_amount('12.50')\na=getcontext()\nprint({k:(b.flags[k],a.flags[k]) for k in a.flags if b.flags[k]!=a.flags[k]})\nprint({k:(b.traps[k],a.traps[k]) for k in a.traps if b.traps[k]!=a.traps[k]})\nmake_invoice(['1.20',2])\nprint('after', {k for k in a.flags if a.flags[k]})\n\""
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"Ran 1 test in 0.000s\\n\\nFAILED (failures=1)\\n{}\\n{}\\nafter set()\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874698355,
+      "ran": 1791874698643,
+      "completed": 1791874698723
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_01JP6M4cYm31EV8tUWLBxwu7",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && python3 - <<'EOF'\nimport re\np='checks/test_amounts.py'\ns=open(p).read()\ns=s.replace('''        before = getcontext().copy()\n        parse_amount(\"12.50\")\n        make_invoice([\"1.20\", 2])\n        self.assertEqual(getcontext(), before)''','''        def snapshot(ctx):\n            return (ctx.prec, ctx.rounding, ctx.Emin, ctx.Emax, ctx.capitals,\n                    ctx.clamp, dict(ctx.flags), dict(ctx.traps))\n\n        before = snapshot(getcontext())\n        parse_amount(\"12.50\")\n        make_invoice([\"1.20\", 2])\n        self.assertEqual(snapshot(getcontext()), before)''')\nopen(p,'w').write(s)\nEOF\npython3 checks/public.py && echo PUBLIC_OK && python3 -m unittest checks/test_amounts.py 2>&1 | tail -3 && python3 -m unittest discover -s checks -p 'test_*.py' 2>&1 | tail -3; git status 2>/dev/null; find . -name __pycache__ -prune -exec rm -rf {} +; ls -R | head -30"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"PUBLIC_OK\\nRan 8 tests in 0.001s\\n\\nOK\\nRan 8 tests in 0.001s\\n\\nOK\\n.:\\nREADME.md\\nchecks\\nsrc\\n\\n./checks:\\npublic.py\\ntest_amounts.py\\n\\n./src:\\n__init__.py\\napi.py\\nmoney.py\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791874703914,
+      "ran": 1791874703927,
+      "completed": 1791874704049
+    }
+  }
+]

@@ -1,0 +1,91 @@
+Based on the codebase evidence in the assigned snapshot, here is the request-preparation implementation and its tool-filtering mechanics:
+
+---
+
+### 1. Location, Helper, and Caller
+
+* **File Path:** `packages/opencode/src/session/llm/request.ts`
+* **Filtering Helper:** `resolveTools` (lines 210–216)
+  ```ts
+  function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">) {
+    const disabled = Permission.disabled(
+      Object.keys(input.tools),
+      Permission.merge(input.agent.permission, input.permission ?? []),
+    )
+    return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+  }
+  ```
+* **Caller:** The main request preparation generator function in `packages/opencode/src/session/llm/request.ts` (lines ~1–208, exported under `LLMRequestPrep` on line 228), which takes `PrepareInput`, calls `resolveTools` to prune the available tool dictionary, and returns the sorted tools alongside system prompts, messages, parameters, and headers.
+* **Permission Resolution Helpers:** Located in `packages/opencode/src/permission/index.ts` (`Permission.merge` at lines 200–202 and `Permission.disabled` at lines 204–214).
+
+---
+
+### 2. How Permissions are Merged in Order
+
+* In `packages/opencode/src/session/llm/request.ts:213`, permissions are merged by calling:
+  ```ts
+  Permission.merge(input.agent.permission, input.permission ?? [])
+  ```
+* In `packages/opencode/src/permission/index.ts:200–202`:
+  ```ts
+  export function merge(...rulesets: PermissionV1.Ruleset[]): PermissionV1.Rule[] {
+    return rulesets.flat()
+  }
+  ```
+* Order of elements:
+  1. The agent's base ruleset (`input.agent.permission`) comes first.
+  2. The session/request ruleset (`input.permission ?? []`) is appended afterwards.
+  Because the downstream rule evaluator traverses the array from the end (`findLast`), rules appended later (session/request permissions) override earlier matching rules (agent permissions).
+
+---
+
+### 3. Which Message-Toggle Values Exclude a Tool
+
+* Evaluated in `packages/opencode/src/session/llm/request.ts:215`:
+  ```ts
+  input.user.tools?.[k] !== false
+  ```
+* **Excluded value:** Only the explicit boolean value `false` (`input.user.tools?.[k] === false`) excludes a tool.
+* Values of `true`, `undefined` (omitted), or other truthy/non-`false` values do not exclude the tool via the message toggle.
+
+---
+
+### 4. How a Permission Rule is Chosen and Used to Disable a Tool
+
+The logic resides in `Permission.disabled` (`packages/opencode/src/permission/index.ts:204–214`):
+
+1. **Rule Selection:**
+   ```ts
+   const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+   ```
+   The ruleset is searched in reverse order (`findLast`) for the last rule whose `rule.permission` matches the tool's normalized permission category using `Wildcard.match`.
+2. **Disabling Decision:**
+   ```ts
+   return rule?.pattern === "*" && rule.action === "deny"
+   ```
+   A tool is marked disabled if and only if a matching rule exists with:
+   * `pattern === "*"` (a blanket wildcard covering all targets/paths)
+   * `action === "deny"` (a hard denial; `"allow"` or `"ask"` do not disable the tool at request preparation time)
+3. **Filtering:**
+   Back in `resolveTools` (`packages/opencode/src/session/llm/request.ts:215`), if `disabled.has(k)`, the tool is stripped from the returned dictionary.
+
+---
+
+### 5. Grouping of Editing and MCP-Resource-Reading Tool Names
+
+In `packages/opencode/src/permission/index.ts:205–209`, tool names are grouped into normalized permission strings before rule lookup:
+
+* **Editing Tools Group:**
+  * Member tool names: `["edit", "write", "apply_patch"]` (line 205)
+  * Mapped permission name: `"edit"` (line 209)
+* **MCP Resource Reading Tools Group:**
+  * Member tool names: `["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]` (line 206)
+  * Mapped permission name: `"read"` (line 209)
+* **Fallback:**
+  * Any tool not in either array maps directly to its own name: `tool` (line 209).
+
+---
+
+### Unresolved Limitations
+
+* Lines 1–169 of `packages/opencode/src/session/llm/request.ts` were not read in full, so the internal identifier of the enclosing Effect function (exported collectively as `LLMRequestPrep` on line 228) was not directly verified.

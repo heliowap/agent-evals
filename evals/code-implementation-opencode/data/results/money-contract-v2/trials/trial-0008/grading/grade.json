@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_money.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom decimal import Decimal, localcontext, getcontext\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\ndef bad(f, *a):\n    try:\n        f(*a)\n    except ValueError:\n        return\n    raise AssertionError((\"no error\", a))\n\n\ndef run():\n    D = Decimal\n    for s, e in [(\"1\", \"1.00\"), (\"+1.5\", \"1.50\"), (\"0001.2300\", \"1.23\"), (\"1.10000\", \"1.10\"),\n                 (\"1000000.00\", \"1000000.00\"), (\"0.01\", \"0.01\"), (\"1000000.000\", \"1000000.00\")]:\n        r = parse_amount(s)\n        assert r == D(e) and r.as_tuple().exponent == -2, (s, r)\n    assert parse_amount(5) == D(\"5.00\")\n    assert parse_amount(D(\"1E+2\")) == D(\"100.00\")\n    assert parse_amount(D(\"12340E-3\")) == D(\"12.34\")\n    assert parse_amount(D(\"1.500\")) == D(\"1.50\")\n    assert parse_amount(D(\"1E+6\")).as_tuple().exponent == -2\n    for v in [\".1\", \"1.\", \" 1\", \"1 \", \"1\\n\", \"1e2\", \"1_0\", \"١\", \"1.٥\", \"\", \"+\", \"-1\", \"0\", \"0.00\",\n              \"1000000.01\", \"1.001\", \"1.239\", \"--1\", \"1,0\", True, False, 1.5, 1.0, None, [], b\"1\",\n              0, -1, 1000001, D(\"NaN\"), D(\"sNaN\"), D(\"Infinity\"), D(\"-Infinity\"), D(\"0\"), D(\"-0\"),\n              D(\"-1\"), D(\"1E+7\"), D(\"1E+999999999\"), D(\"1E-999999999\"), D(\"0.001\"), D(\"1000000.01\"),\n              \"9\" * 5000, \"0.\" + \"0\" * 5000 + \"1\"]:\n        bad(parse_amount, v)\n    assert parse_amount(\"0\" * 5000 + \"1\") == D(\"1.00\")\n    assert format_amount(parse_amount(\"12.50\")) == \"12.50\"\n\n    assert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\n    assert make_invoice([\"1.20\", \"2.30\", 1, D(\"0.5\")]) == {\"total\": \"5.00\", \"count\": 4}\n    for v in [\"1.00\", None, (\"1\",), {\"1\": 1}, iter([\"1\"]), 5]:\n        bad(make_invoice, v)\n    bad(make_invoice, [\"0\"])\n    bad(make_invoice, [\"1\", 1.5])\n    bad(make_invoice, [\"600000\", \"400000.01\"])\n    assert make_invoice([\"600000\", \"400000\"]) == {\"total\": \"1000000.00\", \"count\": 2}\n    lst = [\"1.10\", \"2.20\"]\n    make_invoice(lst)\n    assert lst == [\"1.10\", \"2.20\"]\n\n\nrun()\nfor prec in (1, 3, 5):\n    before = getcontext().copy()\n    with localcontext() as ctx:\n        ctx.prec = prec\n        run()\n        assert ctx.prec == prec\n        assert make_invoice([\"123456.78\", \"234567.89\"]) == {\"total\": \"358024.67\", \"count\": 2}\n        assert parse_amount(\"123456.78\") == Decimal(\"123456.78\", __import__(\"decimal\").Context(prec=20))\nprint(\"ok\")\n",
+      "src/api.py": "from .money import MAX_CENTS, _to_cents, _from_cents, format_amount\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"amounts must be a list\")\n    items = list(amounts)  # snapshot; never mutate the caller's list\n    total = 0\n    for item in items:\n        total += _to_cents(item)\n        if total > MAX_CENTS:\n            raise ValueError(\"total exceeds maximum\")\n    return {\"total\": format_amount(_from_cents(total)), \"count\": len(items)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\nMAX_CENTS = 100000000  # 1000000.00\n\n_STRING_RE = re.compile(r\"([+-]?)([0-9]+)(?:\\.([0-9]+))?\")\n\n\ndef _from_parts(negative, digits, exp):\n    \"\"\"Return integer cents for digits * 10**exp, validating the range.\n\n    Uses only integer/string arithmetic so the active decimal context\n    (precision, traps, ...) has no influence on the result.\n    \"\"\"\n    stripped = digits.lstrip(\"0\")\n    if not stripped:\n        raise ValueError(\"amount must be greater than zero\")\n    if negative:\n        raise ValueError(\"amount must not be negative\")\n    body = stripped.rstrip(\"0\")\n    exp += len(stripped) - len(body)\n    if not body:  # pragma: no cover - defensive\n        raise ValueError(\"amount must be greater than zero\")\n    if exp < -2:\n        raise ValueError(\"amount is not exactly representable in cents\")\n    # Order of magnitude check before building any potentially huge integer.\n    if len(body) + exp + 2 > 12:\n        raise ValueError(\"amount exceeds maximum\")\n    cents = int(body) * 10 ** (exp + 2)\n    if cents > MAX_CENTS:\n        raise ValueError(\"amount exceeds maximum\")\n    return cents\n\n\ndef _to_cents(value):\n    \"\"\"Validate ``value`` and return its amount as an exact integer of cents.\"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"invalid amount type\")\n    if isinstance(value, Decimal):\n        if not value.is_finite():\n            raise ValueError(\"amount must be finite\")\n        sign, digits, exp = value.as_tuple()\n        return _from_parts(bool(sign), \"\".join(map(str, digits)), exp)\n    if isinstance(value, int):\n        if value <= 0:\n            raise ValueError(\"amount must be greater than zero\")\n        if value > MAX_CENTS // 100:\n            raise ValueError(\"amount exceeds maximum\")\n        return value * 100\n    if isinstance(value, str):\n        match = _STRING_RE.fullmatch(value)\n        if match is None or not value.isascii():\n            raise ValueError(\"invalid amount string\")\n        sign, whole, frac = match.groups()\n        frac = frac or \"\"\n        return _from_parts(sign == \"-\", whole + frac, -len(frac))\n    raise ValueError(\"invalid amount type\")\n\n\ndef _from_cents(cents):\n    # Tuple construction is exact and independent of the decimal context.\n    return Decimal((0, tuple(int(d) for d in str(cents)), -2))\n\n\ndef parse_amount(value):\n    return _from_cents(_to_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/test_money.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 141,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.05124041700037196
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.052387458010343835,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05428170901723206,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

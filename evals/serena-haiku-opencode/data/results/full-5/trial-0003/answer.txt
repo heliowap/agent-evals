@@ -1,0 +1,24 @@
+I secured `get_document` and `list_documents`. Both now filter on tenant, owner and `deleted_at IS NULL` in SQL. The existing check and the new tests pass.
+
+**Changes**
+
+- **`src/repository.py`**
+  - `find(connection, tenant, owner, document_id)` filters with `WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL`. Cross-tenant, cross-owner, deleted and missing IDs all return `None`.
+  - `listing(connection, tenant, owner)` filters the same way and keeps `ORDER BY id`.
+  - All values are bound parameters, so names with quotes are safe.
+  - `decode` still returns only `id`, `title` and `body`, so no deletion metadata leaks.
+- **`src/service.py`**: `get_document` and `list_documents` now pass `tenant` and `owner` through instead of ignoring them.
+- **`checks/test_service_access.py`** (new): 8 `unittest` cases covering:
+  - accessible reads, and identical `None` results for cross-owner, cross-tenant, deleted and missing IDs
+  - tenant and owner both being required
+  - list filtering, exclusion of deleted rows and ordering by id
+  - result keys being exactly `id`, `title` and `body`
+  - names containing quotes (`o'brien`, `o'neil`)
+  - SQL-injection-style input not bypassing the filters
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 -m unittest checks/test_service_access.py` runs 8 tests, all OK.
+
+The public check does not use the `tenant` and `owner` arguments, so it can't catch the original bypass. The new test file covers that. The public API signatures are unchanged except for the tenant parameter, which the old code already accepted but ignored.

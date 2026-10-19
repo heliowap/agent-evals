@@ -1,0 +1,185 @@
+{
+  "schema": 1,
+  "phase": "screening",
+  "source_hashes": {
+    ".dockerignore": "08bb7a70af4ae5a9c15226f499f2e76055ebd521550f87eb102a1316cdb9df38",
+    "Dockerfile": "085e13417a531c0f18bfada464eadef8737d6ff4ad12a2cd740a56248d3435d0",
+    "README.md": "4129c34b5439c821dad54c6e51bb7ba05bc410cd9da1a3dacfb8d0cfd274eca1",
+    "bench.py": "a6bed5b1368dfb990cbe25ebfaabed5a69c15900b6a03bc137269d88cef557f1",
+    "contract.py": "4df0821f9f80fcfb976509b067c276d3788219a7b13dc118a844ddce0f42311e",
+    "controller.py": "2be1e04eda434b4ead73380a3d66a96570d7d7f4ca6c4d13528df4133872733b",
+    "domain.py": "cd8c623134145df8ef2309f6c8bcf02adf8ebd7d46c5fdedaced6d57f0849428",
+    "grader.py": "36b2ad3876b279e8ec15e4cff9413ccf9d178de73807af34042d3a0d8fed705d",
+    "isolation.py": "3ef4d096d06a08bb8aa7c8dc398576aadeb90fc0059bf03f075758bbed6d88f5",
+    "observer.js": "c9d25f9e7c9d906dd9607a294b78c8c3aea51c642dc0b2bd56becdda7fd47ec2",
+    "runtime.py": "af6fcdcf1960d9515d1a27a3d27d40824ca2a5568b5bf502d8709543d7ddb03c",
+    "tasks.py": "cb84f1281d8288e428adbde583503eb0bc01b143e01f97e1a950f984ae8952d6",
+    "tasks_python.py": "13c23cb17d43a11bfb94f8f695b92e68266ce8595b0199c9530cc4f218ecb0dd",
+    "tasks_typescript.py": "9af8e4b778002106809c1c09f097784597a86ffca2cecf795f39e2314fe15d30",
+    "terminal.js": "e19c86983776200ef8d2657d981fdb5082ead25a2d54fdf823ac004e234017a4",
+    "test_isolation.py": "9a13f3d2c80185f2cfbdfe2b63c79b0f8c6b5927e69b8e429dc1ccc95c2c7dd8",
+    "test_runtime.py": "270f5f4333dccf2d2d57ba78f17793e586a19cd6fed067f45ceba37e3376796b",
+    "test_tasks_python.py": "d116ef40b35fa021d7a73f56b581cc8093381b7ff36381b9f0e0ec1f64c58754",
+    "test_tasks_typescript.py": "2d98c33e58e54622e6a69138a0bbc77e3715435012e882fff6a1e1cee0a50c5f"
+  },
+  "tool_surface": "isolated_terminal_only",
+  "candidates": [
+    {
+      "id": "sol-fast-low",
+      "provider": "openai",
+      "model": "gpt-6.1-sol-fast",
+      "variant": "low",
+      "credential_provider": "openai",
+      "upstream": "https://chatgpt.com/backend-api/codex",
+      "effort": "low",
+      "fast": true,
+      "wire_model": "gpt-6.1-sol",
+      "protocol": "responses",
+      "auth_type": "oauth",
+      "selection": "openai/gpt-6.1-sol-fast#low"
+    },
+    {
+      "id": "glm-flash-high",
+      "provider": "opencode-go",
+      "model": "glm-5.3-flash",
+      "variant": "high",
+      "credential_provider": "opencode-go",
+      "upstream": "https://opencode.ai/zen/go/v1",
+      "effort": "high",
+      "fast": false,
+      "wire_model": "glm-5.3-flash",
+      "protocol": "chat",
+      "auth_type": "key",
+      "selection": "opencode-go/glm-5.3-flash#high"
+    },
+    {
+      "id": "glm-flash-max",
+      "provider": "opencode-go",
+      "model": "glm-5.3-flash",
+      "variant": "max",
+      "credential_provider": "opencode-go",
+      "upstream": "https://opencode.ai/zen/go/v1",
+      "effort": "max",
+      "fast": false,
+      "wire_model": "glm-5.3-flash",
+      "protocol": "chat",
+      "auth_type": "key",
+      "selection": "opencode-go/glm-5.3-flash#max"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "py-money-contract-v2",
+      "phase": "screening",
+      "family": "contracts",
+      "language": "python",
+      "request": "Replace float-based parsing in src/money.py. parse_amount accepts Decimal objects, integers excluding bool, and strings that fully match the ASCII grammar [+-]?[0-9]+(?:\\.[0-9]+)?. Strings require digits before the decimal point and, if a decimal point is present, digits after it. Leading zeros and an optional sign are allowed. Reject .1, 1., whitespace, exponents, underscores, and non-ASCII digits in strings with ValueError. Decimal objects may use exponent notation.\n\nReject floats, other types, non-finite numbers, zero, negatives, values over 1000000.00, and values not exactly representable in cents with ValueError. Extra trailing zeros are allowed; never round a nonzero fractional cent. Return a Decimal with exponent -2. Preserve format_amount.\n\nMake src/api.py.make_invoice accept only a Python list of amounts and apply the same validation to every item. Reject non-list inputs, including strings and None, invalid items, and totals over 1000000.00 with ValueError. Sum the amounts exactly without rounding. Return {'total': a two-decimal string, 'count': N}. An empty list returns {'total': '0.00', 'count': 0}.\n\nParsing and summation must remain exact even when the caller's decimal precision is too low to represent an amount or total, including a precision of 3. Do not mutate the global decimal context or the caller's input. Start in src/money.py and src/api.py.",
+      "files": {
+        "src/money.py": "from decimal import Decimal\n\ndef parse_amount(value):\n    return Decimal(str(round(float(value), 2)))\n\ndef format_amount(value):\n    return format(value, \".2f\")\n",
+        "src/api.py": "from .money import parse_amount, format_amount\n\ndef make_invoice(amounts):\n    total = sum((parse_amount(item) for item in amounts), start=parse_amount(\"0\"))\n    return {\"total\": format_amount(total), \"count\": len(amounts)}\n",
+        "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\nassert format_amount(parse_amount(\"12.50\")) == \"12.50\"\nassert make_invoice([\"1.20\", \"2.30\"]) == {\"total\": \"3.50\", \"count\": 2}\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\n",
+        "src/__init__.py": "",
+        "README.md": "# Service component\n\nReplace float-based parsing in src/money.py. parse_amount accepts Decimal objects, integers excluding bool, and strings that fully match the ASCII grammar [+-]?[0-9]+(?:\\.[0-9]+)?. Strings require digits before the decimal point and, if a decimal point is present, digits after it. Leading zeros and an optional sign are allowed. Reject .1, 1., whitespace, exponents, underscores, and non-ASCII digits in strings with ValueError. Decimal objects may use exponent notation.\n\nReject floats, other types, non-finite numbers, zero, negatives, values over 1000000.00, and values not exactly representable in cents with ValueError. Extra trailing zeros are allowed; never round a nonzero fractional cent. Return a Decimal with exponent -2. Preserve format_amount.\n\nMake src/api.py.make_invoice accept only a Python list of amounts and apply the same validation to every item. Reject non-list inputs, including strings and None, invalid items, and totals over 1000000.00 with ValueError. Sum the amounts exactly without rounding. Return {'total': a two-decimal string, 'count': N}. An empty list returns {'total': '0.00', 'count': 0}.\n\nParsing and summation must remain exact even when the caller's decimal precision is too low to represent an amount or total, including a precision of 3. Do not mutate the global decimal context or the caller's input. Start in src/money.py and src/api.py.\n\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\n"
+      },
+      "reference": {
+        "src/money.py": "from decimal import Decimal, InvalidOperation, localcontext\nimport re\n\ndef parse_amount(value):\n    if isinstance(value, str):\n        if re.fullmatch(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\", value) is None:\n            raise ValueError(\"invalid decimal spelling\")\n    elif not isinstance(value, Decimal) and type(value) is not int:\n        raise ValueError(\"invalid amount type\")\n    try:\n        number = Decimal(value)\n        if not number.is_finite() or number <= 0 or number > Decimal(\"1000000.00\"):\n            raise ValueError(\"amount outside limits\")\n        with localcontext() as context:\n            context.prec = max(32, len(number.as_tuple().digits) + 4)\n            cents = number.quantize(Decimal(\"0.01\"))\n        if cents != number:\n            raise ValueError(\"fractional cent\")\n        return cents\n    except InvalidOperation as exc:\n        raise ValueError(\"invalid amount\") from exc\n\ndef format_amount(value):\n    return format(value, \".2f\")\n",
+        "src/api.py": "from decimal import Decimal, localcontext\nfrom .money import parse_amount, format_amount\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"amounts must be a list\")\n    clean = [parse_amount(item) for item in amounts]\n    with localcontext() as context:\n        context.prec = 32\n        total = sum(clean, Decimal(\"0.00\"))\n    if total > Decimal(\"1000000.00\"):\n        raise ValueError(\"invoice exceeds limit\")\n    return {\"total\": format_amount(total), \"count\": len(clean)}\n"
+      },
+      "acceptance": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom decimal import Decimal, getcontext, localcontext\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\nfor value, expected in [(\"0.01\", \"0.01\"), (\"+0012.3400\", \"12.34\"), (Decimal(\"1E+2\"), \"100.00\"), (5, \"5.00\"), (\"1000000.00\", \"1000000.00\"), (\"0.1000000000000000000000000000000000000000\", \"0.10\")]:\n    result = parse_amount(value)\n    assert isinstance(result, Decimal)\n    assert result.as_tuple().exponent == -2\n    assert format_amount(result) == expected\ninvalid = [True, False, 1.2, None, [], {}, \"\", \" 1.00\", \"1.00 \", \"1e2\", \".1\", \"1.\", \"1_000\", \"NaN\", \"Infinity\", Decimal(\"NaN\"), Decimal(\"Infinity\"), \"0\", \"-0.00\", \"-1\", \"0.001\", \"1.005\", \"999999.999\", \"1000000.01\", Decimal(\"12.0001\")]\nfor value in invalid:\n    try:\n        parse_amount(value)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(\"invalid amount accepted: \" + repr(value))\nvalues = [\"0.10\", \"0.20\", \"999999.70\"]\nassert make_invoice(values) == {\"total\": \"1000000.00\", \"count\": 3}\nassert values == [\"0.10\", \"0.20\", \"999999.70\"]\nfor amounts in [[\"999999.99\", \"0.02\"], [\"1.00\", \"0.001\"], \"1.00\", None]:\n    try:\n        make_invoice(amounts)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(\"invalid invoice accepted\")\nwith localcontext() as context:\n    context.prec = 3\n    assert parse_amount(\"123456.78\") == Decimal(\"123456.78\")\n    assert make_invoice([\"123456.78\", \"0.22\"]) == {\"total\": \"123457.00\", \"count\": 2}\n    assert getcontext().prec == 3\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    }
+  ],
+  "schedule": [
+    {
+      "id": "trial-0001",
+      "block": 0,
+      "task": "py-money-contract-v2",
+      "rep": 3,
+      "candidate": "glm-flash-high"
+    },
+    {
+      "id": "trial-0002",
+      "block": 0,
+      "task": "py-money-contract-v2",
+      "rep": 3,
+      "candidate": "sol-fast-low"
+    },
+    {
+      "id": "trial-0003",
+      "block": 0,
+      "task": "py-money-contract-v2",
+      "rep": 3,
+      "candidate": "glm-flash-max"
+    },
+    {
+      "id": "trial-0004",
+      "block": 1,
+      "task": "py-money-contract-v2",
+      "rep": 1,
+      "candidate": "sol-fast-low"
+    },
+    {
+      "id": "trial-0005",
+      "block": 1,
+      "task": "py-money-contract-v2",
+      "rep": 1,
+      "candidate": "glm-flash-max"
+    },
+    {
+      "id": "trial-0006",
+      "block": 1,
+      "task": "py-money-contract-v2",
+      "rep": 1,
+      "candidate": "glm-flash-high"
+    },
+    {
+      "id": "trial-0007",
+      "block": 2,
+      "task": "py-money-contract-v2",
+      "rep": 2,
+      "candidate": "glm-flash-max"
+    },
+    {
+      "id": "trial-0008",
+      "block": 2,
+      "task": "py-money-contract-v2",
+      "rep": 2,
+      "candidate": "glm-flash-high"
+    },
+    {
+      "id": "trial-0009",
+      "block": 2,
+      "task": "py-money-contract-v2",
+      "rep": 2,
+      "candidate": "sol-fast-low"
+    }
+  ],
+  "reps": 3,
+  "seed": 20261010,
+  "budget": {
+    "seconds": 1200,
+    "calls": 60,
+    "grace": 15
+  },
+  "global_seconds": 21600,
+  "opencode": "2.0.26",
+  "catalog_sha256": "f6a22feaaf4916289ead67712a27b2ba7ccdb38f6dc23ddfae11158b28a1a761",
+  "image_spec": {
+    "tag": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed",
+    "dockerfile_sha256": "085e13417a531c0f18bfada464eadef8737d6ff4ad12a2cd740a56248d3435d0",
+    "image_id": null
+  },
+  "native_steps": null,
+  "call_limit_overshoot_allowed": 1,
+  "comparison_tie_ratio": [
+    0.95,
+    1.05
+  ],
+  "observation": "passive_native_provider",
+  "network": "none",
+  "filesystem": "workspace_only"
+}

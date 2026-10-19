@@ -1,0 +1,275 @@
+{
+  "blind_id": "b-64bf9bb51358ba1dabaa7237b2b6ba79",
+  "task_id": "T2",
+  "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe plan to run customer-uploaded JavaScript on Node.js v24.21.0 and use its Permission Model as the sole tenant-isolation boundary. Staging uses --permission-audit; production would use --permission. The launcher grants reads with the literal argument --allow-fs-read=/srv/jobs/*.js, loads an environment file outside that read list using --env-file, and passes the job an already-open file descriptor. Job directories may contain relative symbolic links. We also enable --allow-worker and assume workers inherit exactly the parent's restrictions.\n\nReview this proposal against version-matched official documentation and the Node.js security policy. Which assumptions require changing before deployment, and which mechanisms are useful for trusted application code instead? If the sources do not establish one consistent worker-inheritance answer, state the limitation rather than silently choosing a convenient claim. Do these documents let you certify this deployment's tenant isolation?\n\nStarting URLs\n- https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html\n- https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+  "answer": "I'll fetch the version-matched permission docs and the security policy first.\n\nBoth key pages fetched. There's a worker-inheritance conflict to resolve. Let me check the CLI flag reference and worker_threads docs.\n\n## Decision\n\nDo not deploy this as designed. Node.js documentation explicitly states the Permission Model **cannot** be the sole tenant-isolation boundary for untrusted code. It is a \"seat belt\" that \"does not provide security guarantees in the presence of malicious code\" ([permissions.html#permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions)), and the security policy calls it a blast-radius reducer \"not… a security boundary against intentional misuse or a compromised process\" ([SECURITY.md](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md)). Customer-uploaded JavaScript is exactly the trusted-code assumption this model rejects.\n\n## Assumptions requiring change\n\n- **`--permission-audit` in staging denies nothing.** It only publishes violations to diagnostics channels; execution continues ([#audit-mode](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#audit-mode)). It discovers required permissions; it is not a safety control.\n- **`/srv/jobs/*.js` is far broader than intended.** \"After passing a wildcard character (`*`) all subsequent characters will be ignored… `/home/*.js` will work similar to `/home/*`\" ([#file-system-permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions)). This grants the whole `/srv/jobs` tree.\n- **`--env-file` is not gated by the model.** Such flags read files before environment initialization and \"are not subject to the rules of the Permission Model\" ([#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)); its secrets reach the job via `process.env`.\n- **Passing an already-open FD bypasses the model.** \"Using existing file descriptors via the `node:fs` module bypasses the Permission Model\" (same section).\n- **Relative symlinks escape the grant.** \"Relative symbolic links may allow access to arbitrary files… you must ensure that no paths to which access has been granted contain relative symbolic links\" ([#limitations-and-known-issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues)).\n- Also relevant: `node:sqlite` and `process._debugProcess()` can reach resources with no grants (same pages).\n\n## Worker inheritance — inconsistent\n\nSources conflict: permissions.html lists \"The model does not inherit to a worker thread,\" while SECURITY.md says workers inherit the parent's restrictions and `execArgv` cannot expand them. **UNVERIFIED** — resolve against the v24 Node.js source/tests or a `worker_threads` issue before relying on it.\n\n## Certification\n\nNo. These documents do not let you certify tenant isolation; use OS-level isolation (separate users, seccomp/AppArmor, containers). The model is useful only for trusted application code as defense-in-depth alongside `permission.drop()` and audit-mode discovery.",
+  "sources": [
+    {
+      "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+      "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+      "candidate_visible_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+      "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s2.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+      "candidate_visible_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s2.txt"
+    },
+    {
+      "url": "https://nodejs.org/download/release/v24.21.0/docs/api/cli.html",
+      "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s3.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://nodejs.org/download/release/v24.21.0/docs/api/cli.html",
+      "candidate_visible_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s3.txt"
+    },
+    {
+      "url": "https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html",
+      "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s4.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html",
+      "candidate_visible_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s4.txt"
+    },
+    {
+      "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+      "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s5.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+      "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s6.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    }
+  ],
+  "rubric": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirement": "Not a malicious-code security boundary",
+        "accepted": [
+          "reject the sole tenant-isolation premise; the model is a seat belt for trusted code and does not protect against malicious uploaded code."
+        ],
+        "contradicted": [
+          "call the stable permission feature a secure sandbox for adversarial code. Stability alone does not earn credit."
+        ],
+        "rubric_text": "S: reject the sole tenant-isolation premise; the model is a seat belt for trusted code and does not protect against malicious uploaded code. X: call the stable permission feature a secure sandbox for adversarial code. Stability alone does not earn credit.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions",
+            "quote": "It does not provide security guarantees in the presence of malicious code.",
+            "source_id": "N-P",
+            "anchor": "permissions",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          },
+          {
+            "url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+            "quote": "It is designed to reduce the blast radius of mistakes in trusted application code, **not** to act as a security boundary against intentional misuse or a compromised process.",
+            "source_id": "N-S",
+            "anchor": null,
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "requirement": "Audit is not enforcement",
+        "accepted": [
+          "staging audit reports violations without denying access; use enforce mode when testing denial behavior."
+        ],
+        "contradicted": [
+          "assert audit mode blocks unauthorized operations. O: mention different modes without their consequential distinction."
+        ],
+        "rubric_text": "S: staging audit reports violations without denying access; use enforce mode when testing denial behavior. X: assert audit mode blocks unauthorized operations. O: mention different modes without their consequential distinction.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#audit-mode",
+            "quote": "In audit mode, permission checks are performed but access is **not** denied",
+            "source_id": "N-P",
+            "anchor": "audit-mode",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "requirement": "The glob is not a JavaScript-extension filter",
+        "accepted": [
+          "suffix after `*` is ignored, so `/srv/jobs/*.js` behaves like `/srv/jobs/*`."
+        ],
+        "contradicted": [
+          "assert only `.js` files under the tree can be read. Directory matching details need not be exhaustively enumerated."
+        ],
+        "rubric_text": "S: suffix after `*` is ignored, so `/srv/jobs/*.js` behaves like `/srv/jobs/*`. X: assert only `.js` files under the tree can be read. Directory matching details need not be exhaustively enumerated.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions",
+            "quote": "After passing a wildcard character (`*`) all subsequent characters will be ignored.",
+            "source_id": "N-P",
+            "anchor": "file-system-permissions",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "requirement": "Startup env-file read is an exception",
+        "accepted": [
+          "`--env-file` reads before model initialization and is not restricted by its rules."
+        ],
+        "contradicted": [
+          "rely on the fs read allowlist to deny that startup read. Do not require advice to remove legitimate trusted configuration."
+        ],
+        "rubric_text": "S: `--env-file` reads before model initialization and is not restricted by its rules. X: rely on the fs read allowlist to deny that startup read. Do not require advice to remove legitimate trusted configuration.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+            "quote": "However, certain flags such as `--env-file` or `--openssl-config` are designed to read files before environment initialization.",
+            "source_id": "N-P",
+            "anchor": "permission-model-constraints",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          },
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+            "quote": "As a result, such flags are not subject to the rules of the Permission Model.",
+            "source_id": "N-P",
+            "anchor": "permission-model-constraints",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C5",
+        "requirement": "Existing descriptor bypass",
+        "accepted": [
+          "already-open file descriptors used through `node:fs` bypass the model; the proposed descriptor must be considered independently of path grants."
+        ],
+        "contradicted": [
+          "claim the model retroactively restricts all reads through that descriptor."
+        ],
+        "rubric_text": "S: already-open file descriptors used through `node:fs` bypass the model; the proposed descriptor must be considered independently of path grants. X: claim the model retroactively restricts all reads through that descriptor.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+            "quote": "Using existing file descriptors via the `node:fs` module bypasses the Permission Model.",
+            "source_id": "N-P",
+            "anchor": "permission-model-constraints",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "requirement": "Do not certify path containment with relative symlinks",
+        "accepted": [
+          "report the permissions manual's warning that relative symlinks in granted paths can reach outside them; remove/audit such links instead of treating the literal allowlist as proven containment."
+        ],
+        "contradicted": [
+          "say the manual guarantees links cannot escape granted roots. Accept an answer noting the security policy's narrower canonical-path discussion while retaining this documented warning; do not demand an untested exploit or blanket claim about every symlink."
+        ],
+        "rubric_text": "S: report the permissions manual's warning that relative symlinks in granted paths can reach outside them; remove/audit such links instead of treating the literal allowlist as proven containment. X: say the manual guarantees links cannot escape granted roots. Accept an answer noting the security policy's narrower canonical-path discussion while retaining this documented warning; do not demand an untested exploit or blanket claim about every symlink.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues",
+            "quote": "Symbolic links will be followed even to locations outside of the set of paths that access has been granted to.",
+            "source_id": "N-P",
+            "anchor": "limitations-and-known-issues",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          },
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues",
+            "quote": "Relative symbolic links may allow access to arbitrary files and directories.",
+            "source_id": "N-P",
+            "anchor": "limitations-and-known-issues",
+            "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+          }
+        ]
+      }
+    ],
+    "uncertainty": {
+      "id": "U",
+      "requirement": "Worker inheritance is genuinely conflicting in the fetched docs",
+      "pass": "explicitly identify the two opposing first-party statements below; mark the worker-inheritance assumption UNVERIFIED from these pages, and propose inspecting the v24.21.0 implementation/tests or obtaining a maintainer clarification. Do not infer reliable tenant isolation either way. Citation to both opposing pages is needed to substantiate the conflict. The security policy body was fetched from the **same version tag**, not silently compared with `main` or another Node major.",
+      "omit": "avoid workers entirely or say only 'limitations apply'. If a candidate obtains stronger version-matched primary implementation/test evidence, preserve the conflict finding and separately verify the resolution; do not alter C1-C6 or reward an uncited guess.",
+      "fail": "assert either universal inheritance or universal non-inheritance as a settled conclusion from these two conflicting documents.",
+      "source_evidence": [
+        {
+          "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+          "quote": "The model does not inherit to a worker thread.",
+          "source_id": "N-P",
+          "anchor": "permission-model-constraints",
+          "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s1.txt"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+          "quote": "Workers inherit the permission restrictions of their parent process.",
+          "source_id": "N-S",
+          "anchor": null,
+          "source_path": "blind/cases/b-64bf9bb51358ba1dabaa7237b2b6ba79/sources/s2.txt"
+        }
+      ]
+    },
+    "critical_errors": [
+      "approve adversarial tenant isolation from `--permission`",
+      "mistake audit for enforcement",
+      "assert a `.js`-only read grant",
+      "declare env-file or existing descriptors protected by the path allowlist",
+      "assert symlink containment is guaranteed. A worker conclusion without recognizing the conflict is U-fail, not an invented extra factual check."
+    ],
+    "critical_errors_text": "approve adversarial tenant isolation from `--permission`; mistake audit for enforcement; assert a `.js`-only read grant; declare env-file or existing descriptors protected by the path allowlist; assert symlink containment is guaranteed. A worker conclusion without recognizing the conflict is U-fail, not an invented extra factual check.",
+    "source_rules": {
+      "description": "`nodejs.org`, `raw.githubusercontent.com` restricted to `nodejs/node/v24.21.0/SECURITY.md`; `github.com/nodejs/node` may be used for official version-matched browsing/supplemental clarification. Archive the two starting bodies, not `latest-v24.x`, plus the docs header identifying v24.21.0. The fixed HTML manual and raw security policy were both practical, untruncated Markdown fetches. **Caveat:** no Node execution or code inspection was done; the contradiction is a documented-evidence task, not a claim about actual runtime inheritance. The policy's symlink paragraph does not justify ignoring the explicit manual warning.",
+      "allowed_url_patterns": [
+        "https://nodejs\\.org/download/release/v24\\.21\\.0/docs/api/[^?#]*",
+        "https://raw\\.githubusercontent\\.com/nodejs/node/v24\\.21\\.0/SECURITY\\.md",
+        "https://github\\.com/nodejs/node/(?:blob|tree)/v24\\.21\\.0(?:/[^?#]*)?"
+      ],
+      "required_source_urls": [
+        "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+        "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md"
+      ],
+      "minimum_distinct_sources": 2,
+      "minimum_answer_bearing_sources": 2,
+      "discovery_chain": {
+        "description": "fixed-version permissions reference → constraints/limitations plus its security-policy link; use the supplied fixed-tag security policy rather than the reference's floating `main` link. Combine permissions behavior with the threat model and both worker statements. **Minimum distinct content sources: 2, both answer-bearing.**",
+        "edges": [
+          {
+            "from": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+            "to": "https://github.com/nodejs/node/blob/main/SECURITY.md",
+            "relation": "documentation_link",
+            "note": "Floating policy link is discovery evidence only; fetch the supplied v24.21.0 tag instead."
+          }
+        ],
+        "minimum_distinct_sources": 2
+      }
+    }
+  },
+  "mechanical": {
+    "attempted": true,
+    "operational_complete": true,
+    "visible_words": 346,
+    "word_cap": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "fetched_two_sources": true,
+    "distinct_fetched_pages": 4,
+    "requested_tool_calls": 4,
+    "fetch_attempts": 4,
+    "truncated_fetches": 0,
+    "semantic_grading": "required; not automatically assigned",
+    "explicit_self_identification_redacted": false
+  }
+}

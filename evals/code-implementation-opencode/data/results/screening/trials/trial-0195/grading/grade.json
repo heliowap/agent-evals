@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/stream_checks.py": "\"\"\"Edge-case checks for stream_rows and take (run: python3 checks/stream_checks.py).\"\"\"\nimport gc\nimport os\nimport sys\n\nsys.path.insert(0, os.getcwd())\n\nfrom src.consumer import take\nfrom src.resource import Rows\nfrom src.service import stream_rows\n\n\nclass FailingRead(Rows):\n    def __init__(self, error, rows=(), close_error=None):\n        super().__init__(rows)\n        self.error = error\n        self.close_error = close_error\n\n    def read_next(self):\n        self.reads += 1\n        raise self.error\n\n    def close(self):\n        self.closes += 1\n        if self.close_error is not None:\n            raise self.close_error\n\n\nclass FailingClose(Rows):\n    def __init__(self, rows, error):\n        super().__init__(rows)\n        self.error = error\n\n    def close(self):\n        self.closes += 1\n        raise self.error\n\n\ndef raises(exc_type, fn):\n    try:\n        fn()\n    except exc_type as exc:\n        return exc\n    raise AssertionError(\"expected %s\" % exc_type.__name__)\n\n\n# --- stream_rows: laziness, exhaustion, identity ---------------------------------\nr = Rows([1, 2, 3])\nstream = stream_rows(r, lambda value: value * 2)\nassert (r.reads, r.closes) == (0, 0)\nassert next(stream) == 2\nassert (r.reads, r.closes) == (1, 0)\nassert list(stream) == [4, 6]\nassert (r.reads, r.closes) == (4, 1)\nstream.close()\nassert r.closes == 1  # already exhausted, closing again does nothing\n\n# --- unstarted generators -------------------------------------------------------\nr = Rows([1, 2])\nstream = stream_rows(r, str)\nstream.close()\nassert (r.reads, r.closes) == (0, 0)\nr = Rows([1, 2])\nstream = stream_rows(r, str)\ndel stream\ngc.collect()\nassert (r.reads, r.closes) == (0, 0)\n\n# --- explicit close after starting ----------------------------------------------\nr = Rows([1, 2, 3])\nstream = stream_rows(r, lambda value: value)\nassert next(stream) == 1\nstream.close()\nassert (r.reads, r.closes) == (1, 1)\nstream.close()\nassert r.closes == 1\n\n# --- GC of a started generator --------------------------------------------------\nr = Rows([1, 2, 3])\nstream = stream_rows(r, lambda value: value)\nassert next(stream) == 1\ndel stream\ngc.collect()\nassert r.closes == 1\n\n# --- iteration error: propagates, closes once -----------------------------------\nread_error = RuntimeError(\"read boom\")\nr = FailingRead(read_error)\nstream = stream_rows(r, lambda value: value)\nassert raises(RuntimeError, lambda: next(stream)) is read_error\nassert r.closes == 1\nassert raises(StopIteration, lambda: next(stream))\n\n# --- transform error: propagates, no further read, closes once -------------------\nr = Rows([1, 2, 3, 4])\nseen = []\n\n\ndef explode_on_two(value):\n    seen.append(value)\n    if value == 2:\n        raise ValueError(\"transform boom\")\n    return value\n\n\nerr = raises(ValueError, lambda: list(stream_rows(r, explode_on_two)))\nassert str(err) == \"transform boom\"\nassert seen == [1, 2]\nassert (r.reads, r.closes) == (2, 1)\n\n# --- cleanup error on exhaustion propagates -------------------------------------\nclose_error = RuntimeError(\"cleanup boom\")\nr = FailingClose([1], close_error)\nassert raises(RuntimeError, lambda: list(stream_rows(r, lambda value: value))) is close_error\nassert r.closes == 1\n\n# --- cleanup error on explicit close propagates ---------------------------------\nr = FailingClose([1, 2], close_error)\nstream = stream_rows(r, lambda value: value)\nassert next(stream) == 1\nassert raises(RuntimeError, lambda: stream.close()) is close_error\nassert r.closes == 1\n\n# --- cleanup error is suppressed while a read error is active -------------------\nread_error = KeyError(\"original read\")\ncleanup_error = RuntimeError(\"cleanup during read\")\nr = FailingRead(read_error, close_error=cleanup_error)\nassert raises(KeyError, lambda: next(stream_rows(r, lambda value: value))) is read_error\nassert r.closes == 1\n\n# --- cleanup error is suppressed while a transform error is active --------------\ntransform_error = ValueError(\"original transform\")\ncleanup_error = RuntimeError(\"cleanup during transform\")\nr = FailingClose([1, 2], cleanup_error)\n\n\ndef fail(_value):\n    raise transform_error\n\n\nassert raises(ValueError, lambda: list(stream_rows(r, fail))) is transform_error\nassert r.closes == 1\n\n# --- take: zero limit starts nothing --------------------------------------------\nr = Rows([1, 2, 3])\nassert take(r, lambda value: value, 0) == []\nassert (r.reads, r.closes) == (0, 0)\n\n# --- take: positive limit reads lazily and closes once ---------------------------\nr = Rows([1, 2, 3, 4])\nassert take(r, lambda value: value * 10, 2) == [10, 20]\nassert (r.reads, r.closes) == (2, 1)\n\n# --- take: limit beyond the data consumes everything, closes once ----------------\nr = Rows([1, 2])\nassert take(r, lambda value: value, 5) == [1, 2]\nassert (r.reads, r.closes) == (3, 1)\n\n# --- take: transform failure propagates, closes once -----------------------------\nr = Rows([1, 2, 3])\n\n\ndef fail_on_two(value):\n    if value == 2:\n        raise ValueError(\"take transform boom\")\n    return value\n\n\nassert raises(ValueError, lambda: take(r, fail_on_two, 3))\nassert (r.reads, r.closes) == (2, 1)\n\n# --- take: iteration failure propagates, closes once -----------------------------\nread_error = RuntimeError(\"take read boom\")\nr = FailingRead(read_error)\nassert raises(RuntimeError, lambda: take(r, lambda value: value, 3)) is read_error\nassert r.closes == 1\n\n# --- take: cleanup error suppressed behind transform error -----------------------\nr = FailingClose([1], cleanup_error)\nassert raises(ValueError, lambda: take(r, fail, 3)) is transform_error\nassert r.closes == 1\n\nprint(\"stream checks: all passed\")\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    \"\"\"Collect up to ``limit`` transformed rows, closing the iterator.\n\n    A non-positive limit returns an empty list without starting the stream.\n    After taking the requested positive number of rows, or if consuming the\n    stream fails, the iterator is closed so the resource is released.\n    \"\"\"\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    finally:\n        stream.close()\n    return result\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    \"\"\"Yield transformed rows lazily, closing the resource exactly once.\n\n    The resource is closed when the rows are exhausted, when the iterator is\n    explicitly closed (or garbage collected after being started), when reading\n    a row fails and when ``transform`` fails.  A cleanup error raised while an\n    iteration or transformation error is propagating is suppressed so that the\n    original error wins; otherwise the cleanup error propagates.  Creating the\n    iterator, or closing it before it is started, performs no read or close.\n    \"\"\"\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            yield transform(row)\n    except GeneratorExit:\n        # Explicit close (or GC of a started generator): cleanup errors from\n        # here replace GeneratorExit, as no iteration/transform error is active.\n        resource.close()\n        raise\n    except BaseException:\n        # An iteration or transformation error is active: preserve it even if\n        # cleanup fails.\n        try:\n            resource.close()\n        except BaseException:\n            pass\n        raise\n    else:\n        # Exhaustion: no active error, so a cleanup error propagates.\n        resource.close()\n"
+    },
+    "changed_files": [
+      "checks/stream_checks.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 237,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.043948583013843745
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04410737499711104,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.047473916987655684,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

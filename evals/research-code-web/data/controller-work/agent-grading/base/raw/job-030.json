@@ -1,0 +1,145 @@
+[
+  {
+    "blind_id": "b-6fcc1a01fe69050f69c1258e",
+    "units": [
+      {
+        "id": "C05.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly locates the downward search as (*Command).Find at command.go:755-779, with the declaration at 757.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "func (c *Command) Find(args []string) (*Command, []string, error) {"},
+          {"source_id": "e-0005", "quote": "// Meant to be run on the highest node. Only searches down."}
+        ]
+      },
+      {
+        "id": "C05.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Accurately distinguishes the flag-stripped lookup view from original remaining arguments, explains recursive removal of only the matched command token, and covers both stopping cases (760-772). The removal helper preserves flag values (729-743).",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "argsWOflags := stripFlags(innerArgs, c)"},
+          {"source_id": "e-0005", "quote": "if len(argsWOflags) == 0 {"},
+          {"source_id": "e-0005", "quote": "return c, innerArgs"},
+          {"source_id": "e-0005", "quote": "return innerfind(cmd, c.argsMinusFirstX(innerArgs, nextSubCmd))"},
+          {"source_id": "e-0007", "quote": "// argsMinusFirstX removes only the first x from args."},
+          {"source_id": "e-0007", "quote": "// over the next arg, because that is the value of this flag."}
+        ]
+      },
+      {
+        "id": "C05.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly states that findNext immediately returns a name/alias match and records the supplied spelling (798-804). Case folding and alias iteration are also supported by the inspected helpers.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "if commandNameMatches(cmd.Name(), next) || cmd.HasAlias(next) {"},
+          {"source_id": "e-0005", "quote": "cmd.commandCalledAs.name = next"},
+          {"source_id": "e-0005", "quote": "return cmd"},
+          {"source_id": "e-0008", "quote": "if commandNameMatches(a, s) {"},
+          {"source_id": "e-0011", "quote": "return strings.EqualFold(s, t)"},
+          {"source_id": "e-0011", "quote": "return s == t"}
+        ]
+      },
+      {
+        "id": "C05.U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly limits prefix acceptance to one candidate; ambiguity returns nil and stops descent while preserving remaining args. The answer expressly retains possible legacyArgs errors rather than promising success (775-778, 805-816).",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "if EnablePrefixMatching && cmd.hasNameOrAliasPrefix(next) {"},
+          {"source_id": "e-0005", "quote": "matches = append(matches, cmd)"},
+          {"source_id": "e-0005", "quote": "if len(matches) == 1 {"},
+          {"source_id": "e-0005", "quote": "return matches[0]"},
+          {"source_id": "e-0005", "quote": "command.go:816:"},
+          {"source_id": "e-0005", "quote": "return nil"},
+          {"source_id": "e-0005", "quote": "return c, innerArgs"},
+          {"source_id": "e-0005", "quote": "return commandFound, a, legacyArgs(commandFound, stripFlags(a, commandFound))"}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": false,
+    "auxiliary": {
+      "citation_coverage": {"value": "high", "rationale": "All required mechanisms and substantive additional implementation claims have path/line citations."},
+      "citation_entailment": {"value": "high", "rationale": "Inspected source spans substantiate selection, recursion, flag retention, matching, and ambiguity handling; later error behavior is appropriately qualified."},
+      "source_authority": {"value": "primary", "rationale": "Eligible evidence is the assigned snapshot's implementation source."},
+      "unsupported_extras": {"value": "none_material_observed", "rationale": "Helpers, defaults, legacyArgs, and Traverse contrast are supported by inspected source; CalledAs wording describes capability, not an unconditional result from Find alone."},
+      "uncertainty": {"value": "appropriate", "rationale": "Distinguishes static control-flow inference from runtime observation and qualifies eventual ambiguous-token errors."},
+      "usability": {"value": "good", "rationale": "Directly answers each requested mechanism with explicit paths and spans, without claiming execution or test results."},
+      "tool_navigation": {"value": "successful", "rationale": "Successful eligible reads cover the central implementation and relevant helpers; no material navigation issue is visible."}
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  },
+  {
+    "blind_id": "b-7366a61ac08272a748d44ce9",
+    "units": [
+      {
+        "id": "C09.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly traces the instance builder to pipe(this, transform(tx)), the transform factory's callback-bearing ZodTransform, and the input/output ZodPipe representation (classic 245-247, 2291-2298, 2559-2566).",
+        "evidence": [
+          {"source_id": "e-0011", "quote": "return pipe(this, transform(tx));"},
+          {"source_id": "e-0005", "quote": "return new ZodTransform({"},
+          {"source_id": "e-0005", "quote": "transform: fn as any,"},
+          {"source_id": "e-0008", "quote": "return new ZodPipe({"},
+          {"source_id": "e-0008", "quote": "in: in_ as unknown as core.$ZodType,"},
+          {"source_id": "e-0008", "quote": "out: out as unknown as core.$ZodType,"}
+        ]
+      },
+      {
+        "id": "C09.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly describes forward input-first execution and Promise chaining before the output transform stage (core 4441-4446). Classic ZodPipe initializes the core implementation (2547).",
+        "evidence": [
+          {"source_id": "e-0008", "quote": "core.$ZodPipe.init(inst, def);"},
+          {"source_id": "e-0010", "quote": "const left = def.in._zod.run(payload, ctx);"},
+          {"source_id": "e-0010", "quote": "return left.then((left) => handlePipeResult(left, def.out, ctx));"},
+          {"source_id": "e-0010", "quote": "return handlePipeResult(left, def.out, ctx);"}
+        ]
+      },
+      {
+        "id": "C09.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Accurately states that any non-unrecognized_keys issue aborts the pipe, while unrecognized_keys-only issues allow the next stage. The quoted implementation also explicitly carries those issues onward (4451-4456).",
+        "evidence": [
+          {"source_id": "e-0010", "quote": "if (left.issues.some((iss) => iss.code !=="},
+          {"source_id": "e-0010", "quote": "unrecognized_keys"},
+          {"source_id": "e-0010", "quote": "left.aborted = true;"},
+          {"source_id": "e-0010", "quote": "return left;"},
+          {"source_id": "e-0010", "quote": "return next._zod.run({ value: left.value, issues: left.issues }, ctx);"}
+        ]
+      },
+      {
+        "id": "C09.U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "RUBRIC_REVIEW_REQUIRED: Frozen gold names the core $ZodTransform runner, but the eligible classic constructor actually overrides inst._zod.parse after core initialization (2253-2257). The answer correctly cites that active classic runner: it calls the callback on payload.value, assigns a synchronous result to payload.value, and returns the payload (2278-2286). Awarded the required synchronous semantics; review the gold's core-only attribution rather than penalizing this source-supported classic trace.",
+        "evidence": [
+          {"source_id": "e-0006", "quote": "core.$ZodTransform.init(inst, def);"},
+          {"source_id": "e-0006", "quote": "inst._zod.parse = (payload, _ctx) => {"},
+          {"source_id": "e-0005", "quote": "const output = def.transform(payload.value, payload);"},
+          {"source_id": "e-0005", "quote": "if (output instanceof Promise) {"},
+          {"source_id": "e-0005", "quote": "payload.value = output;"},
+          {"source_id": "e-0005", "quote": "return payload;"}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": true,
+    "auxiliary": {
+      "citation_coverage": {"value": "high", "rationale": "All four required mechanisms have classic/core path and line-span citations."},
+      "citation_entailment": {"value": "high", "rationale": "Inspected source directly supports the quoted builders, core pipe ordering and exception, and classic transform payload update."},
+      "source_authority": {"value": "primary", "rationale": "Evidence comes from the assigned v4 classic and core implementation source."},
+      "unsupported_extras": {"value": "none_material_observed", "rationale": "No arbitrary callback result is invented. The Promise branch is present in the actual classic override, not imported from v3."},
+      "uncertainty": {"value": "appropriate", "rationale": "Acknowledges incomplete primitive-parser tracing and makes no runtime-observation claim; grader uncertainty concerns the frozen gold's runner attribution."},
+      "usability": {"value": "good", "rationale": "Organizes the representation, ordering, stopping condition, and payload propagation clearly with the requested paths and spans."},
+      "tool_navigation": {"value": "successful", "rationale": "Successful eligible reads cover builders, classic transform override, pipe initialization, and core execution."}
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  }
+]

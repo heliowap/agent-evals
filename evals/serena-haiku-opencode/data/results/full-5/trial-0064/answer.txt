@@ -1,0 +1,18 @@
+`parse_amount` no longer goes through `float`, and `make_invoice` applies the same rules. `python3 checks/public.py` passes, and the new unittest file passes all 11 tests.
+
+**`src/money.py`**
+- `amount_to_cents(value)` validates the input and returns an exact integer number of cents. `parse_amount` wraps it and returns a `Decimal` with exponent -2.
+- Accepted types are `Decimal`, `int` (not `bool`), and strings matching `[+-]?` followed by digits with an optional fraction. The regex uses `[0-9]`, so whitespace, exponents, underscores, and non-ASCII digits are all rejected.
+- Floats, other types, non-finite values, zero, negatives, and values above 1000000.00 raise `ValueError`.
+- A value with a nonzero digit beyond the cent place raises `ValueError`. Trailing zeros are stripped only when they are past the cent place, so `"0.010"` is accepted and `"1.005"` is rejected.
+- Validation uses exact integer and `Decimal` comparisons, not rounding. It never reads or changes the global decimal context.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies the input into a new list and never mutates the caller's data. Strings, bytes, and non-iterables raise `ValueError`.
+- Each item goes through `amount_to_cents`. The sum is kept in integer cents, and a total above 1000000.00 raises `ValueError`.
+- An empty list returns `{'total': '0.00', 'count': 0}`.
+
+**`checks/test_money.py`** covers the accepted and rejected inputs, the exponent of the return value, the rule against rounding fractional cents, the global context staying unchanged (including under a low-precision local context), the invoice total cap at the boundary, and input non-mutation.
+
+One judgment call: I accept `"12."` as a plain decimal (a trailing dot with no fraction digits). If you want that rejected, the regex in `money.py` is the only place to change.

@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "files": {
+      "checks/import_contacts.py": "import os, sys, sqlite3\nsys.path.insert(0, os.getcwd())\nfrom src.repository import initialize, list_contacts\nfrom src.api import handle_add, handle_import\nfrom src.service import import_contacts\n\ndef fresh():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    return c\n\ndef raises(fn):\n    try:\n        fn()\n    except ValueError:\n        return True\n    return False\n\nc = fresh()\nassert handle_import(c, {\"contacts\": []}) == {\"inserted\": 0, \"updated\": 0}\nhandle_add(c, {\"email\": \"a@b.com\", \"name\": \"Alice\"})\nr = handle_import(c, {\"contacts\": [\n    {\"email\": \"  A@B.com \", \"name\": \" Alice \"},\n    {\"email\": \"Bob@X.org\", \"name\": \"Bob\"},\n]})\nassert r == {\"inserted\": 1, \"updated\": 1}, r\nassert list_contacts(c) == [(\"a@b.com\", \"Alice\"), (\"bob@x.org\", \"Bob\")]\nassert import_contacts(c, [{\"email\": \"bob@x.org\", \"name\": \"Robert\"}]) == {\"inserted\": 0, \"updated\": 1}\n\nbefore = list_contacts(c)\nbad_batches = [\n    [{\"email\": \"new@x.io\", \"name\": \"N\"}, \"nope\"],\n    [{\"email\": \"new@x.io\"}],\n    [{\"email\": \"new@x.io\", \"name\": \"N\", \"extra\": 1}],\n    [{\"email\": \"new@x.io\", \"name\": 5}],\n    [{\"email\": \"a@@b\", \"name\": \"N\"}],\n    [{\"email\": \"@b\", \"name\": \"N\"}],\n    [{\"email\": \"a@\", \"name\": \"N\"}],\n    [{\"email\": \"a b@c\", \"name\": \"N\"}],\n    [{\"email\": \"new@x.io\", \"name\": \"   \"}],\n    [{\"email\": \"new@x.io\", \"name\": \"N\"}, {\"email\": \"NEW@x.io \", \"name\": \"M\"}],\n]\nfor batch in bad_batches:\n    assert raises(lambda: import_contacts(c, batch)), batch\n    assert list_contacts(c) == before\nfor env in [None, [], {}, {\"contacts\": {}}, {\"contacts\": [], \"x\": 1}]:\n    assert raises(lambda: handle_import(c, env)), env\n\n# Database failure mid-batch rolls back earlier writes.\nc.execute(\"CREATE TRIGGER boom BEFORE INSERT ON contacts WHEN NEW.name = 'BOOM' \"\n          \"BEGIN SELECT RAISE(ABORT, 'boom'); END\")\nc.commit()\ntry:\n    import_contacts(c, [{\"email\": \"a@b.com\", \"name\": \"Changed\"},\n                        {\"email\": \"z@z.z\", \"name\": \"BOOM\"}])\n    raise AssertionError(\"expected failure\")\nexcept sqlite3.DatabaseError:\n    pass\nassert list_contacts(c) == before\nassert not c.in_transaction\nhandle_add(c, {\"email\": \"c@d\", \"name\": \"C\"})\nassert (\"c@d\", \"C\") in list_contacts(c)\nprint(\"ok\")\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict) or set(payload.keys()) != {\"contacts\"}:\n        raise ValueError(\"payload must be an object with exactly a 'contacts' field\")\n    contacts = payload[\"contacts\"]\n    if not isinstance(contacts, list):\n        raise ValueError(\"'contacts' must be a list\")\n    return import_contacts(connection, contacts)\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\ndef contact_exists(connection, email):\n    return connection.execute(\"SELECT 1 FROM contacts WHERE email = ?\", (email,)).fetchone() is not None\n",
+      "src/service.py": "from .repository import contact_exists, put_contact\n\n_FIELDS = frozenset({\"email\", \"name\"})\n\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\n\ndef _normalize_row(index, row):\n    if not isinstance(row, dict):\n        raise ValueError(f\"row {index}: must be an object\")\n    keys = set(row.keys())\n    if keys != _FIELDS:\n        missing = sorted(_FIELDS - keys, key=str)\n        unknown = sorted(keys - _FIELDS, key=str)\n        raise ValueError(f\"row {index}: missing fields {missing}, unknown fields {unknown}\")\n    email, name = row[\"email\"], row[\"name\"]\n    if not isinstance(email, str) or not isinstance(name, str):\n        raise ValueError(f\"row {index}: email and name must be strings\")\n    email = email.strip()\n    name = name.strip()\n    if any(ch.isspace() for ch in email):\n        raise ValueError(f\"row {index}: email must not contain whitespace\")\n    if email.count(\"@\") != 1:\n        raise ValueError(f\"row {index}: email must contain exactly one @\")\n    local, domain = email.split(\"@\")\n    if not local or not domain:\n        raise ValueError(f\"row {index}: email must have nonempty sides around @\")\n    if not name:\n        raise ValueError(f\"row {index}: name must be nonempty\")\n    return email.lower(), name\n\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, (list, tuple)):\n        raise ValueError(\"rows must be a list\")\n    normalized = []\n    seen = set()\n    for index, row in enumerate(rows):\n        email, name = _normalize_row(index, row)\n        if email in seen:\n            raise ValueError(f\"row {index}: duplicate email {email!r} in batch\")\n        seen.add(email)\n        normalized.append((email, name))\n\n    summary = {\"inserted\": 0, \"updated\": 0}\n    if not normalized:\n        return summary\n    # `with connection` commits on success and rolls back on any exception,\n    # so a database failure mid-batch leaves contacts unchanged.\n    with connection:\n        connection.execute(\"BEGIN\")\n        for email, name in normalized:\n            if contact_exists(connection, email):\n                summary[\"updated\"] += 1\n            else:\n                summary[\"inserted\"] += 1\n            put_contact(connection, email, name)\n    return summary\n"
+    },
+    "changed_files": [
+      "checks/import_contacts.py",
+      "src/api.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 149,
+    "removed_lines": 25
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04594587499741465
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.047076082992134616,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04444166598841548,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,75 @@
+Based on the codebase snapshot, the implementation that searches downward through a command tree for the target command while retaining flag arguments for later handling is `Command.Find`.
+
+---
+
+### 1. File Path and Symbol
+- **File path**: `command.go`
+- **Symbol**: `func (c *Command) Find(args []string) (*Command, []string, error)` (lines 757–779)
+- *(Note on distinction)*: While `Command.Traverse` (`command.go:821–860`) parses parent flags immediately as it walks, `Command.Find` explicitly preserves/retains flag arguments in the returned slice so they can be handled later.
+
+---
+
+### 2. How It Recurses and Returns Remaining Arguments
+Within `c.Find(args)`:
+- A closure `innerfind func(*Command, []string) (*Command, []string)` is defined and executed starting with `innerfind(c, args)` (`command.go:758–774`).
+- In each step:
+  1. `innerfind` strips out flags from the current arguments using `argsWOflags := stripFlags(innerArgs, c)` (`command.go:761`).
+  2. If `argsWOflags` is empty, no further subcommand can be selected, so it terminates and returns `(c, innerArgs)` (`command.go:762–764`).
+  3. Otherwise, it extracts the first non-flag argument: `nextSubCmd := argsWOflags[0]` (`command.go:765`).
+  4. It attempts to resolve this token among the children: `cmd := c.findNext(nextSubCmd)` (`command.go:767`).
+  5. If a matching subcommand `cmd` is found:
+     - It recurses via:
+       ```go
+       return innerfind(cmd, c.argsMinusFirstX(innerArgs, nextSubCmd))
+       ```
+       (`command.go:768–770`).
+     - `c.argsMinusFirstX(innerArgs, nextSubCmd)` (`command.go:715–748`) removes only that first subcommand token while carefully preserving all flags and flag arguments (by skipping over flag values of `--flag value` and `-f value`).
+  6. If no child command matches (`cmd == nil`), recursion stops and it returns `(c, innerArgs)` (`command.go:771`).
+- Finally, `Find` receives `commandFound, a := innerfind(c, args)` (`command.go:774`). If `commandFound.Args == nil`, it validates positional arguments with `legacyArgs(commandFound, stripFlags(a, commandFound))` (`command.go:775–777`), and returns `(commandFound, a, nil)` or error (`command.go:776, 778`), returning all remaining arguments (flags and positional args) intact.
+
+---
+
+### 3. How Names and Aliases Match
+Child resolution is implemented in `func (c *Command) findNext(next string) *Command` (`command.go:798–817`):
+- It iterates over the children `c.commands` (`command.go:800`):
+  1. **Exact match on Name or Alias**:
+     ```go
+     if commandNameMatches(cmd.Name(), next) || cmd.HasAlias(next) {
+         cmd.commandCalledAs.name = next
+         return cmd
+     }
+     ```
+     (`command.go:801–804`).
+     - `commandNameMatches(s, t)` (`command.go:1928–1934`) checks `strings.EqualFold(s, t)` if `EnableCaseInsensitive` is true; otherwise it does exact equality `s == t`.
+     - `cmd.HasAlias(next)` (`command.go:1551–1557`) checks `commandNameMatches(a, next)` for each alias in `cmd.Aliases`.
+  2. **Prefix matching**:
+     - If neither the name nor aliases match exactly and `EnablePrefixMatching` is true:
+       ```go
+       if EnablePrefixMatching && cmd.hasNameOrAliasPrefix(next) {
+           matches = append(matches, cmd)
+       }
+       ```
+       (`command.go:805–807`).
+     - `cmd.hasNameOrAliasPrefix(next)` (`command.go:1571–1583`) checks whether `strings.HasPrefix(cmd.Name(), prefix)` or `strings.HasPrefix(alias, prefix)` for any alias in `cmd.Aliases`.
+
+---
+
+### 4. What Happens When Prefix Matching Is Enabled but Multiple Children Match
+In `findNext` (`command.go:805–816`):
+- All children whose name or alias starts with the prefix are collected into `matches`.
+- After checking all children:
+  ```go
+  if len(matches) == 1 {
+      return matches[0]
+  }
+
+  return nil
+  ```
+  (`command.go:810–816`).
+- Therefore, if **multiple children match** (`len(matches) > 1`), `findNext` considers the prefix ambiguous and returns `nil`.
+- When `cmd == nil` is returned to `innerfind` (`command.go:768–771`), `innerfind` does not recurse; it treats the current node `c` as the target command and returns `(c, innerArgs)`.
+
+---
+
+### Unresolved Limitations
+- Case insensitivity in `commandNameMatches` applies only to exact comparisons; `hasNameOrAliasPrefix` performs standard case-sensitive `strings.HasPrefix`. Whether prefix matching is intended to support case insensitivity is not addressed in this code path.

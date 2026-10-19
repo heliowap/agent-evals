@@ -1,0 +1,50 @@
+## Migration summary (Pydantic v1 → v2.12)
+
+**1. Replacement decorators**
+
+- `@validator(...)` → **`@field_validator(...)`** — from the migration guide: "`@validator` has been deprecated, and should be replaced with `@field_validator`, which provides various new features and improvements."
+- `@root_validator(...)` → **`@model_validator(...)`** — "`@root_validator` has been deprecated, and should be replaced with `@model_validator`." Note that `model_validator(mode='after')` may receive a model *instance* instead of a dict (e.g. with `validate_assignment=True`).
+
+**2. `each_item=True` on the new decorator — not permitted**
+
+The migration guide is explicit: "The new `@field_validator` decorator does not have the `each_item` keyword argument; validators you want to apply to items within a generic container should be added by annotating the type argument. This looks like `list[Annotated[int, Field(ge=0)]]`." Pydantic 2.12's changelog also adds: "Added improved or raised errors for the usage of `@validator(...)` with `each_item=True`."
+
+So you cannot put `each_item=True` on `@field_validator`. The v2-recommended replacement is the **annotated item type**:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+NonNegInt = Annotated[int, Field(ge=0)]   # ge=0 enforced per element
+
+class M(BaseModel):
+    values: list[NonNegInt]   # replaces: values: list[int] + @validator('values', each_item=True)
+```
+
+Plain `@field_validator('values')` still works but now receives the whole `list` once, not each item; per-item logic belongs in `Annotated` metadata (built-in constraints like `Field(ge=0)`, or a custom `'after'` validator / `WrapValidator`).
+
+**3. `TypeError` raised inside a validator**
+
+In v1, a `TypeError` raised in a validator was wrapped into a `ValidationError`. In v2 it is **no longer converted**: "Previously, when raising a `TypeError` within a validator function, that error would be wrapped into a `ValidationError`... However, in Pydantic V2, when a `TypeError` is raised in a validator, it is no longer converted into a `ValidationError`. This applies to all validation decorators." The migration guide's example shows `Model(x=1)` propagating a plain `TypeError` out of construction (a validator doing `str.lower(v)` on an `int`). Only `ValueError` (and `AssertionError`) raised in validators are converted to `ValidationError`; a genuine coding `TypeError` surfaces as a real `TypeError`.
+
+**4. Legacy `@root_validator` kept temporarily — `skip_on_failure=False` is not allowed**
+
+"Even if you keep using the deprecated `@root_validator` decorator, due to refactors in validation logic, you can **no longer run with `skip_on_failure=False`** (which is the default value of this keyword argument, **so must be set explicitly to `True`**)." In 2.12 the changelog reinforces this ("Raised errors for `root_validator` argument `skip_on_failure` being omitted or set to `False`"). So:
+
+```python
+from pydantic import root_validator
+
+class M(BaseModel):
+    values: list[int]
+
+    @root_validator(skip_on_failure=True)   # post validation root validator (v1 pre=False equivalent)
+    @classmethod
+    def check(cls, values): ...
+
+    # if you relied on v1 pre=True (run before field validation):
+    # @root_validator(pre=True, skip_on_failure=True)
+```
+
+When migrating for real, prefer `@model_validator(mode='after')` (`def check(self) -> Self` — instance method; the old `@classmethod cls, model` signature triggers a deprecation warning in 2.12/2.12.3) or `mode='before'` for pre-field logic.
+
+**Sources/limitations:** All quotes come from the official Pydantic migration guide (retrieved at `https://docs.pydantic.dev/latest/migration/` / `pydantic.dev/docs/validation/latest/get-started/migration/`, "Latest (stable)", content © Pydantic Services Inc. that matches the v2.12-era docs — the same content also appears in the v2.12 concept-index files on `pydantic/docs` branch `v2.12`), plus the v2.12.0 changelog entries and the "Announcement: Pydantic v2.12 Release" notes from `pydantic.dev` (v2.12.0 released 2025-10-07). Pydantic ≥2.12 is the explicitly assumed product version; behavior of other versions may differ.

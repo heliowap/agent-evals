@@ -1,0 +1,23 @@
+I'll fetch the starting page and the primary signature-validation documentation first.
+
+Now the handling and best-practices pages, which govern timing, deduplication, and delivery IDs.
+
+Key correction found on delivery IDs. Now I need GitHub's retry/redelivery documentation to test the outage assumption.
+
+Two more pages: delivery-header reference for the ID semantics, and failed-delivery handling for retry scope.
+
+## Verdict
+
+Three receiver fixes plus one recovery fix. No exactly-once guarantee is documented.
+
+**1. Verify raw bytes before parsing.** The signature is an HMAC-SHA256 hex digest of the request body, keyed by your secret. Read the raw body, compute the expected digest, compare it to `X-Hub-Signature-256` with a constant-time function (docs say never use plain `==`), then parse/re-serialize. Parsing first changes the byte sequence and breaks verification; docs warn that payloads/headers must not be modified before verification. ([validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries))
+
+**2. Correct the dedup key.** `X-GitHub-Delivery` is a GUID identifying the event, and on redelivery it is unchanged: "If you request a redelivery, the X-GitHub-Delivery header will be the same as in the original delivery." GitHub's own redelivery script groups attempts by GUID because "The GUID is constant across redeliveries of the same delivery." So treat redelivery as the same event, not a new one; keying on a supposed new ID is the duplicate-processing bug. ([best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header), [script](https://docs.github.com/en/webhooks/using-webhooks/automatically-redelivering-failed-deliveries-for-a-repository-webhook#adding-the-script))
+
+**3. Acknowledge before the 25-second job.** Respond `2XX` within 10 seconds or GitHub terminates the connection and records a failure; queue payloads for asynchronous processing. ([handling](https://docs.github.com/en/webhooks/using-webhooks/handling-webhook-deliveries#ruby-example-write-the-code), [best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds))
+
+**4. Recovery plan is wrong.** "GitHub does not automatically redeliver failed deliveries." Replace the outage-retry assumption with scheduled reconciliation using the REST delivery/redeliver endpoints, and note that only deliveries from the past 3 days can be redelivered. ([failed deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries#about-webhook-delivery-failures), [redelivering](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks#about-redelivering-webhooks))
+
+**Authenticity vs. replay:** only a valid secret-keyed HMAC over raw bytes establishes GitHub origin and integrity; it does not prevent replay. GUID uniqueness is the documented replay handle. ([delivery headers](https://docs.github.com/en/webhooks/webhook-events-and-payloads#delivery-headers))
+
+**Exactly-once? No.** Documented mechanisms alone cannot justify it across a receiver crash: if you return `2XX`, then crash before committing the side effect, GitHub counts delivery as successful and will not resend it. Recommendation: persist a GUID-unique dedup record and the business effect in one transaction (or outbox). Whether GUID stability holds for every webhook type is **UNVERIFIED**; resolve by redelivering each type and inspecting its GUID via the REST deliveries list.

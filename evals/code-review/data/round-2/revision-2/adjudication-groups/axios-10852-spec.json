@@ -1,0 +1,661 @@
+{
+  "case": "axios-10852",
+  "axis": "spec",
+  "decisions": [
+    {
+      "blind_id": "b0001",
+      "target_hit": true,
+      "target_quote": "so with any configured `baseURL`, `combineURLs(baseURL, requestedURL)` runs `relativeURL.replace(/^\\/+/, '')` on the URL object — a `TypeError`, since `URL` has no `.replace`.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL(new URL(...), null)` returns the `URL` object itself",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "a plain `{}` or arbitrary object now becomes `'[object Object]'` instead of failing on `indexOf`",
+          "category": "inconclusive",
+          "evidence": "Pinned head buildURL.js shows the broader conversion for objects with callable toString and supplied params, but a material unintended request or observable user harm from a plain-object input has not been reproduced."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0003",
+      "target_hit": true,
+      "target_quote": "When `baseURL` is configured, a `URL` object is treated as non-absolute (`isRelativeUrl = true`), directing execution to `combineURLs(baseURL, requestedURL)`. `combineURLs` calls `relativeURL.replace(/^\\/+/, '')`, causing a runtime exception (`relativeURL.replace is not a function`)",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0004",
+      "target_hit": true,
+      "target_quote": "Before the new conversion in `buildURL`, `isAbsoluteURL` returns `false` for non-strings, so `buildFullPath` passes the object to `combineURLs`, which calls `relativeURL.replace(...)`. That fails before `buildURL` can convert it. **Impact:** requests with a configured `baseURL` still throw.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "if null params take that path, it returns the object instead of the expected string",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "the visible `get` signature still requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0005",
+      "target_hit": true,
+      "target_quote": "with a configured `baseURL`, `combineURLs` calls `.replace()` on the URL object. The new conversion in `buildURL` is never reached. Such requests can still fail instead of supporting the URL input.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the shown overload requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0007",
+      "target_hit": true,
+      "target_quote": "So with `baseURL` set, `buildFullPath` treats the URL object as relative and calls `combineURLs(baseURL, requestedURL)`, which executes `relativeURL.replace(/^\\/+/, '')` (lines 11-15). A `URL` object has no `.replace`, so this throws a `TypeError` before `buildURL`'s new conversion runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the public typings keep `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0009",
+      "target_hit": true,
+      "target_quote": "The conversion in `buildURL` does not cover requests that have a `baseURL`: `resolveConfig` calls `buildFullPath(baseURL, url, allowAbsoluteUrls)` before `buildURL`, while `isAbsoluteURL` returns `false` for non-string input and `combineURLs` calls `.replace()` on that input.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0012",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0013",
+      "target_hit": true,
+      "target_quote": "But `buildFullPath` first calls `isAbsoluteURL`, which returns `false` for non-strings, then calls `combineURLs` when `baseURL` is set. `combineURLs` invokes `relativeURL.replace(...)` on the `URL` object, before `buildURL` can stringify it. Such requests fail before reaching the fix.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "The added test therefore fails, and URL inputs without params are not normalized here",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0017",
+      "target_hit": true,
+      "target_quote": "So when `baseURL` is truthy, `isRelativeUrl` is `true`, and `combineURLs` runs `relativeURL.replace(/^\\/+/, '')`.\n  - `URL` objects have no `.replace` method, so a TypeError is thrown before `buildURL` is reached.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "a URL object is returned unconverted",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0019",
+      "target_hit": true,
+      "target_quote": "`buildFullPath` treats it as relative and `combineURLs` calls `.replace` on the object before `buildURL` can stringify it.  \nImpact: `axios.get(new URL(...), { baseURL: ... })` can still throw `replace is not a function`.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the early return runs before `url = url.toString()`",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "TypeScript consumers still cannot pass `URL` without casts",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0022",
+      "target_hit": true,
+      "target_quote": "`buildFullPath` then executes `combineURLs(baseURL, requestedURL)`, which calls `relativeURL.replace(/^\\/+/, '')` (`lib/helpers/combineURLs.js`, line 13). Since a `URL` object lacks a `.replace` method, runtime throws a `TypeError` (`relativeURL.replace is not a function`) before `buildURL` is ever invoked.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0027",
+      "target_hit": true,
+      "target_quote": "with `baseURL` set, `combineURLs` executes `relativeURL.replace(/^\\/+/, '')` on the URL object → TypeError. The new conversion in `buildURL` is never reached.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the pre-existing early return above the conversion returns the URL object unconverted",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "the type contract still requires `string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0028",
+      "target_hit": true,
+      "target_quote": "so a configured `baseURL` sends that object to `combineURLs`, which calls `relativeURL.replace` (`lib/helpers/combineURLs.js:11–14`). The request throws before reaching the new conversion.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`get` still requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0029",
+      "target_hit": true,
+      "target_quote": "When `baseURL` is configured, `buildFullPath` first calls `isAbsoluteURL(requestedURL)`, which returns `false` for non-strings, then `combineURLs` calls `.replace()` on the `URL` object. The new conversion in `buildURL` is never reached. Such requests still fail instead of accepting the URL object.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0032",
+      "target_hit": true,
+      "target_quote": "`isAbsoluteURL(url)` returns `false` for non-strings, so when `config.baseURL` is set, `combineURLs(baseURL, requestedURL)` executes `relativeURL.replace(/^\\/+/, '')` — `URL` has no `.replace`, reproducing the same class of crash before `buildURL` ever runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL(url, null)` returns the `URL` instance, not `url.toString()`",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "`AxiosRequestConfig.url` / method signatures remain `string`-only",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0033",
+      "target_hit": true,
+      "target_quote": "If `baseURL` is set, `buildFullPath` therefore calls `combineURLs`, which calls `relativeURL.replace` on that object (`lib/core/buildFullPath.js:17–19`; `lib/helpers/combineURLs.js:11–14`). The request fails before the new conversion runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the `get` signature requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0036",
+      "target_hit": true,
+      "target_quote": "If `baseURL` is set, the code calls `combineURLs(baseURL, requestedURL)`.\n  - `combineURLs` then runs `relativeURL.replace(...)`, which throws `relativeURL.replace is not a function`.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the function returns the `URL` object unconverted",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "the declared type is still `string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0038",
+      "target_hit": true,
+      "target_quote": "whenever `baseURL` is truthy, passed to `combineURLs`, which calls `relativeURL.replace(/^\\/+/, '')` (line 13). `URL` instances have no `.replace` → `relativeURL.replace is not a function`. The new conversion in `buildURL` is never reached.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL(urlObject, null)` returns the `URL` instance unchanged",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "public method signatures keep `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0041",
+      "target_hit": true,
+      "target_quote": "`isAbsoluteURL` returns `false` for every non-string, so `buildFullPath` treats the object as relative and passes it to `combineURLs`, which calls `relativeURL.replace(...)`. The new conversion in `buildURL` occurs too late to prevent that error. **Impact:** requests with a configured `baseURL` fail before reaching the fix.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`Axios.getUri` then returns it despite its declared `string` return type",
+          "category": "valid_extra",
+          "evidence": "Pinned head Axios.js:233–236 delegates to buildURL; with no baseURL and no params the original object comes back. candidate-research.md records getUri({url}) returning an object though index.d.ts:609 promises a string."
+        },
+        {
+          "quote": "the declaration still requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0044",
+      "target_hit": true,
+      "target_quote": "so a `URL` object is always treated as relative; then `combineURLs` (`lib/helpers/combineURLs.js:12-13`) calls `relativeURL.replace(/^\\/+/, '')`, which a `URL` object does not have → `TypeError`, same class of crash the issue reports.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "returning the `URL` instance itself",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "TypeScript users passing a `URL` get a compile-time error",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0046",
+      "target_hit": true,
+      "target_quote": "`buildFullPath` runs before the changed `buildURL` code; `isAbsoluteURL` returns `false` for a non-string, so a truthy `baseURL` sends the object to `combineURLs`, which calls `relativeURL.replace(...)`. A `URL` object has no `replace` method, so the request fails before the fix runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the declaration still specifies `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0048",
+      "target_hit": true,
+      "target_quote": "`isAbsoluteURL` (`lib/helpers/isAbsoluteURL.js:14`) returns `false` for non-strings, so a `URL` object is treated as relative; when `baseURL` is set, `combineURLs` calls `relativeURL.replace(/^\\/+/, '')` on the object — `replace is not a function`, the same class of crash the issue reports",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL(url, null)` returns the raw `URL` object before the conversion runs",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "TypeScript users of the issue's exact pattern get a compile error",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0049",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0052",
+      "target_hit": true,
+      "target_quote": "`buildFullPath` checks absoluteness before `buildURL` runs; `isAbsoluteURL` returns `false` for non-strings, so when `baseURL` is set, `combineURLs` receives the `URL` object and calls `.replace()` on it before the new conversion can execute. The request therefore still fails for this configuration.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0057",
+      "target_hit": true,
+      "target_quote": "`isAbsoluteURL` returns `false` for non-strings (`lib/helpers/isAbsoluteURL.js:14-16`), so a `URL` object is classified relative; if `baseURL` is set, `combineURLs` executes `relativeURL.replace(/^\\/+/, '')` (`lib/helpers/combineURLs.js:13`), and `URL` has no `replace` → TypeError.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL(url, null)` returns the `URL` object",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "passing a `URL` object remains a TypeScript error",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0058",
+      "target_hit": true,
+      "target_quote": "so with a truthy `baseURL`, `buildFullPath` calls `combineURLs(baseURL, requestedURL)`, which executes `relativeURL.replace(/^\\/+/, '')` (lib/helpers/combineURLs.js:13). A `URL` has no `.replace`, so it throws before `buildURL` ever stringifies anything.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "typed callers passing `new URL(...)` get a compile error",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        },
+        {
+          "quote": "invalid inputs turn into unintended requests instead of errors",
+          "category": "inconclusive",
+          "evidence": "Pinned material shows the string conversion in buildURL but no adapter/network reproduction for non-URL objects; an unintended request is plausible but unproved."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0059",
+      "target_hit": true,
+      "target_quote": "When a `baseURL` is configured, `combineURLs` calls `relativeURL.replace(...)` on the URL object and throws a TypeError (`replace` is not a function) before `buildURL` runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`resolveConfig` then stores a URL object in `newConfig.url`, not a string",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0060",
+      "target_hit": true,
+      "target_quote": "If a `baseURL` is configured, `buildFullPath` runs before `buildURL`: `isAbsoluteURL` returns `false` for non-strings, so `buildFullPath` calls `combineURLs`, which invokes `relativeURL.replace(...)` on the `URL` object. The new conversion in `buildURL` is never reached. **Impact:** such Axios requests still fail.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the added test fails, and the helper does not provide the behavior that test asserts",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0062",
+      "target_hit": true,
+      "target_quote": "When `baseURL` is truthy, `combineURLs` then runs `relativeURL.replace(...)`, and URL objects have no `replace` method. The request throws before it reaches the new conversion in `buildURL`.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL` returns the URL object itself, not a string",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "A mistaken `{}` URL becomes `\"[object Object]?…\"` instead of failing loudly",
+          "category": "inconclusive",
+          "evidence": "Pinned head buildURL.js shows the broader conversion for objects with callable toString and supplied params, but a material unintended request or observable user harm from a plain-object input has not been reproduced."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0063",
+      "target_hit": true,
+      "target_quote": "Consequently, if `baseURL` is set, `buildFullPath` invokes `combineURLs(baseURL, requestedURL)`. `combineURLs.js` then calls `relativeURL.replace(/^\\/+/, '')` on the `URL` object, throwing a `TypeError` because `URL` instances do not implement `.replace()`.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL` returns the original `URL` object untouched rather than converting it to a string primitive",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0066",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0067",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0068",
+      "target_hit": true,
+      "target_quote": "`buildFullPath.js:18-19` calls `combineURLs(baseURL, requestedURL)` whenever `baseURL` is truthy. `combineURLs.js:13` then executes `relativeURL.replace(/^\\/+/, '')` — `URL` has no `replace` — throwing a TypeError before `buildURL`'s conversion ever runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the public typings still reject it",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        },
+        {
+          "quote": "the request proceeds to a garbage path",
+          "category": "inconclusive",
+          "evidence": "Pinned material shows the string conversion in buildURL but no adapter/network reproduction for non-URL objects; an unintended request is plausible but unproved."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0070",
+      "target_hit": true,
+      "target_quote": "so a `URL` object is treated as relative; with a truthy `baseURL`, `combineURLs` evaluates `relativeURL.replace(/^\\/+/, '')` (line 13). `URL` has no `.replace`, so it throws `relativeURL.replace is not a function` before the new conversion ever runs.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "With `null` params, `buildURL` returns the `URL` instance before conversion",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "TypeScript callers still need a cast",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0073",
+      "target_hit": true,
+      "target_quote": "But `buildFullPath` runs before `buildURL`; `isAbsoluteURL` returns `false` for non-strings, so with a configured `baseURL`, `combineURLs` calls `.replace()` on the `URL` object before the new coercion is reached. The request therefore still fails in that configuration.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0076",
+      "target_hit": true,
+      "target_quote": "`isAbsoluteURL.js:14–16` classifies every non-string URL as non-absolute, so when `baseURL` is set, `buildFullPath.js:17–19` passes the object to `combineURLs.js:11–13`, which calls `relativeURL.replace(...)` before `buildURL` can stringify it. **Impact:** that request fails before reaching the fix.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "returns `url` before the new conversion when `params` is absent",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0077",
+      "target_hit": true,
+      "target_quote": "when `baseURL` is truthy, `combineURLs` runs and evaluates `relativeURL.replace(/^\\/+/, '')` (`lib/helpers/combineURLs.js:12-13`) — `URL` has no `.replace`, throwing a `TypeError`.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the public signature still requires `string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        },
+        {
+          "quote": "a `URL` with search params may be flattened unexpectedly",
+          "category": "inconclusive",
+          "evidence": "No specific loss or changed result is identified. Pinned buildURL.test.js:104–107 shows an existing `?a=1` retained while appending `b=2`; no contrary reproduction is provided."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0078",
+      "target_hit": true,
+      "target_quote": "If `baseURL` is defined, `buildFullPath` calls `combineURLs(baseURL, requestedURL)`. In `lib/helpers/combineURLs.js`, `relativeURL.replace(/^\\/+/, '')` is invoked directly on the `URL` object, throwing `TypeError: relativeURL.replace is not a function` before `buildURL` is reached.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "Developers attempting the issue's stated usage (`axios.get(url)` with a `URL` object) in TypeScript experience static type check failures",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0079",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0080",
+      "target_hit": true,
+      "target_quote": "But `buildFullPath` calls `isAbsoluteURL(requestedURL)`, which returns `false` for non-strings, then calls `combineURLs` when `baseURL` is set. `combineURLs` calls `relativeURL.replace(...)`, which a `URL` object does not provide. The request therefore fails before the new conversion is reached.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0082",
+      "target_hit": true,
+      "target_quote": "So a URL object counts as relative. If `baseURL` is set, `combineURLs` runs `relativeURL.replace(...)`, which does not exist on `URL`, so it throws a TypeError.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the `URL` object is returned before conversion",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "TypeScript users cannot use the newly supported input without a cast",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0084",
+      "target_hit": true,
+      "target_quote": "With a truthy `baseURL`, `isAbsoluteURL.js` returns `false` for a non-string, so `combineURLs.js` calls `relativeURL.replace(...)` on the URL object before the new conversion can run. The request fails rather than being sent.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the declaration still requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0086",
+      "target_hit": true,
+      "target_quote": "In the shown `resolveConfig.js` path, `buildFullPath` runs first; `isAbsoluteURL.js` classifies every non-string as non-absolute, so a configured `baseURL` sends the object to `combineURLs.js`, which calls `relativeURL.replace(...)`. A `URL` object has no `replace` method. Such requests can therefore fail before reaching the fix.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "the visible declaration requires `url: string`",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0090",
+      "target_hit": true,
+      "target_quote": "With a configured `baseURL`, `isAbsoluteURL()` returns `false` for the object, so `buildFullPath()` passes it to `combineURLs()`, which calls `relativeURL.replace(...)`. A `URL` object has no such method. The request therefore fails before reaching the new conversion.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0091",
+      "target_hit": true,
+      "target_quote": "For a URL object, `isAbsoluteURL` returns `false` (“if (typeof url !== 'string')”), so with a `baseURL`, `combineURLs` receives the object and calls `relativeURL.replace(...)` before the new string conversion can run. Affected callers still fail before reaching the fix.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL(url, null)` returns the URL object",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0093",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "Only the no-params early return and failing test are described. This separate helper/test issue is valid but does not locate the baseURL → buildFullPath → combineURLs.replace failure required by the Spec target.",
+      "additional_claims": [
+        {
+          "quote": "the added test fails, and the no-params behavior it asserts is not implemented",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0094",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0096",
+      "target_hit": true,
+      "target_quote": "With a `baseURL` set, `combineURLs` executes `relativeURL.replace(/^\\/+/, '')` on the still-object `url`, throwing `relativeURL.replace is not a function` before `buildURL`'s conversion (which sits after `buildFullPath` in the call chain) can run.",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "TypeScript users passing `new URL(...)` now get a compile error",
+          "category": "valid_extra",
+          "evidence": "Pinned head index.d.ts:609–628 still uses method `url: string`; candidate-research.md records TypeScript TS2345 for `axios.get(new URL(...))`. This is a typed API gap, not proof of a runtime failure in the literal JavaScript example."
+        },
+        {
+          "quote": "is requested as a URL instead of erroring",
+          "category": "inconclusive",
+          "evidence": "Pinned material shows the string conversion in buildURL but no adapter/network reproduction for non-URL objects; an unintended request is plausible but unproved."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0097",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response supplies no supported finding and does not identify the configured-baseURL, buildFullPath/combineURLs failure.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0099",
+      "target_hit": true,
+      "target_quote": "any instance with a `baseURL` (for example, from `axios.create`) still throws a `...replace is not a function` error for the same input",
+      "target_reason": "Spec target: resolveConfig.js:57–61 calls buildFullPath before the new buildURL.js:36–39 coercion. isAbsoluteURL.js:14–16 treats a URL object as non-absolute, so with a truthy baseURL, combineURLs.js:11–14 invokes `.replace` on that object and throws before the request reaches conversion. This is conditional on baseURL; the literal issue example has none and was not shown to fail.",
+      "additional_claims": [
+        {
+          "quote": "`buildURL` returns the URL object itself",
+          "category": "valid_extra",
+          "evidence": "Pinned head lib/helpers/buildURL.js:31–39 returns `url` on `!params` before coercion; tests/unit/helpers/buildURL.test.js:109–111 expects a string. candidate-research.md records 21 passing and this test failing. The helper/test mismatch does not prove every no-params request fails."
+        },
+        {
+          "quote": "silently sends a request to a malformed relative path",
+          "category": "inconclusive",
+          "evidence": "Pinned material shows the string conversion in buildURL but no adapter/network reproduction for non-URL objects; an unintended request is plausible but unproved."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+## Test located
+
+`tests/test_commands.py:279-299`, `def test_invoked_subcommand(runner)`. This is a non-chained group: `@click.group(invoke_without_command=True)` (line 280) with no `chain=` argument, so `chain` keeps its default `False` (`src/click/core.py:1771`). Its callback uses `@click.pass_context` and branches on `ctx.invoked_subcommand is None` (line 283): if `None`, it prints `"no subcommand, use default"` and calls `ctx.invoke(sync)` (lines 284-285) — i.e. invokes a child when no subcommand was selected; otherwise it prints `"invoke subcommand"` (line 287). The single child is `@cli.command() def sync()` printing `"in subcommand"` (lines 289-291).
+
+## What it asserts
+
+- **Explicit child selection:** `runner.invoke(cli, ["sync"])` (line 293) then `assert not result.exception` (294) and `assert result.output == "invoke subcommand\nin subcommand\n"` (295). So the group callback's "else" branch ran, followed by the real child.
+- **No selection:** `runner.invoke(cli)` (line 297) then `assert not result.exception` (298) and `assert result.output == "no subcommand, use default\nin subcommand\n"` (299). Here the group callback saw `None` and invoked the child itself.
+
+Both assertions are on stdout text plus absence of an exception. Nothing here asserts the exact value of `ctx.invoked_subcommand`, exit code, return values, or context identity.
+
+## Implementation ordering and child-context creation
+
+`Group.invoke`, `src/click/core.py:2052-2118`:
+
+- **No subcommand:** with no protected args (2058) and `invoke_without_command` true (2059), it enters `with ctx:` and calls `super().invoke(ctx)` (2063-2064). `Command.invoke` (1432-1446) ultimately runs the group callback via `ctx.invoke(self.callback, **ctx.params)` (1445-1446). `ctx.invoked_subcommand` is never assigned on this path, so it stays `None` — exactly the condition the test checks at line 283. The result is wrapped by `_process_result([] if self.chain else rv)` (2065).
+- **Explicit selection:** `Group.parse_args` (2038-2050) stores the leftover first token in `ctx._protected_args` for the non-chain case: `ctx._protected_args, ctx.args = rest[:1], rest[1:]` (2047-2048). In `invoke`, args are recombined at 2069 and cleared at 2070-2071. Then, in the non-chain branch (2076): inside `with ctx:` (2079) it resolves the command (2080), **sets `ctx.invoked_subcommand = cmd_name` (2082) before `super().invoke(ctx)` (2083)** — so the group callback already sees the child name, matching the test's else branch. Only afterwards is the child context created: `sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)` (2084), then `with sub_ctx: return _process_result(sub_ctx.command.invoke(sub_ctx))` (2085-2086). `make_context` (1359-1394) merges `context_settings` into `extra` (1386-1388) and constructs `self.context_class(self, info_name=..., parent=parent, **extra)` (1390), so the child gets `parent=ctx`; `parse_args` runs inside `ctx.scope(cleanup=False)` (1392-1393), and the comment at 2077-2078 notes the parent context is entered so resources aren't cleaned before the result processor runs.
+
+## Tested vs. untested
+
+Tested: the two stdout strings, `ctx.invoked_subcommand is None` semantics, default-child invocation via `ctx.invoke`, and absence of exceptions (lines 293-299). Untested here: chained groups (the `chain=True` variant appears in `tests/test_chain.py:88-104`, asserting result callback output `"1"` vs `"[]"`), `_protected_args` handling, that the group callback strictly precedes `make_context`, that `sub_ctx.parent` is the group context, option/argument propagation through `ctx.invoke` defaults (879-940), and the `"Missing command."` failure path (`core.py:2066`). Those are implementation reads, not test assertions. I did not execute code or tests; line spans are as read. Docs (`docs/commands-and-groups.md:133-159`) describe the same `invoked_subcommand` pattern but only echo, not a default child invocation.

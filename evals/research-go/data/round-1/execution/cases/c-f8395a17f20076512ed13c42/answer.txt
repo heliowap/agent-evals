@@ -1,0 +1,16 @@
+## Decision
+
+**Correct the premise first:** plugin 2.18.0 supports `depends_on` long syntax `condition` and `restart: true` (introduced 2.17.0), but **not** `required: false`, which requires Compose 2.20.0 ([services reference, depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). Short-form `depends_on` also cannot express health: it only orders creation; Compose "does not wait for dependency services to be 'healthy'" ([short syntax](https://docs.docker.com/reference/compose-file/services/#short-syntax-1)).
+
+**Use (documented, 2.18.0-compatible):**
+- `migrate.depends_on.db.condition: service_healthy`; `api.depends_on.migrate.condition: service_completed_successfully`; `api.depends_on.db: {condition: service_healthy, restart: true}`. All three conditions are documented ([services reference](https://docs.docker.com/reference/compose-file/services/#depends_on)); Compose "does not wait until a container is ready" without them ([startup order](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)).
+- Telemetry: make it optional with `profiles`, not `required: false` — profiles are the documented mechanism for selectively activated services ([profiles](https://docs.docker.com/compose/how-tos/profiles/#automatically-starting-profiles-and-dependency-resolution)).
+
+**Cannot be relied on:**
+- Runtime-restart propagation. `restart: true` "applies to an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies" — a DB crash followed by `restart: always` recovery will not restart the API ([services reference](https://docs.docker.com/reference/compose-file/services/#depends_on)).
+- Any in-flight readiness guarantee: `depends_on` governs creation/ordering only; nothing re-evaluates conditions after startup, so "API stays ready through later DB failures" is **not justifiable from this configuration**. Migrations must also be idempotent or the successful-exit condition is only met once per creation ([startup order](https://docs.docker.com/compose/how-tos/startup-order/)).
+- `pre_start`/lifecycle-hook migration patterns, which require Compose 2.30.0 ([lifecycle hooks](https://docs.docker.com/compose/how-tos/lifecycle/)).
+
+**Recommendations (mine):** keep the healthcheck on `db` (it feeds `service_healthy`), add an API healthcheck plus app-level retry/reconnect logic for post-start DB loss, and treat migrations as an explicitly targeted one-off service. Add `restart: true` only as an operator-restart convenience.
+
+UNVERIFIED: exact behavior of `required: false` on 2.18.0 (rejection vs. silent ignore). Resolve by validating the file against that plugin version; no first-party page states it.

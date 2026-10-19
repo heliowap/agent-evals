@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/access_checks.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"A\", \"a\", None),\n    (2, \"t\", \"o\", \"B\", \"b\", \"2026-01-01T00:00:00\"),   # deleted, same tenant/owner\n    (3, \"other\", \"o\", \"C\", \"c\", None),                # cross-tenant\n    (4, \"t\", \"someone\", \"D\", \"d\", None),              # cross-owner\n    (5, \"t\", \"o\", \"E\", \"e\", None),\n    (6, \"t\", \"o'brien\", \"Q\", \"q\", None),              # owner with quote\n    (7, \"t'x\", \"o\", \"R\", \"r\", None),                  # tenant with quote\n    (8, \"t\", \"o'brien\", \"S\", \"s\", \"2026-01-01\"),      # deleted quoted owner\n]\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\nc.commit()\n\n# get_document: accessible record\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"A\", \"body\": \"a\"}\n# unavailable IDs all return None, indistinguishably\nassert get_document(c, \"t\", \"o\", 2) is None      # deleted\nassert get_document(c, \"t\", \"o\", 3) is None      # cross-tenant\nassert get_document(c, \"t\", \"o\", 4) is None      # cross-owner\nassert get_document(c, \"t\", \"o\", 999) is None    # missing\nassert get_document(c, \"t\", \"o'brien\", 8) is None  # deleted, quoted owner\n# quoted names are bound correctly\nassert get_document(c, \"t\", \"o'brien\", 6) == {\"id\": 6, \"title\": \"Q\", \"body\": \"q\"}\nassert get_document(c, \"t'x\", \"o\", 7) == {\"id\": 7, \"title\": \"R\", \"body\": \"r\"}\n# injection-style input is treated as a literal value\nassert get_document(c, \"t' OR '1'='1\", \"o\", 1) is None\nassert get_document(c, \"t\", \"o' OR '1'='1\", 1) is None\n\n# list_documents: only own, non-deleted, ordered by id, no extra keys\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"A\", \"body\": \"a\"},\n    {\"id\": 5, \"title\": \"E\", \"body\": \"e\"},\n]\nassert list_documents(c, \"t\", \"o'brien\") == [{\"id\": 6, \"title\": \"Q\", \"body\": \"q\"}]\nassert list_documents(c, \"t\", \"nobody\") == []\nassert list_documents(c, \"t' OR '1'='1\", \"o\") == []\nfor doc in list_documents(c, \"t\", \"o\"):\n    assert set(doc) == {\"id\", \"title\", \"body\"}\nprint(\"PASS_ACCESS\")\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND id=? AND deleted_at IS NULL\",\n        (tenant, owner, document_id),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/access_checks.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 76,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.050643458031117916
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05076612497214228,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04876687499927357,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

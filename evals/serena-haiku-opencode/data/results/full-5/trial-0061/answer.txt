@@ -1,0 +1,19 @@
+Both checks pass: `checks/public.py` prints no errors, and the 8 new unittest cases in `checks/test_amounts.py` all pass.
+
+**`src/money.py`**
+- `parse_amount` no longer uses `float`. It accepts `Decimal`, `int` (not `bool`), and strings matching `[+-]?(digits[.digits?] | .digits)` with ASCII digits only, so whitespace, exponents, and underscores are rejected.
+- Every other type, non-finite values, zero, negatives, values above 1000000.00, and values with a nonzero fractional cent raise `ValueError`. The cent check is an exact comparison against a `ROUND_DOWN` quantize, so nothing is rounded silently.
+- Returns a `Decimal` with exponent -2. Trailing zeros are accepted.
+- All operations use an explicit module-level `CONTEXT`, so the global decimal context is never read or changed.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies its input with `list()`, so the caller's list is never modified.
+- Each item goes through `parse_amount`. The running total is added with `CONTEXT.add` and checked against 1000000.00 after each step, so an over-limit total raises `ValueError`.
+- Returns `{"total": format_amount(total), "count": len(items)}`. An empty list gives `{"total": "0.00", "count": 0}`.
+
+**Checks (`checks/test_amounts.py`)**
+- Accepted and rejected inputs, exponent -2 on results, no rounding of fractional cents, and the global context left unchanged under a low-precision, `ROUND_UP` setting.
+- `make_invoice` totals, the 1000000.00 boundary, invalid items, and non-mutation of the input.
+
+Wrong types raise `ValueError` as the spec asks, not the more usual `TypeError`.

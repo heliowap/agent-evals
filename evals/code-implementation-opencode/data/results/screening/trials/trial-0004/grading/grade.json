@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/idempotency.cjs": "const assert = require('node:assert/strict');\nconst { Ledger } = require('../.build/ledger');\nconst { PaymentService } = require('../.build/service');\nconst { Transient } = require('../.build/transport');\nasync function main() {\n  // retry after Transient: one debit, same receipt forwarded\n  let ledger = new Ledger(); const seen = []; let calls = 0;\n  let svc = new PaymentService(ledger, { acknowledge: async r => { seen.push(r); if (++calls < 3) throw new Transient('t'); } });\n  const r = await svc.pay('a', 'k', 5);\n  assert.equal(ledger.entries.length, 1); assert.equal(seen.length, 3);\n  assert(seen.every(x => x === r));\n  // repeat returns original; conflict does not debit\n  assert.equal(await svc.pay('a', 'k', 5), r);\n  await assert.rejects(svc.pay('a', 'k', 6), /key conflict/);\n  assert.equal(ledger.entries.length, 1);\n  // tenant scoping\n  await svc.pay('b', 'k', 6); assert.equal(ledger.entries.length, 2);\n  // concurrency\n  ledger = new Ledger(); svc = new PaymentService(ledger, { acknowledge: async () => {} });\n  const rs = await Promise.all([svc.pay('a', 'c', 1), svc.pay('a', 'c', 1), svc.pay('a', 'c', 1)]);\n  assert.equal(ledger.entries.length, 1); assert(rs.every(x => x === rs[0]));\n  // exhausted: final exception preserved\n  const errs = []; calls = 0;\n  svc = new PaymentService(ledger, { acknowledge: async () => { const e = new Transient('n' + ++calls); errs.push(e); throw e; } });\n  await assert.rejects(svc.pay('a', 'x', 1, 2), e => e === errs[1]); assert.equal(calls, 2);\n  // non-transient not retried\n  calls = 0; const boom = new Error('boom');\n  svc = new PaymentService(ledger, { acknowledge: async () => { calls++; throw boom; } });\n  await assert.rejects(svc.pay('a', 'y', 1), e => e === boom); assert.equal(calls, 1);\n  // validation before any action\n  ledger = new Ledger(); calls = 0;\n  svc = new PaymentService(ledger, { acknowledge: async () => { calls++; } });\n  for (const a of [['', 'k', 1], ['t', '', 1], ['t', 'k', 1.5], ['t', 'k', -1], ['t', 'k', 1, 0], ['t', 'k', 1, 6], ['t', 'k', 1, 1.5]])\n    await assert.rejects(svc.pay(...a), /invalid payment/);\n  assert.equal(ledger.entries.length, 0); assert.equal(calls, 0);\n}\nmodule.exports = main();\n",
+      "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  // tenant -> key -> original receipt. Nested maps avoid delimiter collisions.\n  private readonly byKey = new Map<string, Map<string, Receipt>>();\n\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    if (!tenant || !key || !Number.isInteger(cents) || cents <= 0) throw new Error('invalid payment');\n    // Lookup and insert happen synchronously (no await in between), so concurrent\n    // calls with the same tenant/key cannot both debit.\n    let keys = this.byKey.get(tenant);\n    if (!keys) { keys = new Map(); this.byKey.set(tenant, keys); }\n    const existing = keys.get(key);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return existing;\n    }\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    keys.set(key, receipt);\n    return receipt;\n  }\n}\n",
+      "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (\n      typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n      !Number.isInteger(cents) || cents <= 0 ||\n      !Number.isInteger(attempts) || attempts < 1 || attempts > 5\n    ) throw new Error('invalid payment');\n    // Debit once (idempotent per tenant/key); retries only re-send the acknowledgement.\n    const receipt = await this.ledger.apply(tenant, key, cents);\n    for (let n = 1; ; n++) {\n      try {\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n >= attempts) throw error;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/idempotency.cjs",
+      "src/ledger.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 82,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5268676249834243
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06717158301034942,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06390845900750719,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

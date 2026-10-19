@@ -1,0 +1,226 @@
+{
+  "created_utc": "2026-10-12T00:02:45Z",
+  "runtime_version": "2.0.26",
+  "role": "standalone explorer",
+  "candidates": [
+    {
+      "id": "haiku-low",
+      "provider": "cli_proxy",
+      "model": "cpa-claude-haiku-5-5",
+      "variant": "low",
+      "credential_provider": "cli_proxy",
+      "upstream": "http://127.0.0.1:8317/v1",
+      "effort": "low",
+      "fast": false,
+      "wire_model": "claude-haiku-5-5",
+      "protocol": "messages",
+      "auth_type": "key",
+      "selection": "cli_proxy/cpa-claude-haiku-5-5#low"
+    },
+    {
+      "id": "haiku-medium",
+      "provider": "cli_proxy",
+      "model": "cpa-claude-haiku-5-5",
+      "variant": "medium",
+      "credential_provider": "cli_proxy",
+      "upstream": "http://127.0.0.1:8317/v1",
+      "effort": "medium",
+      "fast": false,
+      "wire_model": "claude-haiku-5-5",
+      "protocol": "messages",
+      "auth_type": "key",
+      "selection": "cli_proxy/cpa-claude-haiku-5-5#medium"
+    },
+    {
+      "id": "haiku-high",
+      "provider": "cli_proxy",
+      "model": "cpa-claude-haiku-5-5",
+      "variant": "high",
+      "credential_provider": "cli_proxy",
+      "upstream": "http://127.0.0.1:8317/v1",
+      "effort": "high",
+      "fast": false,
+      "wire_model": "claude-haiku-5-5",
+      "protocol": "messages",
+      "auth_type": "key",
+      "selection": "cli_proxy/cpa-claude-haiku-5-5#high"
+    },
+    {
+      "id": "haiku-xhigh",
+      "provider": "cli_proxy",
+      "model": "cpa-claude-haiku-5-5",
+      "variant": "xhigh",
+      "credential_provider": "cli_proxy",
+      "upstream": "http://127.0.0.1:8317/v1",
+      "effort": "xhigh",
+      "fast": false,
+      "wire_model": "claude-haiku-5-5",
+      "protocol": "messages",
+      "auth_type": "key",
+      "selection": "cli_proxy/cpa-claude-haiku-5-5#xhigh"
+    },
+    {
+      "id": "haiku-max",
+      "provider": "cli_proxy",
+      "model": "cpa-claude-haiku-5-5",
+      "variant": "max",
+      "credential_provider": "cli_proxy",
+      "upstream": "http://127.0.0.1:8317/v1",
+      "effort": "max",
+      "fast": false,
+      "wire_model": "claude-haiku-5-5",
+      "protocol": "messages",
+      "auth_type": "key",
+      "selection": "cli_proxy/cpa-claude-haiku-5-5#max"
+    }
+  ],
+  "seed": 20261010,
+  "repetitions": 1,
+  "timeout_s": 300.0,
+  "budget_s": 21600.0,
+  "schedule": [
+    {
+      "id": "trial-0001",
+      "pair": 1,
+      "case": "route",
+      "rep": 1,
+      "position": 0,
+      "candidate": "haiku-xhigh"
+    },
+    {
+      "id": "trial-0002",
+      "pair": 1,
+      "case": "route",
+      "rep": 1,
+      "position": 1,
+      "candidate": "haiku-low"
+    },
+    {
+      "id": "trial-0003",
+      "pair": 1,
+      "case": "route",
+      "rep": 1,
+      "position": 2,
+      "candidate": "haiku-max"
+    },
+    {
+      "id": "trial-0004",
+      "pair": 1,
+      "case": "route",
+      "rep": 1,
+      "position": 3,
+      "candidate": "haiku-medium"
+    },
+    {
+      "id": "trial-0005",
+      "pair": 1,
+      "case": "route",
+      "rep": 1,
+      "position": 4,
+      "candidate": "haiku-high"
+    }
+  ],
+  "cases": {
+    "route": {
+      "definition": {
+        "request": "Trace the active POST /orders request from its registered handler through the application method that invokes the external database transport. Include only application functions or methods on this database path, in order, starting at the handler and ending at the method that invokes the transport. Use fully qualified names. Identify the active registration module. Ignore imported modules that are never used by this route.",
+        "schema": {
+          "chain": "ordered list of fully qualified function or method names",
+          "registration": "relative path to active route registration"
+        },
+        "expected": {
+          "chain": [
+            "service.handlers.create_order",
+            "service.orders.submit_order",
+            "service.repository.OrderRepository.insert_order",
+            "service.client.DatabaseClient.execute"
+          ],
+          "registration": "service/routes.py"
+        },
+        "anchors": [
+          [
+            "service/routes.py",
+            "ROUTES",
+            "    (\"POST\", \"/orders\"): create_order,"
+          ],
+          [
+            "service/handlers.py",
+            "create_order",
+            "    return submit_order(request[\"body\"], context)"
+          ],
+          [
+            "service/orders.py",
+            "submit_order",
+            "    row = context[\"repository\"].insert_order(body, context[\"request_id\"])"
+          ],
+          [
+            "service/repository.py",
+            "OrderRepository.insert_order",
+            "        return self.client.execute(INSERT_ORDER, params)"
+          ],
+          [
+            "service/client.py",
+            "DatabaseClient.execute",
+            "                return self.transport.send(statement, params)"
+          ]
+        ]
+      },
+      "prompt": "Inspect this Python service in read-only mode. Do not modify files. The active HTTP entry point is service.routes.dispatch.\n\nTrace the active POST /orders request from its registered handler through the application method that invokes the external database transport. Include only application functions or methods on this database path, in order, starting at the handler and ending at the method that invokes the transport. Use fully qualified names. Identify the active registration module. Ignore imported modules that are never used by this route.\n\nReturn one JSON object, with no Markdown fences or prose outside it. Use {\"answer\": ..., \"evidence\": [{\"path\": ..., \"symbol\": ..., \"line\": ..., \"quote\": ...}]}. The answer object must have exactly these fields, whose descriptions follow.\n{\"chain\": \"ordered list of fully qualified function or method names\", \"registration\": \"relative path to active route registration\"}\nProvide at most eight evidence entries. Each path must be relative to this directory. Use the local function name, Class.method, or top-level assignment name for symbol. Use a one-based line number and copy the entire source line exactly, including indentation. Cite the specific statements supporting every answer field. For absence of a route, cite the active registration table and missing-route branch."
+    }
+  },
+  "fixture_sha256": {
+    "service/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "service/routes.py": "501d10dc0ff1bfd87dc702ad21016d1dd1eeed23b9ee647e19b385dde62df6b7",
+    "service/handlers.py": "4c549f4d8e530fea10b163bd43591cd9f702fb32eafa883df0c3f56bf7ad4425",
+    "service/orders.py": "504132f973be6c6bb610291967241c11df96e4145dfc340b599eb8c793fb7cb2",
+    "service/repository.py": "658b8aaff29d48faa6285dd85c2c86429433257e0d6b747479b47fcd51a1c6e1",
+    "service/client.py": "2116a966f7381f87c08ca70a515a550e04fed46ad59ce03c6323b3af0e5dd7c0",
+    "service/sql.py": "655c35001e14ad966a43c634bdd8c4fe05617e86ddbc3dd9677465ea819b84db",
+    "service/events.py": "34e139a014a235dbca90c658ba6fe57c4f011023159f030e06f1caa55ec5bd99",
+    "service/permissions.py": "b9c510533c05c171df93bc7337bfe0fcab92f9516c07d9587be68503882e36ae",
+    "service/config.py": "0d5810097b8812ed020bf56bc239041afeb57fc793dfe9243aaada9c667f9904",
+    "service/flags.py": "22b7b880efe6cb1287672391c7318d9ecbe85d2218af32cfe20388d990df8cae",
+    "service/exports.py": "ee85d67031afdf854f571c1f1fdd5dcfef09e7ea8ccf747b595294e32aba2832",
+    "service/renderers.py": "1a54de1d3499688b3b80f13490afbaccd9edda81b5ca208dac9c5a61c18a4167",
+    "service/health.py": "d8416687cfa4ca299f093db1c574ff2d8d4d85e9b4de7bd6ea7825626d0e5bf5",
+    "service/startup.py": "bb3f079286dd1e2015b9dcd1baaf02ee799778f4af62919831ee94d6af29ded0",
+    "service/models.py": "2cb434b5f1a1a03da89af55015c76cfae61f01791d9fc6f8d848d4838f640481",
+    "service/cli.py": "e66e76303c437da9f84870d0e59fae5320bc8e71e40ae50ef0b0e78d32186927",
+    "service/legacy/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "service/legacy/routes.py": "c4469e66fdecece3e84b3f435dadbdc093e074cee581d83b870929eb9483897f",
+    "service/legacy/orders.py": "81c831adc6c372e1e33b6085bea1293b50ea34fb9b972af51377901fc8c921d9",
+    "service/legacy/config.py": "755b857c53a06282f5ddfacf52b0c3251a0ed97c6fadbbbe812693a4aefd8149",
+    "service/legacy/exports.py": "64919fd52aff07e025c7c07af250723ef12333ad2f2b8c118c17a1f389580da4",
+    "service/maintenance.py": "0e8961c8f6046499764f097ada9c04af27c2e7df40c49103882f3e87df0b0913"
+  },
+  "source_sha256": {
+    "bench.py": "519faca3658a93385380373bd455c60fd2cac51ad9b7cdf3da7fbcab4e7b72b3",
+    "cases.py": "5a32f8cf77552115f9c28bcf6ac543184e3258f0f43fb3e7a71917944a495d02",
+    "haiku.py": "5f76699caa12f828ddf68b0f14a71260ae0333faa503ffd2526abfea75c9e058",
+    "observer.js": "a9be79b410bc789d4e13013688ec07f484ee5415f82c149f0cd064794e98e622",
+    "runtime.py": "6e2a17e5f5387e88d188faf652ab1812304dfe683e9ccde1c13d6de6aec26470",
+    "test_cases.py": "a3f1d71545f23843a3af80d7eee9bb42d7ed600d45d955a2553b6be957eee197",
+    "test_haiku.py": "d9e0e4f81f20be38f1991b133f50d703bc09cdee3fda1df9bbb7089ca9205111",
+    "test_observer.mjs": "62c4b754bff296ed4ef9cfcda24f9318170fff493a29855a4a2e59775711f511"
+  },
+  "protocol_sha256": "a91ef8dc2b06442a2ccdaeefebc8175b4239796dd16e43056dd3660a4c700c71",
+  "provenance_sha256": "e12c22555fab65945fcd4d4286ac57b29123aca4ae018fde5b82618630dc5104",
+  "catalog_sha256": "f6a22feaaf4916289ead67712a27b2ba7ccdb38f6dc23ddfae11158b28a1a761",
+  "settings": {
+    "output_limit": 128000,
+    "steps": 25,
+    "shell": false,
+    "web": false,
+    "skills": false,
+    "native_delegation": false,
+    "automatic_cross_model_fallback": false,
+    "automatic_harness_retries": 0,
+    "cold_session_per_trial": true,
+    "observation_mode": "passive_native_provider",
+    "candidate_order": "randomized blocks, cyclic rotations balanced across all positions",
+    "measured_region": "opencode run process including boot, tools, and internal retries",
+    "time_excluded": "fixture creation, auth import, discovery audit, export, grading",
+    "fast_requirement": "selected effort + priority forwarded; served tier separately confirmed",
+    "conclusion": "descriptive pilot, not general qualification"
+  }
+}

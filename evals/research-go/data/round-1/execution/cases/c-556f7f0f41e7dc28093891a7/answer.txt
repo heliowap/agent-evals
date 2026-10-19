@@ -1,0 +1,33 @@
+I'll research the official Compose documentation.
+
+## Recommendation (Compose plugin 2.18.0)
+
+```yaml
+api:
+  depends_on:
+    db:      { condition: service_healthy, restart: true }
+    migrate: { condition: service_completed_successfully }
+  healthcheck: ...        # your own readiness probe
+  restart: unless-stopped # so api recovers on its own
+migrate:
+  depends_on:
+    db: { condition: service_healthy }
+  restart: "no"
+db:
+  restart: always         # existing
+telemetry:
+  profiles: ["telemetry"] # instead of required: false
+```
+
+## Documented facts
+- Short syntax only guarantees the dependency is *started*, not ready; `condition: service_healthy` / `service_completed_successfully` are the gates ([#control-startup](https://docs.docker.com/compose/how-tos/startup-order/#control-startup), [#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)).
+- `restart: true` "applies to an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies"; introduced in 2.17.0 — so it is usable at 2.18.0 ([#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)).
+- `required: false` was introduced in **2.20.0** — it is not supported on 2.18.0 ([#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). This premise fails without an upgrade.
+- `depends_on` is ordering only; connectivity needs no link, since any service can reach another by service name on the default network ([#links](https://docs.docker.com/reference/compose-file/services/#links)).
+- `restart: always` is a container-termination policy ([#restart](https://docs.docker.com/reference/compose-file/services/#restart)); `post_start` hooks need 2.30.0, `pre_start` needs 5.3.0 ([lifecycle](https://docs.docker.com/compose/how-tos/lifecycle/#services-lifecycle-hooks), [#pre_start](https://docs.docker.com/reference/compose-file/services/#pre_start)).
+
+## What to separate
+Startup ordering: covered. Health/readiness: only at initial startup, via `service_healthy`. Migration completion: covered via `service_completed_successfully`. Explicit operator restart of `db` (`docker compose restart`): documented to propagate with `restart: true`. Runtime restart after a crash: **not** covered by `restart: true`.
+
+## Cannot be promised
+Compose re-evaluates nothing after startup, so no configuration here keeps the API ready through later database failures; that depends on the API's own reconnection logic and own `healthcheck`/`restart` policy. `restart: true` also does not cover daemon/runtime restarts, and whether 2.18.0 warns or errors on `required:` is **UNVERIFIED** — resolve via the release notes for 2.18.0/2.20.0 or a Compose GitHub issue.

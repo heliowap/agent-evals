@@ -1,0 +1,206 @@
+{
+  "blind_id": "b-a3fa7d5836f6f2be226b001e74f9b1b6",
+  "task_id": "T4",
+  "checks": [
+    {
+      "id": "C1",
+      "status": "supported",
+      "answer_quote": "Without the Sessions API, all queries go to the primary",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s2.txt",
+          "quote": "otherwise all queries will continue to be executed only by the primary database."
+        }
+      ],
+      "rationale": "Requires sessions for replica routing rather than assuming direct binding calls change.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C2",
+      "status": "supported",
+      "answer_quote": "writes still route to the primary regardless of constraint",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s5.txt",
+          "quote": "Even if you use the first-unconstrained constraint or pass a bookmark, the write request will always be routed to the primary database."
+        }
+      ],
+      "rationale": "Keeps writes on primary regardless of the read constraint.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C3",
+      "status": "supported",
+      "answer_quote": "sends only the *first* query to the primary; subsequent queries may use replicas",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s2.txt",
+          "quote": "Subsequent queries in the Session may use read replicas."
+        }
+      ],
+      "rationale": "Limits first-primary to the initial query and allows later replica reads.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C4",
+      "status": "supported",
+      "answer_quote": "it does not guarantee latest data",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s3.txt",
+          "quote": "This approach is best when your application does not require the latest database version."
+        }
+      ],
+      "rationale": "Rejects a latest-first-read guarantee from an unconstrained/default session.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C5",
+      "status": "supported",
+      "answer_quote": "Passing a previous `session.getBookmark()` into `withSession(bookmark)` makes the new session at least as up-to-date as that bookmark",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s3.txt",
+          "quote": "Starting a session with a bookmark ensures the new session will be at least as up-to-date as the previous session that generated the given bookmark."
+        }
+      ],
+      "rationale": "Carries prior-session context into a later request with a freshness lower bound.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C6",
+      "status": "supported",
+      "answer_quote": "a failing statement \"aborts or rolls back the entire sequence.\"",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s2.txt",
+          "quote": "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence."
+        }
+      ],
+      "rationale": "Rejects partial earlier commits when a later batch statement fails.",
+      "citation_status": "entailing"
+    }
+  ],
+  "uncertainty": {
+    "status": "pass",
+    "answer_quote": "\"globally latest reads\" and \"100 ms replica-lag maximum after commit\" are unsupported — replicas are asynchronously updated and \"may be arbitrarily out of date\"; sequential consistency applies per session, not globally",
+    "rationale": "Rejects both marketing promises using per-session freshness rather than mere eventual consistency, and requests support/contract evidence.",
+    "evidence": [
+      {
+        "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+        "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s3.txt",
+        "quote": "This means that at any given time, a read replica may be arbitrarily out of date."
+      },
+      {
+        "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+        "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s3.txt",
+        "quote": "The read replica will wait until it has been updated to be at least as up-to-date as the provided bookmark (100)."
+      }
+    ]
+  },
+  "citations": [
+    {
+      "answer_quote": "Without the Sessions API, all queries go to the primary",
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s2.txt",
+          "quote": "otherwise all queries will continue to be executed only by the primary database."
+        }
+      ]
+    },
+    {
+      "answer_quote": "writes still route to the primary regardless of constraint",
+      "url": "https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#1-post-apiproduct",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s5.txt",
+          "quote": "Even if you use the first-unconstrained constraint or pass a bookmark, the write request will always be routed to the primary database."
+        }
+      ]
+    },
+    {
+      "answer_quote": "sends only the *first* query to the primary; subsequent queries may use replicas",
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#parameters-4",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s2.txt",
+          "quote": "Subsequent queries in the Session may use read replicas."
+        }
+      ]
+    },
+    {
+      "answer_quote": "it does not guarantee latest data",
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s3.txt",
+          "quote": "This approach is best when your application does not require the latest database version."
+        }
+      ]
+    },
+    {
+      "answer_quote": "Passing a previous `session.getBookmark()` into `withSession(bookmark)` makes the new session at least as up-to-date as that bookmark",
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s3.txt",
+          "quote": "Starting a session with a bookmark ensures the new session will be at least as up-to-date as the previous session that generated the given bookmark."
+        }
+      ]
+    },
+    {
+      "answer_quote": "a failing statement \"aborts or rolls back the entire sequence.\"",
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#batch",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "source_path": "blind/cases/b-a3fa7d5836f6f2be226b001e74f9b1b6/sources/s2.txt",
+          "quote": "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence."
+        }
+      ]
+    }
+  ],
+  "critical_errors": [],
+  "unsupported_extras": [],
+  "compliance": {
+    "full_urls": true,
+    "word_cap": true,
+    "english": true,
+    "fetched_two_sources": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "discovery_chain": "Required discovery pages not actually fetched: https://developers.cloudflare.com/d1/llms.txt. Frozen references do not count as candidate retrieval."
+  },
+  "ambiguous": false,
+  "notes": "Disclosed AI semantic grading from opaque first-party text. "
+}

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_scoping.py": "import os\nimport sqlite3\nimport sys\nimport unittest\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nVISIBLE_KEYS = {\"id\", \"title\", \"body\"}\nINSERT = \"INSERT INTO documents (id, tenant, owner, title, body, deleted_at) VALUES (?, ?, ?, ?, ?, ?)\"\n\n\nclass RecordingConnection:\n    \"\"\"Delegates execute() to a real connection and records each SQL text with its parameters.\"\"\"\n\n    def __init__(self, connection):\n        self.connection = connection\n        self.calls = []\n\n    def execute(self, sql, parameters=()):\n        self.calls.append((sql, tuple(parameters)))\n        return self.connection.execute(sql, parameters)\n\n\nclass ScopedAccessTests(unittest.TestCase):\n    def setUp(self):\n        self.c = sqlite3.connect(\":memory:\")\n        initialize(self.c)\n        seed = [\n            # id, tenant, owner, title, body, deleted_at\n            (5, \"t1\", \"alice\", \"A3\", \"a3 body\", None),          # visible to (t1, alice)\n            (3, \"t1\", \"bob\", \"B1\", \"b1 body\", None),            # same tenant, other owner\n            (1, \"t1\", \"alice\", \"A1\", \"a1 body\", None),          # visible to (t1, alice)\n            (4, \"t2\", \"alice\", \"X1\", \"x1 body\", None),          # same owner, other tenant\n            (2, \"t1\", \"alice\", \"A2\", \"a2 body\", \"2026-01-01\"),  # deleted\n        ]\n        self.c.executemany(INSERT, seed)\n        self.c.commit()\n\n    def add(self, row):\n        self.c.execute(INSERT, row)\n        self.c.commit()\n\n    def test_get_returns_id_title_body_for_visible_document(self):\n        self.assertEqual(get_document(self.c, \"t1\", \"alice\", 1), {\"id\": 1, \"title\": \"A1\", \"body\": \"a1 body\"})\n\n    def test_get_returns_none_for_cross_owner_cross_tenant_deleted_and_missing(self):\n        for document_id in (3, 4, 2, 999):\n            with self.subTest(document_id=document_id):\n                self.assertIsNone(get_document(self.c, \"t1\", \"alice\", document_id))\n\n    def test_list_returns_only_visible_documents_ordered_by_id(self):\n        self.assertEqual(\n            list_documents(self.c, \"t1\", \"alice\"),\n            [{\"id\": 1, \"title\": \"A1\", \"body\": \"a1 body\"}, {\"id\": 5, \"title\": \"A3\", \"body\": \"a3 body\"}],\n        )\n\n    def test_list_items_carry_no_deletion_metadata(self):\n        for item in list_documents(self.c, \"t1\", \"alice\"):\n            self.assertEqual(set(item), VISIBLE_KEYS)\n\n    def test_list_is_empty_for_unknown_tenant_or_owner(self):\n        self.assertEqual(list_documents(self.c, \"t9\", \"alice\"), [])\n        self.assertEqual(list_documents(self.c, \"t1\", \"nobody\"), [])\n\n    def test_names_containing_quotes_match_exactly(self):\n        self.add((6, \"o'brien\", 'say \"hi\"', \"Q\", \"q body\", None))\n        self.assertEqual(get_document(self.c, \"o'brien\", 'say \"hi\"', 6), {\"id\": 6, \"title\": \"Q\", \"body\": \"q body\"})\n        self.assertEqual(list_documents(self.c, \"o'brien\", 'say \"hi\"'), [{\"id\": 6, \"title\": \"Q\", \"body\": \"q body\"}])\n        self.assertIsNone(get_document(self.c, \"o'brien\", \"alice\", 6))\n        self.assertEqual(list_documents(self.c, \"o'brien\", \"alice\"), [])\n\n    def test_injection_style_names_do_not_widen_access(self):\n        payload = \"x' OR '1'='1\"\n        self.assertEqual(list_documents(self.c, payload, \"alice\"), [])\n        self.assertEqual(list_documents(self.c, \"t1\", payload), [])\n        self.assertIsNone(get_document(self.c, payload, \"alice\", 1))\n        self.assertIsNone(get_document(self.c, \"t1\", payload, 1))\n\n    def test_none_names_fail_closed(self):\n        self.add((7, None, None, \"N\", \"n body\", None))\n        self.assertEqual(list_documents(self.c, None, None), [])\n        self.assertIsNone(get_document(self.c, None, None, 7))\n\n    def test_names_are_passed_as_bound_parameters(self):\n        tenant, owner = \"o'brien\", 'x\" OR 1=1 --'\n        recorder = RecordingConnection(self.c)\n        get_document(recorder, tenant, owner, 1)\n        list_documents(recorder, tenant, owner)\n        self.assertEqual(len(recorder.calls), 2)\n        for sql, parameters in recorder.calls:\n            self.assertNotIn(tenant, sql)\n            self.assertNotIn(owner, sql)\n            self.assertIn(tenant, parameters)\n            self.assertIn(owner, parameters)\n            self.assertEqual(sql.count(\"?\"), len(parameters))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\", (document_id, tenant, owner)).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [decode(row) for row in connection.execute(\"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\", (tenant, owner))]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/test_scoping.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 122,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.05120175000047311
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.052850416977889836,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0521380000282079,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

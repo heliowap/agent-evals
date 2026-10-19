@@ -1,0 +1,52 @@
+## Defect in `parser.py`
+
+```python
+def parse_enabled(value):
+    return bool(value)
+```
+
+`bool()` only checks whether a value is empty, so it ignores what the string actually says. I ran the function on some sample inputs:
+
+| Input | Result | Expected |
+|---|---|---|
+| `'true'` | `True` | `True` |
+| `'false'` | **`True`** | `False` |
+| `'False'`, `'no'`, `'0'`, `'yes'` | **`True`** | `ValueError` |
+| `''`, `None` | **`False`** | `ValueError` |
+
+There are two problems:
+1. **`'false'` returns `True`.** Any non-empty string counts as true, so a setting that is meant to be off gets turned on. This is the most serious part.
+2. **It never raises `ValueError`.** Bad input is accepted silently. Empty strings and `None` come back as `False` instead of being rejected.
+
+## Recommended fix (not applied, as you asked)
+
+```python
+def parse_enabled(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected 'true' or 'false', got {value!r}")
+```
+
+## Preventing recurrence
+
+A test is a better safeguard than a written rule here, because the requirement is precise enough to check automatically. The repo has no tests yet. I suggest adding `test_parser.py`:
+
+```python
+import pytest
+from parser import parse_enabled
+
+def test_valid():
+    assert parse_enabled("true") is True
+    assert parse_enabled("false") is False
+
+@pytest.mark.parametrize("v", ["False", "TRUE", " true", "yes", "no", "0", "1", "", None, True, 0])
+def test_invalid_raises(v):
+    with pytest.raises(ValueError):
+        parse_enabled(v)
+```
+
+Then run it automatically in CI or a pre-commit hook, so a change that brings back `bool(value)` can't be merged without failing. I didn't create these files because you asked for no changes. I can add them if you want.
+
+Separately, a module named `parser` can clash with Python's old built-in `parser` module on Python 3.9 and earlier. Something like `config_parser.py` would avoid that.

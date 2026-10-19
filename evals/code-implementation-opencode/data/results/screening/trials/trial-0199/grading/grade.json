@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/security.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"A\", \"a\", None),\n    (2, \"t\", \"o\", \"Deleted\", \"d\", \"2024-01-01\"),\n    (3, \"t2\", \"o\", \"OtherTenant\", \"x\", None),\n    (4, \"t\", \"o2\", \"OtherOwner\", \"y\", None),\n    (5, \"t'x\", \"o'\\\" OR '1'='1\", \"Quoted\", \"q\", None),\n    (0, \"t\", \"o\", \"Zero\", \"z\", None),\n]\nc.executemany(\"INSERT INTO documents VALUES (?,?,?,?,?,?)\", rows)\nc.commit()\n\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"A\", \"body\": \"a\"}\nfor bad in (2, 3, 4, 99):\n    assert get_document(c, \"t\", \"o\", bad) is None\nassert get_document(c, \"t\", \"o\", \"1 OR 1=1\") is None\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 0, \"title\": \"Zero\", \"body\": \"z\"},\n    {\"id\": 1, \"title\": \"A\", \"body\": \"a\"},\n]\nassert all(set(d) == {\"id\", \"title\", \"body\"} for d in list_documents(c, \"t\", \"o\"))\nassert list_documents(c, \"t'x\", \"o'\\\" OR '1'='1\") == [{\"id\": 5, \"title\": \"Quoted\", \"body\": \"q\"}]\nassert get_document(c, \"t'x\", \"o'\\\" OR '1'='1\", 5)[\"id\"] == 5\nassert list_documents(c, \"t\", \"' OR '1'='1\") == []\nassert list_documents(c, \"nope\", \"o\") == []\nprint(\"ok\")\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents \"\n        \"WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    rows = connection.execute(\n        \"SELECT id, title, body FROM documents \"\n        \"WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n        (tenant, owner),\n    )\n    return [decode(row) for row in rows]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/security.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 62,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.042584957991493866
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.044069374998798594,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04324254201492295,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

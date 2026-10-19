@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/lifecycle.cjs": "const assert = require('node:assert/strict');\nconst { EventService } = require('../.build/service');\n\n// Fake Source/Lease implementing src/source.ts: { open(): Promise<Lease> }, Lease { read(), close() }.\nfunction makeSource(values, opts = {}) {\n  const log = { opens: 0, reads: 0, closes: 0 };\n  const source = {\n    async open() {\n      log.opens++;\n      return {\n        async read() {\n          log.reads++;\n          if (opts.readFailAt === log.reads) throw opts.readError;\n          return values.length ? values.shift() : null;\n        },\n        async close() {\n          log.closes++;\n          if (opts.closeError) throw opts.closeError;\n        },\n      };\n    },\n  };\n  return { source, log };\n}\n\nasync function rejectsWith(promise, expected) {\n  await assert.rejects(promise, (e) => { assert.equal(e, expected); return true; });\n}\n\nasync function main() {\n  // Normal exhaustion, ordered mapping, lazy open, no read-ahead.\n  {\n    const { source, log } = makeSource(['a', 'b', 'c']);\n    const it = new EventService(source).stream();\n    assert.equal(log.opens, 0);\n    assert.deepEqual(await it.next(), { value: 'A', done: false });\n    assert.deepEqual(log, { opens: 1, reads: 1, closes: 0 });\n    assert.deepEqual(await it.next(), { value: 'B', done: false });\n    assert.equal(log.reads, 2);\n    assert.deepEqual(await it.next(), { value: 'C', done: false });\n    assert.equal(log.reads, 3);\n    assert.deepEqual(await it.next(), { value: undefined, done: true });\n    assert.deepEqual(log, { opens: 1, reads: 4, closes: 1 });\n    assert.deepEqual(await it.next(), { value: undefined, done: true });\n    assert.deepEqual(log, { opens: 1, reads: 4, closes: 1 });\n  }\n  // Empty source still closes once.\n  {\n    const { source, log } = makeSource([]);\n    const found = []; for await (const v of new EventService(source).stream()) found.push(v);\n    assert.deepEqual(found, []); assert.deepEqual(log, { opens: 1, reads: 1, closes: 1 });\n  }\n  // Return on unopened generator: nothing opened or closed.\n  {\n    const { source, log } = makeSource(['a']);\n    const it = new EventService(source).stream();\n    assert.deepEqual(await it.return(undefined), { value: undefined, done: true });\n    assert.deepEqual(await it.next(), { value: undefined, done: true });\n    assert.deepEqual(log, { opens: 0, reads: 0, closes: 0 });\n  }\n  // Consumer break.\n  {\n    const { source, log } = makeSource(['a', 'b', 'c']);\n    for await (const v of new EventService(source).stream()) { assert.equal(v, 'A'); break; }\n    assert.deepEqual(log, { opens: 1, reads: 1, closes: 1 });\n  }\n  // Explicit return, then return again: closed once.\n  {\n    const { source, log } = makeSource(['a', 'b']);\n    const it = new EventService(source).stream();\n    await it.next();\n    assert.deepEqual(await it.return('x'), { value: 'x', done: true });\n    await it.return(undefined);\n    assert.deepEqual(log, { opens: 1, reads: 1, closes: 1 });\n  }\n  // Close failure on return / exhaustion propagates.\n  {\n    const closeError = new Error('close');\n    const { source, log } = makeSource(['a'], { closeError });\n    const it = new EventService(source).stream();\n    await it.next();\n    await rejectsWith(it.return(undefined), closeError);\n    assert.equal(log.closes, 1);\n    const s2 = makeSource(['a'], { closeError });\n    const it2 = new EventService(s2.source).stream();\n    await it2.next();\n    await rejectsWith(it2.next(), closeError);\n    assert.deepEqual(s2.log, { opens: 1, reads: 2, closes: 1 });\n  }\n  // Read failure: closes, propagates read error; preserved if close fails.\n  for (const closeError of [undefined, new Error('close')]) {\n    const readError = new Error('read');\n    const { source, log } = makeSource(['a', 'b'], { readFailAt: 2, readError, closeError });\n    const it = new EventService(source).stream();\n    assert.equal((await it.next()).value, 'A');\n    await rejectsWith(it.next(), readError);\n    assert.deepEqual(log, { opens: 1, reads: 2, closes: 1 });\n    assert.deepEqual(await it.next(), { value: undefined, done: true });\n    assert.equal(log.closes, 1);\n  }\n  // Mapper failure: closes, propagates mapper error; preserved if close fails.\n  for (const closeError of [undefined, new Error('close')]) {\n    const mapError = new Error('map');\n    const { source, log } = makeSource(['a', 'bad', 'c'], { closeError });\n    const mapper = (v) => { if (v === 'bad') throw mapError; return v + '!'; };\n    const it = new EventService(source, mapper).stream();\n    assert.equal((await it.next()).value, 'a!');\n    await rejectsWith(it.next(), mapError);\n    assert.deepEqual(log, { opens: 1, reads: 2, closes: 1 });\n  }\n  // Consumer-injected throw: closes, propagates injected error; preserved if close fails.\n  for (const closeError of [undefined, new Error('close')]) {\n    const injected = new Error('injected');\n    const { source, log } = makeSource(['a', 'b'], { closeError });\n    const it = new EventService(source).stream();\n    await it.next();\n    await rejectsWith(it.throw(injected), injected);\n    assert.deepEqual(log, { opens: 1, reads: 1, closes: 1 });\n  }\n  // Throw on unopened generator: rejects with injected, nothing opened.\n  {\n    const injected = new Error('injected');\n    const { source, log } = makeSource(['a']);\n    await rejectsWith(new EventService(source).stream().throw(injected), injected);\n    assert.deepEqual(log, { opens: 0, reads: 0, closes: 0 });\n  }\n  // Open failure: nothing to close.\n  {\n    const openError = new Error('open');\n    const it = new EventService({ open: async () => { throw openError; } }).stream();\n    await rejectsWith(it.next(), openError);\n  }\n}\nmodule.exports = main();\n",
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { EventService } = require('../.build/service');\n        async function main() {\n          let closes = 0; const values = ['a', 'b', null];\n          const service = new EventService({ open: async () => ({ read: async () => values.shift(), close: async () => { closes++; } }) });\n          const found = []; for await (const value of service.stream()) found.push(value);\n          assert.deepEqual(found, ['A', 'B']); assert.equal(closes, 1);\n        }\n        module.exports = main().then(() => require('./lifecycle.cjs'));\n",
+      "src/service.ts": "import { Source } from './source';\nimport { mapEvent } from './mapper';\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    // Opened lazily: a generator body only starts on the first next().\n    const lease = await this.source.open();\n    let primary: { error: unknown } | undefined;\n    try {\n      for (;;) {\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      // Read failure, mapper failure, or an exception injected via throw().\n      primary = { error };\n      throw error;\n    } finally {\n      // Runs exactly once on exhaustion, return()/break, or any failure.\n      try {\n        await lease.close();\n      } catch (closeError) {\n        // Keep the original failure if there was one; otherwise surface close failure.\n        if (!primary) throw closeError;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/lifecycle.cjs",
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 173,
+    "removed_lines": 24
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.4962658750009723
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04969666700344533,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04831729200668633,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

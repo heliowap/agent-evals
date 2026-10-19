@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/auth.cjs": "const assert = require('node:assert/strict');\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\n\nconst docs = (extra = []) => [\n  { id: 'one', tenant: 'a', owner: 'u', deleted: false, archived: false },\n  { id: 'two', tenant: 'a', owner: 'w', deleted: false, archived: false },\n  { id: 'gone', tenant: 'a', owner: 'u', deleted: true, archived: false },\n  { id: 'far', tenant: 'b', owner: 'u', deleted: false, archived: false },\n  { id: 'old', tenant: 'a', owner: 'u', deleted: false, archived: true },\n  ...extra,\n];\nconst mk = (extra) => {\n  const repo = new DocumentRepository(docs(extra));\n  return { repo, service: new DocumentService(repo) };\n};\nconst actor = (role, tenant = 'a', user = 'u') => ({ tenant, user, role });\nconst snapshot = (repo) => JSON.stringify(repo.documents) + JSON.stringify(repo.audit);\n\n// admin may archive any visible document\nlet { repo, service } = mk();\nservice.archive(actor('admin'), 'one');\nassert.equal(repo.documents[0].archived, true);\nassert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\n\n// repeating archive on an archived visible document is a no-op\nservice.archive(actor('admin'), 'one');\nassert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\nservice.archive(actor('admin'), 'old'); // already archived -> no-op, no error\nassert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\n\n// admin: not found for missing, deleted, foreign tenant\nfor (const id of ['missing', 'gone', 'far']) {\n  assert.throws(() => service.archive(actor('admin'), id), /not found/, id);\n}\n\n// editor may archive only owned visible documents\n({ repo, service } = mk());\nservice.archive(actor('editor'), 'one');\nassert.equal(repo.documents[0].archived, true);\nassert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\nassert.throws(() => service.archive(actor('editor', 'a', 'w'), 'one'), /forbidden/);\nassert.throws(() => service.archive(actor('editor'), 'two'), /forbidden/); // owned by w\nassert.throws(() => service.archive(actor('editor'), 'far'), /not found/); // foreign tenant\nassert.throws(() => service.archive(actor('editor'), 'gone'), /not found/); // deleted\n\n// viewer never may archive\n({ repo, service } = mk());\nassert.throws(() => service.archive(actor('viewer'), 'one'), /forbidden/);\nassert.throws(() => service.archive(actor('viewer'), 'old'), /forbidden/); // permission first, even though archived\n\n// permission is still enforced on already-archived visible documents\nassert.throws(() => service.archive(actor('editor', 'a', 'w'), 'old'), /forbidden/); // not owner, archived doc still guarded\n\n// failures leave every document and audit entry unchanged\nconst before = snapshot(repo);\nfor (const bad of [\n  () => service.archive(actor('viewer'), 'one'),\n  () => service.archive(actor('editor'), 'two'),\n  () => service.archive(actor('admin'), 'missing'),\n  () => service.archive(actor('admin'), 'gone'),\n  () => service.archive(actor('admin'), 'far'),\n  () => service.archive(actor('admin', 'b'), 'one'),\n]) {\n  assert.throws(bad, /not found|forbidden/);\n  assert.equal(snapshot(repo), before);\n}\n\nconsole.log('AUTH CHECKS OK');\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\n\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    if (!isVisible(document, actor)) throw new Error('not found');\n    if (!isAuthorized(actor, document)) throw new Error('forbidden');\n    if (!document.archived) this.repository.archive(document, actor.user);\n  }\n}\n\nfunction isVisible(document: Document | undefined, actor: Actor): document is Document {\n  return document !== undefined && !document.deleted && document.tenant === actor.tenant;\n}\n\nfunction isAuthorized(actor: Actor, document: Document): boolean {\n  switch (actor.role) {\n    case 'admin':\n      return true;\n    case 'editor':\n      return document.owner === actor.user;\n    default:\n      return false;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/auth.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 96,
+    "removed_lines": 10
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.6167070000083186
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06451799999922514,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06379495898727328,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

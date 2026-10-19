@@ -1,0 +1,49 @@
+diff --git a/bottle/13_http_utils.py b/bottle/13_http_utils.py
+index 6cb2298..56cb808 100644
+--- a/bottle/13_http_utils.py
++++ b/bottle/13_http_utils.py
+@@ -42,7 +42,7 @@ def parse_auth(header):
+     try:
+         method, data = header.split(None, 1)
+         if method.lower() == 'basic':
+-            user, pwd = touni(base64.b64decode(tob(data))).split(':')
++            user, pwd = touni(base64.b64decode(tob(data))).split(':', 1)
+             return user, pwd
+     except (KeyError, ValueError):
+         return None
+diff --git a/test/test_auth.py b/test/test_auth.py
+index d3592f6..0797eeb 100644
+--- a/test/test_auth.py
++++ b/test/test_auth.py
+@@ -1,7 +1,31 @@
+ # -*- coding: utf-8 -*-
++import base64
++import unittest
+ import bottle
+ from .tools import ServerTestBase
+ 
++class TestParseAuth(unittest.TestCase):
++
++    def basic(self, credentials):
++        return 'Basic ' + base64.b64encode(credentials.encode('utf8')).decode('ascii')
++
++    def test_simple(self):
++        self.assertEqual(bottle.parse_auth(self.basic('user:pass')), ('user', 'pass'))
++
++    def test_password_with_colon(self):
++        self.assertEqual(bottle.parse_auth(self.basic('user:pa:ss')), ('user', 'pa:ss'))
++
++    def test_password_with_colon_request_auth(self):
++        environ = {'HTTP_AUTHORIZATION': self.basic('user:pa:ss:')}
++        self.assertEqual(bottle.LocalRequest(environ).auth, ('user', 'pa:ss:'))
++
++    def test_no_colon(self):
++        self.assertIsNone(bottle.parse_auth(self.basic('userpass')))
++
++    def test_not_basic(self):
++        self.assertIsNone(bottle.parse_auth('Digest user:pass'))
++
++
+ class TestBasicAuth(ServerTestBase):
+ 
+     def test__header(self):

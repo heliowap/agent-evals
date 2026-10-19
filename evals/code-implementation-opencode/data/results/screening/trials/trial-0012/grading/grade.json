@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\nassert format_amount(parse_amount(\"12.50\")) == \"12.50\"\nassert make_invoice([\"1.20\", \"2.30\"]) == {\"total\": \"3.50\", \"count\": 2}\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\nfrom decimal import Decimal\nimport decimal\ndef bad(v):\n    try: parse_amount(v)\n    except ValueError: return\n    raise AssertionError(v)\nfor v in [1.5, True, None, b\"1\", \"1e2\", \" 1\", \"1 \", \"0\", \"-1\", \"+0.00\", \"NaN\", \"Infinity\", Decimal(\"NaN\"),\n          Decimal(\"Infinity\"), \"1000000.01\", \"0.001\", \"1.005\", 1000001, \"\", \"-\", Decimal(\"1E+7\")]:\n    bad(v)\np = parse_amount(\"1.500\"); assert p == Decimal(\"1.5\") and p.as_tuple().exponent == -2\nassert parse_amount(5).as_tuple().exponent == -2 and parse_amount(\"+2\").as_tuple().exponent == -2\nassert parse_amount(Decimal(\"1E+2\")) == 100 and parse_amount(\"1000000.00\") == 1000000\nassert parse_amount(Decimal(\"0.10000000000000000000000000000000000\")) == Decimal(\"0.10\")\nassert make_invoice([\"600000\", \"400000\"])[\"total\"] == \"1000000.00\"\ntry: make_invoice([\"600000\", \"400000.01\"]); raise AssertionError\nexcept ValueError: pass\nbefore = decimal.getcontext().prec\nmake_invoice([\"1.1\"]); assert decimal.getcontext().prec == before\n",
+      "src/api.py": "from decimal import Decimal\n\nfrom .money import MAX_AMOUNT, parse_amount, format_amount\n\n\ndef make_invoice(amounts):\n    parsed = [parse_amount(item) for item in amounts]\n    cents = sum(int(p * 100) for p in parsed)\n    total = Decimal(cents).scaleb(-2) if cents else Decimal(\"0.00\")\n    total = total.quantize(Decimal(\"0.01\"))\n    if total > MAX_AMOUNT:\n        raise ValueError(\"total too large\")\n    return {\"total\": format_amount(total), \"count\": len(parsed)}\n",
+      "src/money.py": "import re\nfrom decimal import Context, Decimal, InvalidOperation\n\nMAX_AMOUNT = Decimal(\"1000000.00\")\n_CENT = Decimal(\"0.01\")\n_PLAIN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n\n\ndef _to_decimal(value):\n    if isinstance(value, bool):\n        raise ValueError(\"invalid amount type\")\n    if isinstance(value, Decimal):\n        return value\n    if isinstance(value, int):\n        return Decimal(value)\n    if isinstance(value, str):\n        if not _PLAIN.fullmatch(value):\n            raise ValueError(\"invalid amount string\")\n        return Decimal(value)  # exact; independent of the global context\n    raise ValueError(\"invalid amount type\")\n\n\ndef parse_amount(value):\n    d = _to_decimal(value)\n    if not d.is_finite():\n        raise ValueError(\"amount must be finite\")\n    if d <= 0:\n        raise ValueError(\"amount must be positive\")\n    if d > MAX_AMOUNT:\n        raise ValueError(\"amount too large\")\n    # Local context so the global one is never used or modified.\n    ctx = Context(prec=max(len(d.as_tuple().digits) + 4, 28))\n    try:\n        q = d.quantize(_CENT, context=ctx)\n    except InvalidOperation:\n        raise ValueError(\"invalid amount\")\n    if q != d:\n        raise ValueError(\"amount not representable in cents\")\n    return q\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/public.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 81,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04456104099517688
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05221662498661317,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": false,
+      "exit_code": 1,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/.runner-acceptance.py\", line 2, in <module>\n    runpy.run_path('.acceptance.py', run_name='__main__')\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \".acceptance.py\", line 24, in <module>\n    make_invoice(amounts)\n  File \"/workspace/src/api.py\", line 7, in make_invoice\n    parsed = [parse_amount(item) for item in amounts]\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nTypeError: 'NoneType' object is not iterable\n",
+      "wall_s": 0.04865979100577533,
+      "check_completed": false
+    }
+  },
+  "patch_correct": false,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { OrderHandler } = require('../.build/handler');\n        const { OrderRepository } = require('../.build/repository');\n        const handler = new OrderHandler(new OrderRepository([\n          { id: 'b', tenant: 'a', createdAt: '2026-01-02', total: 2 },\n          { id: 'x', tenant: 'b', createdAt: '2026-01-01', total: 3 },\n          { id: 'a', tenant: 'a', createdAt: '2026-01-01', total: 1 }\n        ]));\n        assert.deepEqual(handler.list({ tenant: 'a', limit: 1 }).items.map(x => x.id), ['a']);\n        assert.throws(() => handler.list({ tenant: 'a', limit: 0 }), /invalid request/);\n\n// Frozen, unsorted input also catches in-place sorting or row mutation.\nconst rows = Object.freeze([\n  { id: 'b', tenant: 'a', createdAt: '2026-01-01', total: 2 },\n  { id: 'z', tenant: 'other', createdAt: '2026-01-01', total: 3 },\n  { id: 'a', tenant: 'a', createdAt: '2026-01-01', total: 1 },\n  { id: '10', tenant: 'a', createdAt: '2026-01-01', total: 4 },\n  { id: '2', tenant: 'a', createdAt: '2026-01-01', total: 5 },\n  { id: 'A', tenant: 'a', createdAt: '2026-01-02', total: 6 }\n].map(Object.freeze));\nconst paginated = new OrderHandler(new OrderRepository(rows));\nlet cursor;\nconst ids = [];\ndo {\n  const page = paginated.list({ tenant: 'a', limit: 2, cursor });\n  ids.push(...page.items.map(row => row.id));\n  if (page.nextCursor !== null) {\n    const last = page.items[page.items.length - 1];\n    assert.equal(page.nextCursor, last.createdAt + '|' + last.id);\n  }\n  cursor = page.nextCursor;\n} while (cursor !== null);\nassert.deepEqual(ids, ['10', '2', 'a', 'b', 'A']);\nassert.equal(paginated.list({ tenant: 'a', limit: 5 }).nextCursor, null);\nassert.deepEqual(paginated.list({ tenant: 'missing', limit: 1 }), { items: [], nextCursor: null });\nassert.deepEqual(paginated.list({ tenant: 'a', limit: 1, cursor: '9999|z' }), { items: [], nextCursor: null });\n// Resume by value, not by finding an existing row, even across tenants.\nassert.deepEqual(paginated.list({ tenant: 'a', limit: 2, cursor: '2026-01-01|aa' }), {\n  items: [rows[0], rows[5]], nextCursor: null\n});\nassert.deepEqual(paginated.list({ tenant: 'a', limit: 1, cursor: '2026-01-01|z' }), {\n  items: [rows[5]], nextCursor: null\n});\nconst deleted = new OrderHandler(new OrderRepository(rows.filter(row => row.id !== 'a')));\nassert.deepEqual(deleted.list({ tenant: 'a', limit: 1, cursor: '2026-01-01|a' }), {\n  items: [rows[0]], nextCursor: '2026-01-01|b'\n});\nfor (const cursor of ['', '|', 'date|', '|id', 'date', 'date|id|extra', null, 42]) {\n  assert.throws(() => paginated.list({ tenant: 'a', limit: 1, cursor }), /^Error: invalid request$/);\n}\nfor (const limit of [0, -1, 101, 1.5, NaN, Infinity, '1']) {\n  assert.throws(() => paginated.list({ tenant: 'a', limit }), /^Error: invalid request$/);\n}\nassert.throws(() => paginated.list({ tenant: '', limit: 1 }), /^Error: invalid request$/);\nassert.equal(paginated.list({ tenant: 'a', limit: 100 }).items.length, 5);\n",
+      "src/handler.ts": "import { OrderRepository } from './repository';\nimport { ListRequest, Page } from './types';\nexport class OrderHandler {\n  constructor(private readonly repository: OrderRepository) {}\n  list(request: ListRequest): Page {\n    if (!request.tenant || !Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {\n      throw new Error('invalid request');\n    }\n    if (request.cursor !== undefined &&\n        (typeof request.cursor !== 'string' || request.cursor.split('|').length !== 2 ||\n         request.cursor.split('|').some(part => part.length === 0))) {\n      throw new Error('invalid request');\n    }\n    const matching = this.repository.list(request.tenant, request.cursor);\n    const items = matching.slice(0, request.limit);\n    const last = items[items.length - 1];\n    return {\n      items,\n      nextCursor: matching.length > items.length ? last.createdAt + '|' + last.id : null\n    };\n  }\n}\n",
+      "src/repository.ts": "import { Order } from './types';\nexport class OrderRepository {\n  constructor(private readonly rows: Order[]) {}\n  list(tenant: string, cursor?: string): Order[] {\n    const pair = cursor === undefined ? undefined : cursor.split('|');\n    return this.rows.filter(row => row.tenant === tenant)\n      .filter(row => pair === undefined || row.createdAt > pair[0] ||\n        (row.createdAt === pair[0] && row.id > pair[1]))\n      .sort((a, b) =>\n      a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/handler.ts",
+      "src/repository.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 90,
+    "removed_lines": 30
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5535664999915753
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06288625000161119,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.060538249992532656,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

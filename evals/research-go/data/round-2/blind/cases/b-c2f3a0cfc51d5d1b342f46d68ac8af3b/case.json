@@ -1,0 +1,256 @@
+{
+  "blind_id": "b-c2f3a0cfc51d5d1b342f46d68ac8af3b",
+  "task_id": "T6",
+  "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe publish a Go module and are revising CI after adopting Go 1.21's toolchain behavior. There is no workspace. Runner A bundles Go 1.21.3, uses the standard auto setting, and builds a main module with go 1.21.0 plus toolchain go1.21.9; no go1.21.9 executable is on PATH. Runner B bundles the same version, sets GOTOOLCHAIN=local, and builds a module whose go line is 1.21.9. Runner C uses GOTOOLCHAIN=go1.21.3+path for Runner A's module with the same PATH.\n\nExplain each runner's expected selection or refusal and distinguish the go and toolchain directives, including what a dependency's suggestion does to downstream consumers. Someone proposes GOSUMDB=off to make automatic toolchain downloads work in restricted CI, and claims +path makes the entire build network-free. Recommend a policy without weakening documented verification, and identify any guarantee these settings do not establish.\n\nStarting URLs\n- https://go.dev/doc/toolchain\n- https://go.dev/doc/modules/gomod-ref",
+  "answer": "## Runner outcomes (no workspace)\n\n- **Runner A** — `auto` = `local+auto`. Module's `toolchain go1.21.9` is newer than the bundled 1.21.3, so the go command runs go1.21.9: it searches `$PATH`, finds no `go1.21.9`, then **downloads and caches** it. [select](https://go.dev/doc/toolchain#select), [config](https://go.dev/doc/toolchain#config)\n- **Runner B** — `GOTOOLCHAIN=local` always runs the bundled toolchain. A module declaring `go 1.21.9` exceeds 1.21.3, so it **refuses to load** and exits with an error. [select](https://go.dev/doc/toolchain#select)\n- **Runner C** — `GOTOOLCHAIN=go1.21.3+path` sets default=go1.21.3 and **disables the download fallback**. The suggested go1.21.9 is newer; PATH has no `go1.21.9`, so selection stops after the PATH search and **fails**. [select](https://go.dev/doc/toolchain#select)\n\n## go vs toolchain directive\n\n`go` is the **minimum required** version (mandatory since 1.21; toolchains refuse older). `toolchain` is a **suggested** toolchain, takes precedence over `go` when selecting, and **only takes effect in the main module/workspace**. A dependency's `toolchain` line is therefore ignored by downstream consumers; only its `go` line constrains them. [gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain), [gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go)\n\n## Correcting the proposal\n\n- **`GOSUMDB=off` breaks, not enables, auto downloads**: \"toolchain downloads fail for lack of verification if GOSUMDB=off.\" `GOPRIVATE`/`GONOSUMDB` don't apply to toolchains. This also weakens ordinary module verification. [download](https://go.dev/doc/toolchain#download)\n- **`+path` is not \"network-free\"**: it only disables the *toolchain* download fallback; dependent-module fetches (GOPROXY) and checksum lookups still occur. That claim is **UNVERIFIED/contradicted** — resolve by auditing `go list -m`/`GOPROXY` behavior with tracing.\n\n## Recommendation\n\nKeep verification on: leave `GOSUMDB` at its default, and satisfy toolchain needs by **pre-installing the required `go1.21.9` binary on PATH** (or pinning `toolchain`/`go`), then use `+path` or `local` to forbid downloads. Mirror modules via `GOPROXY` rather than disabling checksums.\n\n## Guarantee not established\n\nNeither `local` nor `+path` verifies a **PATH-provided** toolchain: checksum verification applies to *downloaded* toolchain modules, not to a binary found in `$PATH`. These settings guarantee no-network toolchain selection, **not** toolchain authenticity. [name](https://go.dev/doc/toolchain#name), [download](https://go.dev/doc/toolchain#download)",
+  "sources": [
+    {
+      "url": "https://go.dev/doc/toolchain",
+      "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://go.dev/doc/toolchain",
+      "candidate_visible_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+    },
+    {
+      "url": "https://go.dev/doc/modules/gomod-ref",
+      "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s2.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://go.dev/doc/modules/gomod-ref",
+      "candidate_visible_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s2.txt"
+    },
+    {
+      "url": "https://go.dev/doc/toolchain",
+      "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s3.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://go.dev/doc/modules/gomod-ref",
+      "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s4.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://go.dev/doc/modules/managing-dependencies",
+      "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s5.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    }
+  ],
+  "rubric": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirement": "`go` is a strict minimum since 1.21",
+        "accepted": [
+          "distinguish the enforced required version from its older advisory role."
+        ],
+        "contradicted": [
+          "say new Go 1.21+ toolchains may ignore a newer go line if syntax happens to compile. The single scored fact is the requirement, not a list of releases/backports."
+        ],
+        "rubric_text": "S: distinguish the enforced required version from its older advisory role. X: say new Go 1.21+ toolchains may ignore a newer go line if syntax happens to compile. The single scored fact is the requirement, not a list of releases/backports.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/modules/gomod-ref#go",
+            "quote": "Before Go 1.21, the directive was advisory only; now it is a mandatory requirement: Go toolchains refuse to use modules declaring newer Go versions.",
+            "source_id": "GO-M",
+            "anchor": "go",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "requirement": "`toolchain` is a main-module suggestion, not a downstream exact pin",
+        "accepted": [
+          "explain it only takes effect for the main module when the default is older; a dependency's suggestion does not pin consumers."
+        ],
+        "contradicted": [
+          "all downstream builds must use exactly its suggested toolchain, or the suggestion is a maximum allowed version."
+        ],
+        "rubric_text": "S: explain it only takes effect for the main module when the default is older; a dependency's suggestion does not pin consumers. X: all downstream builds must use exactly its suggested toolchain, or the suggestion is a maximum allowed version.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/modules/gomod-ref#toolchain",
+            "quote": "Only takes effect when the module is the main module and the default toolchain is older than the suggested toolchain.",
+            "source_id": "GO-M",
+            "anchor": "toolchain",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "requirement": "Runner A selects/acquires go1.21.9",
+        "accepted": [
+          "auto uses the newer suggested toolchain; PATH lookup then download/cache fallback when absent."
+        ],
+        "contradicted": [
+          "it remains on bundled 1.21.3 or always updates to today's latest release. Assume network and verification permit acquisition; do not guarantee that they succeed in the real CI environment."
+        ],
+        "rubric_text": "S: auto uses the newer suggested toolchain; PATH lookup then download/cache fallback when absent. X: it remains on bundled 1.21.3 or always updates to today's latest release. Assume network and verification permit acquisition; do not guarantee that they succeed in the real CI environment.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/toolchain#select",
+            "quote": "If the `go.work` or `go.mod` file has a `toolchain <tname>` line and `<tname>` is newer than the default Go toolchain, then the `go` command runs `<tname>` instead.",
+            "source_id": "GO-T",
+            "anchor": "select",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+          },
+          {
+            "url": "https://go.dev/doc/toolchain#select",
+            "quote": "If no such program is found, the `go` command downloads and runs the specified Go toolchain.",
+            "source_id": "GO-T",
+            "anchor": "select",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "requirement": "Runner B refuses an unmet minimum",
+        "accepted": [
+          "local runs bundled 1.21.3 and cannot load the main module requiring 1.21.9; provision a sufficiently new bundled toolchain or change the policy, not ignore the minimum."
+        ],
+        "contradicted": [
+          "it auto-downloads despite local or compiles anyway. Do not require exact error text."
+        ],
+        "rubric_text": "S: local runs bundled 1.21.3 and cannot load the main module requiring 1.21.9; provision a sufficiently new bundled toolchain or change the policy, not ignore the minimum. X: it auto-downloads despite local or compiles anyway. Do not require exact error text.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/toolchain#select",
+            "quote": "When `GOTOOLCHAIN` is set to `local`, the `go` command always runs the bundled Go toolchain.",
+            "source_id": "GO-T",
+            "anchor": "select",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+          },
+          {
+            "url": "https://go.dev/doc/toolchain#config",
+            "quote": "The Go toolchain refuses to load a module or workspace that declares a minimum required Go version greater than the toolchain's own version.",
+            "source_id": "GO-T",
+            "anchor": "config",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C5",
+        "requirement": "Runner C does not download a missing toolchain",
+        "accepted": [
+          "+path permits selection of a newer named PATH toolchain but disables download fallback; the missing selected go1.21.9 produces refusal/failure, not a silently ignored suggestion."
+        ],
+        "contradicted": [
+          "downloads it anyway or falls back to 1.21.3 while declaring the suggestion satisfied. Provisioning go1.21.9 on PATH is an acceptable policy recommendation."
+        ],
+        "rubric_text": "S: +path permits selection of a newer named PATH toolchain but disables download fallback; the missing selected go1.21.9 produces refusal/failure, not a silently ignored suggestion. X: downloads it anyway or falls back to 1.21.3 while declaring the suggestion satisfied. Provisioning go1.21.9 on PATH is an acceptable policy recommendation.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/toolchain#select",
+            "quote": "Using the `GOTOOLCHAIN` form `<name>+path` disables the download fallback, causing the `go` command to stop after searching the executable path.",
+            "source_id": "GO-T",
+            "anchor": "select",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "requirement": "Turning checksum verification off defeats automatic toolchain downloads",
+        "accepted": [
+          "`GOSUMDB=off` makes toolchain downloads fail for lack of verification, not work without checks."
+        ],
+        "contradicted": [
+          "recommend it as a supported way to bootstrap downloaded toolchains. No privacy/proxy pattern behavior is scored or requested."
+        ],
+        "rubric_text": "S: `GOSUMDB=off` makes toolchain downloads fail for lack of verification, not work without checks. X: recommend it as a supported way to bootstrap downloaded toolchains. No privacy/proxy pattern behavior is scored or requested.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/toolchain#download",
+            "quote": "Instead, toolchain downloads fail for lack of verification if `GOSUMDB=off`.",
+            "source_id": "GO-T",
+            "anchor": "download",
+            "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+          }
+        ]
+      }
+    ],
+    "uncertainty": {
+      "id": "U",
+      "requirement": "No entire-build offline guarantee from +path",
+      "pass": "+path constrains **toolchain acquisition**, not all dependency/build network activity; no whole-build network-free guarantee follows. The dependency guide documents ordinary module-source downloads. Next inspect/provision the dependency cache or vendoring, selected commands and controlled network environment. Do not prescribe disabling verification as an 'offline fix', and do not make an unsourced claim that every build must use the network.",
+      "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+      "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+      "source_evidence": [
+        {
+          "url": "https://go.dev/doc/modules/managing-dependencies#adding_dependency",
+          "quote": "If needed, it downloads module source code so you can compile packages that depend on them.",
+          "source_id": "GO-D",
+          "anchor": "adding_dependency",
+          "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s5.txt"
+        },
+        {
+          "url": "https://go.dev/doc/toolchain#select",
+          "quote": "Using the `GOTOOLCHAIN` form `<name>+path` disables the download fallback",
+          "source_id": "GO-T",
+          "anchor": "select",
+          "source_path": "blind/cases/b-c2f3a0cfc51d5d1b342f46d68ac8af3b/sources/s1.txt"
+        }
+      ]
+    },
+    "critical_errors": [
+      "treat strict go minimum as optional",
+      "treat dependency suggestion as an exact consumer pin",
+      "make local auto-upgrade",
+      "allow +path to download a missing selected toolchain",
+      "recommend `GOSUMDB=off` as working automatic toolchain acquisition",
+      "certify an entire network-free build from +path. Outcomes are documentation-derived predictions for hypothetical runners, not shell executions in this research session."
+    ],
+    "critical_errors_text": "treat strict go minimum as optional; treat dependency suggestion as an exact consumer pin; make local auto-upgrade; allow +path to download a missing selected toolchain; recommend `GOSUMDB=off` as working automatic toolchain acquisition; certify an entire network-free build from +path. Outcomes are documentation-derived predictions for hypothetical runners, not shell executions in this research session.",
+    "source_rules": {
+      "description": "`go.dev`; archive the three exact base URLs above. Use `gomod-ref`, not the very large `/ref/mod` manual. The guide's examples explicitly contain versions 1.21.3 and 1.21.9; the prompt uses those documented versions without claiming they are currently recommended/supported production releases. No go command, download, environment write or credentials are required.",
+      "allowed_url_patterns": [
+        "https://go\\.dev/[^?#]*"
+      ],
+      "required_source_urls": [
+        "https://go.dev/doc/toolchain",
+        "https://go.dev/doc/modules/gomod-ref",
+        "https://go.dev/doc/modules/managing-dependencies"
+      ],
+      "minimum_distinct_sources": 3,
+      "minimum_answer_bearing_sources": 3,
+      "discovery_chain": {
+        "description": "supplied toolchain guide → configuration, selection and downloading sections; supplied concise gomod reference → go/toolchain distinction; gomod reference's Managing dependencies link → ordinary dependency acquisition for U. **Minimum distinct content sources: 3, all answer-bearing.** The Go 1.21 release notes were checked during exploration but are unnecessary for candidate gold and not a required fourth source.",
+        "edges": [
+          {
+            "from": "https://go.dev/doc/modules/gomod-ref",
+            "to": "https://go.dev/doc/modules/managing-dependencies",
+            "relation": "documentation_link"
+          }
+        ],
+        "minimum_distinct_sources": 3
+      }
+    }
+  },
+  "mechanical": {
+    "attempted": true,
+    "operational_complete": true,
+    "visible_words": 292,
+    "word_cap": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "fetched_two_sources": true,
+    "distinct_fetched_pages": 2,
+    "requested_tool_calls": 2,
+    "fetch_attempts": 2,
+    "truncated_fetches": 0,
+    "semantic_grading": "required; not automatically assigned",
+    "explicit_self_identification_redacted": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "files": {
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/exporter.py": "import csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Return a new list of dicts with only id/name, None/missing -> '', others -> str.\n\n    Reads each input row once and never mutates it. Accepts one-shot iterables.\n    \"\"\"\n    clean = []\n    for row in rows:\n        clean.append({key: \"\" if row.get(key) is None else str(row[key]) for key in _FIELDS})\n    return clean\n\n\ndef _serialize_csv(clean):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(list(_FIELDS))\n    for record in clean:\n        writer.writerow([record[key] for key in _FIELDS])\n    return buffer.getvalue()\n\n\ndef _serialize_json(clean):\n    return json.dumps(clean, ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\n    \"csv\": _serialize_csv,\n    \"json\": _serialize_json,\n}\n\n\ndef export_rows(rows, format):\n    try:\n        serialize = _SERIALIZERS[format]\n    except (KeyError, TypeError):\n        raise ValueError(f\"unsupported format: {format!r}\") from None\n    return serialize(_normalize(rows))\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "src/csv_exporter.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 3,
+  "added_lines": 53,
+  "removed_lines": 18
+}

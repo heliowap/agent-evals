@@ -1,0 +1,64 @@
+Based on the retrieved source code in the Zod snapshot, here is the trace of a string schema's synchronous transformation from the public classic builder to core execution.
+
+---
+
+### 1. Public Builder and Transformation Representation
+
+In Zod v4's classic API:
+- **Public Builder Call**: Calling `.transform(...)` on a string schema (e.g., `z.string().transform(fn)`) invokes the `transform` method defined on the `ZodType` prototype:
+  - **Interface definition**: `packages/zod/src/v4/classic/schemas.ts:131–132`
+    ```ts
+    transform<NewOut>(
+      transform: (arg: core.output<this>, ctx: core.$RefinementCtx<core.output<this>>) => NewOut | Promise<NewOut>
+    ): ...
+    ```
+  - **Prototype implementation**: `packages/zod/src/v4/classic/schemas.ts:245–246`
+    ```ts
+    transform(tx) {
+      return pipe(this, transform(tx));
+    },
+    ```
+- **Internal Representation**:
+  - The transform operation is not kept as a check on the string schema itself. Instead, it delegates to the standalone `transform(tx)` helper, which constructs a schema object of type `"transform"` (`packages/zod/src/v4/classic/schemas.ts:2291–2296`):
+    ```ts
+    export function transform<I = unknown, O = I>(
+      fn: (arg: I, ctx: core.$RefinementCtx<I>) => O
+    ) {
+      ...
+      type: "transform",
+      transform: fn as any,
+      ...
+    ```
+  - The resulting schema is represented as a `pipe` schema via `pipe(this, transform(tx))` (`packages/zod/src/v4/classic/schemas.ts:245–246` and `257–258`), connecting the input string schema (`in`) to the transform schema (`out`).
+
+---
+
+### 2. Execution Order: Input Parsing and Transformation
+
+When `.parse(data)` or `.safeParse(data)` is invoked on the resulting piped schema:
+- The execution delegates through the prototype's `parse` / `safeParse` methods (`packages/zod/src/v4/classic/schemas.ts:297–304`) to the underlying parse runner.
+- **Stage 1 (Input Parsing)**: The pipe executes the first stage (`this`, the string schema) against the input data. String type validation and checks (e.g., `.min()`, regexes, etc.) are executed first.
+- **Stage 2 (Transformation)**: If the input validation succeeds, the pipeline passes the validated output into the second stage (the `"transform"` schema). The transform handler executes synchronously:
+  - `packages/zod/src/v4/classic/schemas.ts:2278`
+    ```ts
+    const output = def.transform(payload.value, payload);
+    ```
+
+---
+
+### 3. Pipeline Halting on Input Issues and Issue-Code Exceptions
+
+- **General Pipe Abort**: Under standard pipeline execution, if the input schema (the string schema) produces validation issues, subsequent stages in the pipe do not execute. The transform function is aborted before running to prevent passing invalid input data into the transform callback.
+- **Unresolved Limitation Regarding Issue-Code Exception**: While pipeline abortion on input failure is evidenced (e.g., test specifications in `packages/zod/src/v4/classic/tests/codec-examples.test.ts:557` noting that validation errors abort before reaching downstream schema stages), the internal implementation files within `packages/zod/src/v4/core/` (specifically `packages/zod/src/v4/core/parse.ts` and `packages/zod/src/v4/core/compile.ts`) could not be read before reaching the tool budget limit. Consequently, the exact issue code exception and line spans in core that allow or bypass pipeline abortion could not be directly verified from tool results.
+
+---
+
+### 4. Carrying the Transformed Value Onward
+
+- In `packages/zod/src/v4/classic/schemas.ts:2278`:
+  ```ts
+  const output = def.transform(payload.value, payload);
+  ```
+- The returned transformed value `output` updates the execution payload's current value (`payload.value`).
+- If additional pipe stages exist (e.g., `.pipe(...)`), this `output` is forwarded as the input data to the next stage in the pipeline.
+- If the transform schema is the final stage, `output` is returned as the final parsed value to the caller of `parse()` / `safeParse()` (`packages/zod/src/v4/classic/schemas.ts:297–304`).

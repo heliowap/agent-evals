@@ -1,0 +1,23 @@
+## Decision
+
+Do not deploy as specified. Node's own docs say the Permission Model is **not** a tenancy/security boundary, so this deployment cannot be certified for untrusted tenant code.
+
+## Premises that are wrong or unsafe
+
+- **Sole isolation boundary — invalid.** The model "does not protect against malicious code… does not provide security guarantees in the presence of malicious code. Malicious code can bypass the permission model and execute arbitrary code." SECURITY.md confirms it is "designed to reduce the blast radius of mistakes in trusted application code, **not** to act as a security boundary." ([permissions.html#permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions), [SECURITY.md#permission-model-boundaries---permission](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md))
+- **`--allow-fs-read=/srv/jobs/*.js` is wider than you think.** "After passing a wildcard character (`*`) all subsequent characters will be ignored… `/home/*.js` will work similar to `/home/*`." So it effectively grants read to the whole `/srv/jobs` tree. ([permissions.html#file-system-permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions))
+- **`--env-file` bypasses the model.** Flags like `--env-file` read files "before environment initialization" and are "not subject to the rules of the Permission Model." Confidentiality of that env file cannot be assumed. ([permissions.html#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints))
+- **Pre-opened FD bypasses the model.** "Using existing file descriptors via the node:fs module bypasses the Permission Model." ([same constraints section](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints))
+- **Relative symlinks are explicitly disqualifying.** "Relative symbolic links may allow access to arbitrary files… you must ensure that no paths to which access has been granted contain relative symbolic links." ([permissions.html#limitations-and-known-issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues))
+
+## Worker-inheritance: evidence conflicts — do not treat as settled
+
+- Constraints section: "The model **does not inherit** to a worker thread." ([permissions.html#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints))
+- SECURITY.md: "Workers **inherit** the permission restrictions of their parent process." ([SECURITY.md](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md))
+- worker_threads: `execArgv` "inherited from the parent thread" by default. ([worker_threads.html#new-workerfilename-options](https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html#new-workerfilename-options))
+
+**UNVERIFIED.** Resolve via Node's test suite (`test/parallel`) or a minimal reproduction on v24.21.0. Note `--permission-audit` reports violations without denying, so staging results are not production behavior; `--permission-audit` requires v24.20.0+ (present here). ([cli.html#--permission-audit](https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#--permission-audit))
+
+## Recommendation
+
+Use the Permission Model for **defense-in-depth in trusted code** (blast-radius reduction), and put untrusted tenant JS behind OS-level isolation (separate users, containers/VMs, seccomp/AppArmor). Also unaddressed here: `process._debugProcess()` and `node:sqlite` file access bypass scopes. ([permissions.html#process_debugprocess-and-cross-process-inspector-activation](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#process_debugprocess-and-cross-process-inspector-activation))

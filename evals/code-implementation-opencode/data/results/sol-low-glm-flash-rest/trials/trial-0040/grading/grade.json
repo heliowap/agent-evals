@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/service.cjs": "const assert = require('node:assert/strict');\n\nconst { EventService } = require('../.build/service');\n\n// Helper building a Source/Lease pair (shape of src/source.ts) that records\n// opens, closes and reads, with injectable failures.\nfunction makeSource({ values, readError, closeError, mapperErrorOn }) {\n  const state = { opens: 0, closes: 0, reads: [], lease: null };\n  const source = {\n    open: async () => {\n      state.opens++;\n      state.lease = {\n        read: async () => {\n          const value = values.length ? values.shift() : null;\n          state.reads.push(value);\n          if (readError) throw readError;\n          return value;\n        },\n        close: async () => {\n          state.closes++;\n          if (closeError) throw closeError;\n        },\n      };\n      return state.lease;\n    },\n  };\n  return { source, state };\n}\n\nasync function exhaustion() {\n  const { source, state } = makeSource({ values: ['a', 'b'] });\n  const service = new EventService(source);\n  const found = [];\n  for await (const value of service.stream()) found.push(value);\n  assert.deepEqual(found, ['A', 'B']);\n  assert.equal(state.opens, 1);\n  assert.equal(state.closes, 1);\n  // one read per next(): a, b, then the read establishing exhaustion\n  assert.deepEqual(state.reads, ['a', 'b', null]);\n}\n\nasync function lazyOpenAndNoReadAheadOnBreak() {\n  const { source, state } = makeSource({ values: ['a', 'b', 'c'] });\n  const service = new EventService(source);\n  const gen = service.stream();\n  assert.equal(state.opens, 0, 'must not open before first iteration');\n  const first = await gen.next();\n  assert.equal(first.value, 'A');\n  assert.equal(state.opens, 1);\n  assert.deepEqual(state.reads, ['a'], 'exactly one read per next()');\n  await gen.return(); // consumer break\n  assert.equal(state.closes, 1);\n  assert.deepEqual(state.reads, ['a'], 'must not read ahead past last consumed record');\n  await gen.next();\n  assert.equal(state.closes, 1, 'closed exactly once');\n}\n\nasync function returningUnopenedGenerator() {\n  const { source, state } = makeSource({ values: ['a'] });\n  const service = new EventService(source);\n  const gen = service.stream();\n  await gen.return();\n  assert.equal(state.opens, 0, 'unopened generator must not open');\n  assert.equal(state.closes, 0, 'unopened generator must not close');\n}\n\nasync function readFailure() {\n  const readError = new Error('read boom');\n  const { source, state } = makeSource({ values: ['a'], readError });\n  const service = new EventService(source);\n  await assert.rejects(\n    async () => { for await (const value of service.stream()) void value; },\n    (error) => error === readError,\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function mapperFailure() {\n  const mapperError = new Error('mapper boom');\n  const { source, state } = makeSource({ values: ['a', 'b'] });\n  const service = new EventService(source, () => { throw mapperError; });\n  await assert.rejects(\n    async () => { for await (const value of service.stream()) void value; },\n    (error) => error === mapperError,\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function consumerInjectedThrow() {\n  const injected = new Error('injected');\n  const { source, state } = makeSource({ values: ['a', 'b'] });\n  const service = new EventService(source);\n  const gen = service.stream();\n  assert.equal((await gen.next()).value, 'A');\n  await assert.rejects(() => gen.throw(injected), (error) => error === injected);\n  assert.equal(state.closes, 1);\n}\n\nasync function closeFailureOnExhaustion() {\n  const closeError = new Error('close boom');\n  const { source, state } = makeSource({ values: [], closeError });\n  const service = new EventService(source);\n  await assert.rejects(\n    async () => { for await (const value of service.stream()) void value; },\n    (error) => error === closeError,\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function closeFailurePreservesReadError() {\n  const readError = new Error('read boom');\n  const closeError = new Error('close boom');\n  const { source, state } = makeSource({ values: ['a'], readError, closeError });\n  const service = new EventService(source);\n  await assert.rejects(\n    async () => { for await (const value of service.stream()) void value; },\n    (error) => error === readError,\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function closeFailurePreservesMapperError() {\n  const mapperError = new Error('mapper boom');\n  const closeError = new Error('close boom');\n  const { source, state } = makeSource({ values: ['a'], closeError });\n  const service = new EventService(source, () => { throw mapperError; });\n  await assert.rejects(\n    async () => { for await (const value of service.stream()) void value; },\n    (error) => error === mapperError,\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function closeFailurePreservesInjectedError() {\n  const injected = new Error('injected');\n  const closeError = new Error('close boom');\n  const { source, state } = makeSource({ values: ['a'], closeError });\n  const service = new EventService(source);\n  const gen = service.stream();\n  assert.equal((await gen.next()).value, 'A');\n  await assert.rejects(() => gen.throw(injected), (error) => error === injected);\n  assert.equal(state.closes, 1);\n}\n\nasync function main() {\n  const tests = [\n    exhaustion,\n    lazyOpenAndNoReadAheadOnBreak,\n    returningUnopenedGenerator,\n    readFailure,\n    mapperFailure,\n    consumerInjectedThrow,\n    closeFailureOnExhaustion,\n    closeFailurePreservesReadError,\n    closeFailurePreservesMapperError,\n    closeFailurePreservesInjectedError,\n  ];\n  for (const test of tests) await test();\n}\n\nmodule.exports = main();\n",
+      "src/service.ts": "import { Lease, Source } from './source';\nimport { mapEvent } from './mapper';\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    // The lease is opened lazily, on the first iteration, and never read ahead:\n    // every next() performs at most one read, the last one establishing exhaustion.\n    let lease: Lease | undefined;\n    let failure: unknown;\n    let failed = false;\n    try {\n      lease = await this.source.open();\n      for (;;) {\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      // Remember the pending failure so a failing close cannot mask it.\n      failed = true;\n      failure = error;\n      throw error;\n    } finally {\n      if (lease !== undefined) {\n        try {\n          await lease.close();\n        } catch (closeError) {\n          // Preserve the original read, mapper or injected exception when close\n          // also fails; only surface a close failure on the success paths.\n          if (!failed) {\n            failed = true;\n            failure = closeError;\n            throw closeError;\n          }\n        }\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/service.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 200,
+    "removed_lines": 14
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5810965420096181
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.07105041600880213,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06017387501196936,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

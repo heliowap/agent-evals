@@ -1,0 +1,106 @@
+[
+  {
+    "type": "tool",
+    "id": "toolu_0118YcQULzatza19NZStLGb3",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace 2>/dev/null || pwd; find . -path ./.git -prune -o -type f -print | head -100; echo ---; cat src/service.py src/repository.py src/api.py 2>&1"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"./checks/public.py\\n./README.md\\n./src/service.py\\n./src/__init__.py\\n./src/api.py\\n./src/repository.py\\n---\\nfrom .repository import put_contact\\n\\ndef add_contact(connection, email, name):\\n    with connection:\\n        put_contact(connection, email, name)\\n\\ndef import_contacts(connection, rows):\\n    raise NotImplementedError(\\\"Batch imports are unavailable\\\")\\ndef initialize(connection):\\n    connection.execute(\\\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\\\")\\n    connection.commit()\\n\\ndef list_contacts(connection):\\n    return connection.execute(\\\"SELECT email, name FROM contacts ORDER BY email\\\").fetchall()\\n\\ndef put_contact(connection, email, name):\\n    connection.execute(\\\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\\\", (email, name))\\nfrom .service import add_contact\\n\\ndef handle_add(connection, payload):\\n    add_contact(connection, payload[\\\"email\\\"], payload[\\\"name\\\"])\\n    return {\\\"ok\\\": True}\\n\\ndef handle_import(connection, payload):\\n    raise NotImplementedError(\\\"Batch endpoint is unavailable\\\")\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791876496378,
+      "ran": 1791876496384,
+      "completed": 1791876496435
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_01DZvH3YSin624ekKiSPJVVp",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace; cat README.md; echo ---; cat checks/public.py; echo ---; cat src/__init__.py; echo ---; python3 -m pytest --version 2>&1 | head -1"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"# Service component\\n\\nAdd import_contacts(connection, rows) in src/service.py and expose it through src/api.py.handle_import. Each row has exactly email and name strings. Trim both; email must contain exactly one @, with nonempty sides and no whitespace. Normalize email to lowercase; name must remain nonempty. Reject non-object rows, unknown or missing fields and duplicate normalized emails within a batch using ValueError. Validate the complete batch before writing. Insert new contacts and update names for existing emails, returning {'inserted': N, 'updated': N}; count an existing email as updated even when its name is unchanged. Empty batches return zero counts. Any validation or database failure must leave all contacts unchanged. The API receives {'contacts': [...]}, rejects malformed envelopes with ValueError and returns the summary. Preserve add_contact, list_contacts and the existing API. Start in src/service.py, src/repository.py and src/api.py. Connections are idle at entry.\\n\\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\\n---\\nimport os, sys\\nsys.path.insert(0, os.getcwd())\\nimport sqlite3\\nfrom src.repository import initialize, list_contacts\\nfrom src.api import handle_add\\nc = sqlite3.connect(\\\":memory:\\\")\\ninitialize(c)\\nassert handle_add(c, {\\\"email\\\": \\\"a@b\\\", \\\"name\\\": \\\"Alice\\\"}) == {\\\"ok\\\": True}\\nassert list_contacts(c) == [(\\\"a@b\\\", \\\"Alice\\\")]\\n---\\n---\\n/usr/bin/python3: No module named pytest\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791876501088,
+      "ran": 1791876501334,
+      "completed": 1791876501392
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_019EW7Rew4xd78SKZ5pL5R5N",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && cat > src/repository.py <<'EOF'\ndef initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\ndef find_existing_emails(connection, emails):\n    emails = list(emails)\n    found = set()\n    for start in range(0, len(emails), 500):\n        chunk = emails[start:start + 500]\n        placeholders = \",\".join(\"?\" * len(chunk))\n        rows = connection.execute(\n            f\"SELECT email FROM contacts WHERE email IN ({placeholders})\", chunk\n        ).fetchall()\n        found.update(row[0] for row in rows)\n    return found\nEOF\ncat > src/service.py <<'EOF'\nfrom .repository import find_existing_emails, put_contact\n\n_ROW_FIELDS = frozenset({\"email\", \"name\"})\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef _normalize_row(row):\n    if not isinstance(row, dict):\n        raise ValueError(\"row must be an object\")\n    keys = set(row)\n    if keys != _ROW_FIELDS:\n        missing = sorted(_ROW_FIELDS - keys)\n        unknown = sorted(str(k) for k in keys - _ROW_FIELDS)\n        raise ValueError(f\"row must have exactly email and name; missing={missing} unknown={unknown}\")\n    email, name = row[\"email\"], row[\"name\"]\n    if not isinstance(email, str) or not isinstance(name, str):\n        raise ValueError(\"email and name must be strings\")\n    email = email.strip().lower()\n    name = name.strip()\n    if email.count(\"@\") != 1:\n        raise ValueError(f\"email must contain exactly one '@': {email!r}\")\n    local, domain = email.split(\"@\")\n    if not local or not domain:\n        raise ValueError(f\"email must have nonempty sides around '@': {email!r}\")\n    if any(ch.isspace() for ch in email):\n        raise ValueError(f\"email must not contain whitespace: {email!r}\")\n    if not name:\n        raise ValueError(\"name must not be empty\")\n    return email, name\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, (list, tuple)):\n        raise ValueError(\"rows must be a list\")\n    normalized = []\n    seen = set()\n    for row in rows:\n        email, name = _normalize_row(row)\n        if email in seen:\n            raise ValueError(f\"duplicate email in batch: {email!r}\")\n        seen.add(email)\n        normalized.append((email, name))\n    if not normalized:\n        return {\"inserted\": 0, \"updated\": 0}\n    with connection:\n        existing = find_existing_emails(connection, seen)\n        inserted = updated = 0\n        for email, name in normalized:\n            if email in existing:\n                updated += 1\n            else:\n                inserted += 1\n            put_contact(connection, email, name)\n    return {\"inserted\": inserted, \"updated\": updated}\nEOF\ncat > src/api.py <<'EOF'\nfrom .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict) or set(payload) != {\"contacts\"}:\n        raise ValueError(\"payload must be an object with exactly a 'contacts' field\")\n    contacts = payload[\"contacts\"]\n    if not isinstance(contacts, list):\n        raise ValueError(\"contacts must be a list\")\n    return import_contacts(connection, contacts)\nEOF\necho done"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"done\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791876518936,
+      "ran": 1791876518999,
+      "completed": 1791876519044
+    }
+  },
+  {
+    "type": "tool",
+    "id": "toolu_01FQRhfVSPRLkAkjL3cR377M",
+    "name": "terminal",
+    "executed": false,
+    "state": {
+      "status": "completed",
+      "input": {
+        "command": "cd /workspace && cat > checks/test_import_contacts.py <<'EOF'\nimport os, sys, sqlite3, unittest\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nfrom src.repository import initialize, list_contacts\nfrom src.service import add_contact, import_contacts\nfrom src.api import handle_add, handle_import\n\n\ndef fresh():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    return c\n\n\nclass ImportContactsTests(unittest.TestCase):\n    def test_empty_batch(self):\n        c = fresh()\n        self.assertEqual(import_contacts(c, []), {\"inserted\": 0, \"updated\": 0})\n\n    def test_insert_and_normalize(self):\n        c = fresh()\n        r = import_contacts(c, [{\"email\": \"  A@Example.COM \", \"name\": \"  Alice \"}])\n        self.assertEqual(r, {\"inserted\": 1, \"updated\": 0})\n        self.assertEqual(list_contacts(c), [(\"a@example.com\", \"Alice\")])\n\n    def test_existing_counts_as_updated_even_if_unchanged(self):\n        c = fresh()\n        add_contact(c, \"a@b.c\", \"Alice\")\n        r = import_contacts(c, [{\"email\": \"A@B.C\", \"name\": \"Alice\"}, {\"email\": \"x@y.z\", \"name\": \"X\"}])\n        self.assertEqual(r, {\"inserted\": 1, \"updated\": 1})\n        self.assertEqual(list_contacts(c), [(\"a@b.c\", \"Alice\"), (\"x@y.z\", \"X\")])\n\n    def test_update_name(self):\n        c = fresh()\n        add_contact(c, \"a@b.c\", \"Old\")\n        import_contacts(c, [{\"email\": \"a@b.c\", \"name\": \"New\"}])\n        self.assertEqual(list_contacts(c), [(\"a@b.c\", \"New\")])\n\n    def test_invalid_rows_reject_and_leave_db_unchanged(self):\n        bad_batches = [\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, \"not-a-dict\"],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"p@x.y\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"p@x.y\", \"name\": \"B\", \"extra\": 1}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"a@b@c\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"@c\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"b@\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"a b@c.d\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"ab@c.d\", \"name\": \"   \"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"ab@c.d\", \"name\": 5}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"ok@X.y\", \"name\": \"dup\"}],\n        ]\n        for batch in bad_batches:\n            with self.subTest(batch=batch):\n                c = fresh()\n                add_contact(c, \"keep@x.y\", \"Keep\")\n                with self.assertRaises(ValueError):\n                    import_contacts(c, batch)\n                self.assertEqual(list_contacts(c), [(\"keep@x.y\", \"Keep\")])\n\n    def test_db_failure_rolls_back_whole_batch(self):\n        c = fresh()\n        add_contact(c, \"keep@x.y\", \"Keep\")\n        c.execute(\"CREATE TRIGGER boom BEFORE INSERT ON contacts WHEN NEW.email = 'z@z.z' \"\n                  \"BEGIN SELECT RAISE(ABORT, 'boom'); END\")\n        c.commit()\n        with self.assertRaises(sqlite3.DatabaseError):\n            import_contacts(c, [{\"email\": \"a@a.a\", \"name\": \"A\"},\n                                {\"email\": \"keep@x.y\", \"name\": \"Changed\"},\n                                {\"email\": \"z@z.z\", \"name\": \"Z\"}])\n        self.assertEqual(list_contacts(c), [(\"keep@x.y\", \"Keep\")])\n\n\nclass ApiImportTests(unittest.TestCase):\n    def test_envelope(self):\n        c = fresh()\n        self.assertEqual(handle_import(c, {\"contacts\": [{\"email\": \"a@b.c\", \"name\": \"A\"}]}),\n                         {\"inserted\": 1, \"updated\": 0})\n        for bad in [None, [], {}, {\"contacts\": None}, {\"contacts\": [], \"x\": 1}, {\"rows\": []}]:\n            with self.subTest(bad=bad):\n                with self.assertRaises(ValueError):\n                    handle_import(c, bad)\n\n    def test_add_still_works(self):\n        c = fresh()\n        self.assertEqual(handle_add(c, {\"email\": \"a@b\", \"name\": \"Alice\"}), {\"ok\": True})\n        self.assertEqual(list_contacts(c), [(\"a@b\", \"Alice\")])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\nEOF\npython3 checks/public.py && echo PUBLIC_OK; python3 -m unittest checks/test_import_contacts.py -v 2>&1 | tail -25"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"output\":\"PUBLIC_OK\\ntest_add_still_works (checks.test_import_contacts.ApiImportTests.test_add_still_works) ... ok\\ntest_envelope (checks.test_import_contacts.ApiImportTests.test_envelope) ... ok\\ntest_db_failure_rolls_back_whole_batch (checks.test_import_contacts.ImportContactsTests.test_db_failure_rolls_back_whole_batch) ... ok\\ntest_empty_batch (checks.test_import_contacts.ImportContactsTests.test_empty_batch) ... ok\\ntest_existing_counts_as_updated_even_if_unchanged (checks.test_import_contacts.ImportContactsTests.test_existing_counts_as_updated_even_if_unchanged) ... ok\\ntest_insert_and_normalize (checks.test_import_contacts.ImportContactsTests.test_insert_and_normalize) ... ok\\ntest_invalid_rows_reject_and_leave_db_unchanged (checks.test_import_contacts.ImportContactsTests.test_invalid_rows_reject_and_leave_db_unchanged) ... ok\\ntest_update_name (checks.test_import_contacts.ImportContactsTests.test_update_name) ... ok\\n\\n----------------------------------------------------------------------\\nRan 8 tests in 0.002s\\n\\nOK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+        }
+      ],
+      "metadata": {
+        "truncated": false
+      }
+    },
+    "time": {
+      "created": 1791876520179,
+      "ran": 1791876526093,
+      "completed": 1791876526165
+    }
+  }
+]

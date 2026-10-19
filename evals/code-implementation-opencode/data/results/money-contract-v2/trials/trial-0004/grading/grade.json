@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/amounts.py": "\"\"\"Validation and context-independence regression checks.\"\"\"\nimport os\nimport sys\nfrom decimal import Decimal, Inexact, Rounded, localcontext\n\nsys.path.insert(0, os.getcwd())\nfrom src.api import make_invoice\nfrom src.money import format_amount, parse_amount\n\n\ndef rejects(function, value):\n    try:\n        function(value)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(f\"Accepted invalid value: {value!r}\")\n\n\nfor value in [\".1\", \"1.\", \" 1\", \"1 \", \"1\\n\", \"1e2\", \"1_0\", \"١\", \"１\",\n              \"\", \"+\", True, False, 1.0, None, [], {}, \"0\", \"-1\", 0, -1,\n              \"1000000.01\", \"0.001\", \"1.23001\", Decimal(\"NaN\"),\n              Decimal(\"sNaN\"), Decimal(\"Infinity\"), Decimal(\"-Infinity\"),\n              Decimal(\"0.0001\"), Decimal(\"1E+7\")]:\n    rejects(parse_amount, value)\n\nfor value, expected in [(\"+0001.23000\", \"1.23\"), (1, \"1.00\"),\n                        (\"0.01000\", \"0.01\"), (\"1000000.000\", \"1000000.00\"),\n                        (Decimal(\"1E+2\"), \"100.00\"),\n                        (Decimal(\"123456.780000\"), \"123456.78\")]:\n    result = parse_amount(value)\n    assert format_amount(result) == expected\n    assert result.as_tuple().exponent == -2\n\nfor value in [None, \"1.00\", (1, 2), {1, 2}, iter([1]), [True], [1.1],\n              [\"0\"], [\"0.001\"], [\"1000000\", \"0.01\"]]:\n    rejects(make_invoice, value)\n\nwith localcontext() as context:\n    context.prec = 3\n    context.traps[Inexact] = True\n    context.traps[Rounded] = True\n    original = context.copy()\n    amounts = [Decimal(\"999999.990000\"), \"0.01\"]\n    assert parse_amount(amounts[0]).as_tuple() == Decimal(\"999999.99\").as_tuple()\n    assert make_invoice(amounts) == {\"total\": \"1000000.00\", \"count\": 2}\n    assert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\n    assert make_invoice([\"1234.56\", \"7890.12\"]) == {\"total\": \"9124.68\", \"count\": 2}\n    rejects(parse_amount, \"1.230001\")\n    rejects(make_invoice, [\"999999.99\", \"0.02\"])\n    assert amounts == [Decimal(\"999999.990000\"), \"0.01\"]\n    assert context.prec == original.prec\n    assert context.traps == original.traps\n    assert context.flags == original.flags\n",
+      "src/api.py": "from .money import _from_cents, _parse_cents, format_amount\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"Amounts must be a list\")\n\n    total_cents = 0\n    for item in amounts:\n        total_cents += _parse_cents(item)\n        if total_cents > 100000000:\n            raise ValueError(\"Invoice total must be at most 1000000.00\")\n    return {\"total\": format_amount(_from_cents(total_cents)), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\n\n_AMOUNT_PATTERN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n_MAX_AMOUNT = Decimal(\"1000000.00\")\n\n\ndef _parse_cents(value):\n    \"\"\"Validate an amount and return exact integer cents, without context arithmetic.\"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"Invalid amount type\")\n    if isinstance(value, Decimal):\n        amount = value\n    elif isinstance(value, int):\n        amount = Decimal(value)\n    elif isinstance(value, str) and _AMOUNT_PATTERN.fullmatch(value):\n        amount = Decimal(value)\n    else:\n        raise ValueError(\"Invalid amount type or syntax\")\n\n    if not amount.is_finite() or amount <= 0 or amount > _MAX_AMOUNT:\n        raise ValueError(\"Amount must be positive and at most 1000000.00\")\n\n    _, digits, exponent = amount.as_tuple()\n    shift = exponent + 2\n    if shift < 0:\n        fractional_digits = -shift\n        if fractional_digits >= len(digits) or any(digits[-fractional_digits:]):\n            raise ValueError(\"Amount must be exactly representable in cents\")\n        digits = digits[:-fractional_digits]\n        shift = 0\n\n    cents = 0\n    for digit in digits:\n        cents = cents * 10 + digit\n    return cents * 10 ** shift\n\n\ndef _from_cents(cents):\n    # Tuple construction is exact and does not consult the decimal context.\n    return Decimal((0, tuple(int(digit) for digit in str(cents)), -2))\n\n\ndef parse_amount(value):\n    return _from_cents(_parse_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/amounts.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 117,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04402258401387371
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04833195800893009,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04822666599648073,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

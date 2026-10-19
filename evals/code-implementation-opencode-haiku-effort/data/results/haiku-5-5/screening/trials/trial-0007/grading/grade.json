@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_money.py": "import os, sys, unittest\nfrom decimal import Decimal, localcontext, getcontext\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\nclass ParseAmountTests(unittest.TestCase):\n    def ok(self, v, expected):\n        r = parse_amount(v)\n        self.assertIsInstance(r, Decimal)\n        self.assertEqual(r.as_tuple().exponent, -2)\n        self.assertEqual(r, Decimal(expected))\n        self.assertEqual(format_amount(r), format(Decimal(expected), \".2f\"))\n\n    def bad(self, v):\n        with self.assertRaises(ValueError):\n            parse_amount(v)\n\n    def test_accepted_strings(self):\n        self.ok(\"12.50\", \"12.50\")\n        self.ok(\"+3\", \"3\")\n        self.ok(\"007.5\", \"7.50\")\n        self.ok(\"1.2000\", \"1.20\")\n        self.ok(\"0.01\", \"0.01\")\n        self.ok(\"1000000\", \"1000000.00\")\n        self.ok(\"1000000.00\", \"1000000.00\")\n\n    def test_rejected_strings(self):\n        for s in [\".1\", \"1.\", \"\", \" 1\", \"1 \", \"1\\n\", \"-1\", \"0\", \"0.00\", \"1e2\",\n                  \"1_000\", \"\\u0661.00\", \"1,00\", \"+\", \"-\", \"1.2.3\", \"1000000.01\",\n                  \"0.001\", \"0.005\", \"NaN\", \"inf\", \"+-1\"]:\n            with self.subTest(s=s):\n                self.bad(s)\n\n    def test_ints(self):\n        self.ok(7, \"7.00\")\n        self.ok(1000000, \"1000000.00\")\n        self.bad(True)\n        self.bad(False)\n        self.bad(0)\n        self.bad(-5)\n        self.bad(1000001)\n\n    def test_decimals(self):\n        self.ok(Decimal(\"1E+2\"), \"100.00\")\n        self.ok(Decimal(\"1.5E-1\"), \"0.15\")\n        self.ok(Decimal(\"0.0100000000\"), \"0.01\")\n        self.bad(Decimal(\"0.001\"))\n        self.bad(Decimal(\"1.005\"))\n        self.bad(Decimal(\"1E-999999999\"))\n        self.bad(Decimal(\"1000000.01\"))\n        self.bad(Decimal(\"NaN\"))\n        self.bad(Decimal(\"sNaN\"))\n        self.bad(Decimal(\"Infinity\"))\n        self.bad(Decimal(\"-0\"))\n\n    def test_types(self):\n        for v in [1.5, 2.0, None, b\"1.00\", [1], object(), 1 + 0j]:\n            with self.subTest(v=v):\n                self.bad(v)\n\n    def test_low_precision_context(self):\n        before = getcontext().prec\n        with localcontext() as ctx:\n            ctx.prec = 3\n            self.ok(\"1000000.00\", \"1000000.00\")\n            self.ok(\"123456.78\", \"123456.78\")\n            self.ok(Decimal(\"1E+2\"), \"100.00\")\n            self.bad(Decimal(\"0.001\"))\n            r = make_invoice([\"999999.99\", \"0.01\"])\n            self.assertEqual(r, {\"total\": \"1000000.00\", \"count\": 2})\n            self.assertEqual(make_invoice([\"123.45\", \"0.67\"]), {\"total\": \"124.12\", \"count\": 2})\n        self.assertEqual(getcontext().prec, before)\n\n\nclass MakeInvoiceTests(unittest.TestCase):\n    def test_basic(self):\n        self.assertEqual(make_invoice([\"1.20\", \"2.30\"]), {\"total\": \"3.50\", \"count\": 2})\n        self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n        self.assertEqual(make_invoice([Decimal(\"1E+1\"), 5]), {\"total\": \"15.00\", \"count\": 2})\n\n    def test_limit(self):\n        self.assertEqual(make_invoice([\"500000\", \"500000.00\"]), {\"total\": \"1000000.00\", \"count\": 2})\n        with self.assertRaises(ValueError):\n            make_invoice([\"500000.00\", \"500000.01\"])\n\n    def test_non_list(self):\n        for v in [\"1.00\", None, (\"1.00\",), {\"1.00\": 1}, Decimal(\"1\")]:\n            with self.subTest(v=v):\n                with self.assertRaises(ValueError):\n                    make_invoice(v)\n\n    def test_bad_items(self):\n        for items in [[\"1.00\", 1.5], [\"1.00\", None], [\"1.00\", True], [\"0.001\"], [\"1.00\", \"-1\"]]:\n            with self.subTest(items=items):\n                with self.assertRaises(ValueError):\n                    make_invoice(items)\n\n    def test_no_input_mutation(self):\n        items = [\"1.00\", 2]\n        make_invoice(items)\n        self.assertEqual(items, [\"1.00\", 2])\n\n    def test_exact_sum_no_rounding(self):\n        # Items with more than 2 decimals are rejected, so the sum is always exact cents.\n        self.assertEqual(make_invoice([\"0.10\"] * 10), {\"total\": \"1.00\", \"count\": 10})\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/api.py": "from .money import _MAX_CENTS, _from_cents, _to_cents, format_amount\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"amounts must be a list\")\n    total_cents = 0\n    for item in amounts:\n        total_cents += _to_cents(item)\n    if total_cents > _MAX_CENTS:\n        raise ValueError(\"total exceeds 1000000.00\")\n    return {\"total\": format_amount(_from_cents(total_cents)), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\n_MAX_CENTS = 100_000_000  # 1000000.00\n_STRING_RE = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\", re.ASCII)\n\n\ndef _to_cents(value):\n    \"\"\"Validate a monetary amount and return it as an exact integer count of cents.\n\n    Uses no arithmetic under the decimal context, so it is exact at any precision.\n    \"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"amount must not be a bool\")\n    if isinstance(value, Decimal):\n        dec = value\n    elif isinstance(value, int):\n        dec = Decimal(value)\n    elif isinstance(value, str):\n        if _STRING_RE.fullmatch(value) is None:\n            raise ValueError(f\"invalid amount string: {value!r}\")\n        dec = Decimal(value)  # exact; the constructor ignores the context\n    else:\n        raise ValueError(f\"unsupported amount type: {type(value).__name__}\")\n\n    if not dec.is_finite():\n        raise ValueError(\"amount must be finite\")\n    if dec <= 0:\n        raise ValueError(\"amount must be positive\")\n    if dec > Decimal(\"1000000.00\"):\n        raise ValueError(\"amount exceeds 1000000.00\")\n\n    sign, digits, exp = dec.as_tuple()\n    coef = \"\".join(map(str, digits))\n    # Exact scaled value is coef * 10**(exp + 2) cents; it must be an integer.\n    trailing = len(coef) - len(coef.rstrip(\"0\"))\n    if exp + trailing < -2:\n        raise ValueError(\"amount is not representable in cents\")\n    shift = exp + 2\n    if shift >= 0:\n        cents = coef + \"0\" * shift\n    else:\n        cents = coef[: len(coef) + shift]  # dropped digits are all zero\n    return int(cents)\n\n\ndef _from_cents(cents):\n    \"\"\"Build an exact Decimal with exponent -2 from an integer count of cents.\"\"\"\n    digits = tuple(int(c) for c in str(cents))\n    return Decimal((0, digits, -2))\n\n\ndef parse_amount(value):\n    return _from_cents(_to_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/test_money.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 181,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.045427707984345034
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.044792333006625995,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04364187500323169,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

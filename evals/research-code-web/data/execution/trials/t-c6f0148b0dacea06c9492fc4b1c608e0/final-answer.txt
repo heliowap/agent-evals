@@ -1,0 +1,30 @@
+## Answer: `(*Command).Find` in `command.go`
+
+The implementation is **`func (c *Command) Find(args []string) (*Command, []string, error)`** at `command.go:755–779`, whose own doc comment states: *"Find the target command given the args and command tree / Meant to be run on the highest node. Only searches down."* It is the classic Cobra command-tree resolver (distinct from `Traverse` at `command.go:819+`, which parses args for each parent as it walks).
+
+### How it recurses and returns remaining arguments (`command.go:757–779`)
+
+- `Find` declares a local closure `innerfind func(*Command, []string) (*Command, []string)` (line 758) and seeds it with the root command and the full `args` (line 774).
+- Each `innerfind` step (lines 760–772):
+  1. Calls `argsWOflags := stripFlags(innerArgs, c)` (line 761) to peel off flag tokens so they don't hide the next command name.
+  2. If no flag-free arguments remain, returns the current command together with the **original `innerArgs` intact — flags are retained for later flag parsing** (lines 762–764).
+  3. Otherwise takes the first non-flag token, `nextSubCmd := argsWOflags[0]` (line 765), and looks it up with `c.findNext(nextSubCmd)` (line 767).
+  4. On a match, recurses: `return innerfind(cmd, c.argsMinusFirstX(innerArgs, nextSubCmd))` (line 769) — descending one level and removing only the matched command name from the args.
+  5. If there is no matching child, returns the current command and its `innerArgs` unchanged (line 771).
+- After recursion, `Find` returns `(commandFound, a, nil)` (line 778), unless `commandFound.Args == nil`, in which case it additionally runs `legacyArgs(commandFound, stripFlags(a, commandFound))` (lines 775–777). `legacyArgs` (`args.go:28–39`) accepts any args for a subcommand or a command without subcommands, but errors with `"unknown command %q for %q"` (plus suggestions, `command.go:781–796`) when a root command with subcommands receives unknown positional args.
+
+### How the matched name is stripped: `argsMinusFirstX` (`command.go:712–748`)
+
+Per its comment ("removes only the first x from args… Special care needs to be taken not to remove a flag value"), it merges persistent flags (line 719), then walks the args: `--` ends the loop (lines 726–728); a `--flag` or two-character `-f` style flag without `=` and without a `NoOptDefVal` causes the *next* arg (its value) to be skipped via `pos++` (lines 729–735); the first non-flag token equal to `x` is removed by concatenating `args[:pos]` and `args[pos+1:]` (lines 736–744). If nothing matches, args are returned unchanged (line 747).
+
+### Name/alias matching: `findNext` (`command.go:798–817`)
+
+- For each child in `c.commands`, an **exact match** is `commandNameMatches(cmd.Name(), next) || cmd.HasAlias(next)` (line 801); it sets `cmd.commandCalledAs.name = next` and returns immediately (lines 802–803).
+- `commandNameMatches` (`command.go:1925–1934`) uses `strings.EqualFold` when the global `EnableCaseInsensitive` is true (`cobra.go:61–62`), else plain `==`.
+- If `EnablePrefixMatching` is true (`cobra.go:52–55`, default false), children whose `Name()` or any alias starts with the argument are collected into `matches` (lines 805–807) via `hasNameOrAliasPrefix` (`command.go:1569–1583`), which also records which name/alias matched in `commandCalledAs.name`.
+
+### Prefix ambiguity behavior
+
+In `findNext`, exact matches short-circuit first. With prefix matching enabled and **exactly one** prefix-matching child, that child is returned (`len(matches) == 1`, lines 810–814, with a gosec G602 suppression note). If **multiple children match the prefix** (or none do), `findNext` returns `nil` (line 816). Back in `innerfind` (line 768), a `nil` result means recursion stops: the current command is returned with its remaining args (line 771), and the unknown leading token then trips `legacyArgs`' "unknown command" error at the root (or is simply accepted as an argument on a non-root node). Notably, prefix matching is always case-sensitive (`strings.HasPrefix` at lines 1572/1577), unlike exact matching.
+
+**Limitation:** all conclusions are inferred from static reading of `command.go`, `args.go`, and `cobra.go` in the snapshot; no code was executed, and `stripFlags`' internal details were read only partially (its tail at `command.go:700–710`).

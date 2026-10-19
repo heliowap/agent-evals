@@ -1,0 +1,56 @@
+Based on the official primary documentation for **Kubernetes v1.34** (specifically the *Version Skew Policy* published at `https://v1-34.docs.kubernetes.io/releases/version-skew-policy/`), here is the breakdown of the version-skew rules and their application to `kubectl` and `kube-apiserver`.
+
+---
+
+### 1. General Client/Server Minor-Skew Rule
+
+According to the Kubernetes v1.34 Version Skew Policy:
+* **The Rule:** `kubectl` is supported within **one minor version (older or newer)** of `kube-apiserver`.
+* **Formula:** If `kube-apiserver` is at version $1.N$, `kubectl` is supported at $1.(N-1)$, $1.N$, and $1.(N+1)$ ($\pm 1$ minor version).
+
+---
+
+### 2. Permitted `kubectl` Versions When All `kube-apiserver` Instances Are 1.34
+
+When every `kube-apiserver` instance in the cluster is running version **1.34**, the general skew rule applies directly to $N = 34$:
+* **Permitted minor versions:** **1.33, 1.34, and 1.35**
+  * **1.33:** One minor version older ($1.34 - 1$)
+  * **1.34:** Matching minor version
+  * **1.35:** One minor version newer ($1.34 + 1$)
+
+Any `kubectl` minor version outside this range (e.g., 1.32 or 1.36) is unsupported.
+
+---
+
+### 3. HA Upgrade (Mixed 1.33 and 1.34 Control Plane)
+
+In a highly available (HA) cluster undergoing an upgrade where `kube-apiserver` instances concurrently run **1.33** and **1.34**, client traffic may be routed (e.g., via a load balancer) to any active API server instance. Therefore, `kubectl` must remain compatible with *every* running `kube-apiserver` instance.
+
+#### Permitted Intersection
+* Supported `kubectl` versions for API servers at 1.33: **{1.32, 1.33, 1.34}**
+* Supported `kubectl` versions for API servers at 1.34: **{1.33, 1.34, 1.35}**
+* **Permitted Intersection:** **{1.33, 1.34}**
+
+The v1.34 documentation explicitly highlights this scenario:
+> *"If version skew exists between `kube-apiserver` instances in an HA cluster, this narrows the supported `kubectl` versions.*  
+> *Example: `kube-apiserver` instances are at 1.34 and 1.33 $\rightarrow$ `kubectl` is supported at 1.34 and 1.33 (other versions would be more than one minor version skewed from one of the `kube-apiserver` components)."*
+
+#### Status of `kubectl` 1.35 During Mixed State
+* **`kubectl` 1.35 is NOT supported** during this phase.
+* **Reason:** Relative to the un-upgraded instances running 1.33, `kubectl` 1.35 is two minor versions ahead ($1.35 - 1.33 = +2$). Because it exceeds the maximum allowable skew of $+1$ minor version against the 1.33 servers, requests routed to those instances violate the skew contract and can produce unpredictable behavior.
+
+---
+
+### 4. Reassessment of `kubectl` 1.35 Once All Servers Reach 1.34
+
+Once the upgrade completes and **every** `kube-apiserver` instance is running 1.34:
+* The 1.33 instances are no longer present, removing the constraint that excluded versions above 1.34.
+* Re-evaluating against a uniform 1.34 control plane, `kubectl` 1.35 is exactly one minor version newer ($1.34 + 1$).
+* **Conclusion:** `kubectl` **1.35 becomes supported**.
+
+---
+
+### Unresolved Limitations
+
+* **Pure Skew Policy Scope:** This evaluation strictly adheres to the Kubernetes v1.34 *Version Skew Policy* document. It deliberately does not account for project release calendars, active patch support windows (e.g., the 3-minor-release support policy), binary release availability, or vendor-specific lifecycle policies.
+* **Deployment Tool Overrides:** Specific cluster deployment and management tools (such as `kubeadm`, managed cloud Kubernetes distributions, or custom client wrappers) may enforce stricter version pinning or upgrade requirements not reflected in the core version-skew specification.

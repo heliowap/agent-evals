@@ -1,0 +1,1 @@
+Please add a `uuid` route wildcard filter, so we can write routes like `/item/<id:uuid>`. It should match canonical UUID strings (`8-4-4-4-12` hex digits with hyphens, upper or lower case), pass a `uuid.UUID` object to the callback, and give a 404 for anything that isn't a UUID. Building URLs with `app.get_url()` should accept a `uuid.UUID` for that parameter.

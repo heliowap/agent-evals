@@ -1,0 +1,17 @@
+**Runner outcomes**
+- A (auto; go 1.21.0 + toolchain go1.21.9): the toolchain line outranks the go line when newer than the bundled 1.21.3, so it searches PATH for go1.21.9, then downloads and runs Go 1.21.9 ([toolchain#select](https://go.dev/doc/toolchain#select)).
+- B (local; go 1.21.9): local always runs bundled 1.21.3, but a go line newer than the toolchain makes it refuse ("minimum required Go version greater than the toolchain's own") ([toolchain#config](https://go.dev/doc/toolchain#config), [toolchain#GOTOOLCHAIN](https://go.dev/doc/toolchain#GOTOOLCHAIN)).
+- C (go1.21.3+path): default is 1.21.3; toolchain go1.21.9 is newer, but +path disables download fallback, so after finding no go1.21.9 in PATH it stops and errors rather than silently building with 1.21.3 ([toolchain#select](https://go.dev/doc/toolchain#select)).
+
+**go vs toolchain**
+go is the mandatory minimum Go version (and the compiler's language version); toolchain is a suggested/preferred toolchain that takes precedence over go during selection, and is significant only in the main module/go.work — "only takes effect when the module is the main module" ([gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go), [gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). So your published module's toolchain line is ignored by consumers; its go line propagates, bounding their go line, and commands like go get/go mod tidy can switch toolchains and rewrite both lines ([toolchain#switch](https://go.dev/doc/toolchain#switch)).
+
+**Corrections**
+- GOSUMDB=off is backwards: toolchain downloads "fail for lack of verification if GOSUMDB=off," and GOPRIVATE/GONOSUMDB do not apply to them ([toolchain#download](https://go.dev/doc/toolchain#download)).
+- +path is not network-free; it only disables toolchain download. Module fetches through GOPROXY still occur.
+
+**Policy**
+Keep GOSUMDB at its default. For restricted CI, preinstall required toolchains on PATH, or use an internal GOPROXY that proxies toolchains (documented and checksum-verified), then auto or +path both work ([toolchain#download](https://go.dev/doc/toolchain#download)). Pin the toolchain line; align Runner B's go line down to 1.21.3 or install 1.21.9.
+
+**Not established**
+Neither setting guarantees hermetic/reproducible builds or PATH availability. UNVERIFIED: exact error text, and whether C fails earlier because the default-named go1.21.3 binary itself is absent; resolve with `GOTOOLCHAIN=go1.21.3+path go version` and `go env GOTOOLCHAIN`.

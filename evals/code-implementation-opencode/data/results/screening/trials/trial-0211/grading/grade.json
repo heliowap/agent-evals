@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\nconst { EventService } = require('../.build/service');\n\n// Test doubles implement the Source/Lease open, read and close interface.\nfunction fixture({ values = ['a', 'b', null], read, close = async () => {}, mapper } = {}) {\n  const calls = { opens: 0, reads: 0, closes: 0 };\n  const source = {\n    async open() {\n      calls.opens++;\n      return {\n        async read() {\n          calls.reads++;\n          return read ? read() : values.shift();\n        },\n        async close() {\n          calls.closes++;\n          await close();\n        },\n      };\n    },\n  };\n  return { calls, stream: new EventService(source, mapper).stream() };\n}\n\nasync function main() {\n  // Construction and returning an unopened generator do not acquire a lease.\n  {\n    const { calls, stream } = fixture();\n    assert.deepEqual(calls, { opens: 0, reads: 0, closes: 0 });\n    assert.deepEqual(await stream.return(), { value: undefined, done: true });\n    assert.deepEqual(await stream.next(), { value: undefined, done: true });\n    assert.deepEqual(calls, { opens: 0, reads: 0, closes: 0 });\n  }\n\n  // Each next reads exactly one record, including the exhaustion sentinel.\n  {\n    const mapped = [];\n    const { calls, stream } = fixture({ mapper(value) { mapped.push(value); return value.toUpperCase(); } });\n    for (const [index, value] of ['A', 'B'].entries()) {\n      assert.deepEqual(await stream.next(), { value, done: false });\n      await new Promise(resolve => setImmediate(resolve));\n      assert.deepEqual(calls, { opens: 1, reads: index + 1, closes: 0 });\n    }\n    assert.deepEqual(mapped, ['a', 'b']);\n    assert.deepEqual(await stream.next(), { value: undefined, done: true });\n    assert.deepEqual(calls, { opens: 1, reads: 3, closes: 1 });\n    await stream.next();\n    await stream.return();\n    assert.deepEqual(calls, { opens: 1, reads: 3, closes: 1 });\n  }\n\n  for (const closeFails of [false, true]) {\n    const closeError = new Error('close failed');\n    const close = async () => { if (closeFails) throw closeError; };\n\n    // Exhaustion, break and explicit return propagate cleanup failures.\n    for (const exit of ['exhaustion', 'break', 'return']) {\n      const { calls, stream } = fixture({ close });\n      const consume = async () => {\n        if (exit === 'return') {\n          await stream.next();\n          assert.deepEqual(await stream.return('returned'), { value: 'returned', done: true });\n        } else {\n          const found = [];\n          for await (const value of stream) {\n            found.push(value);\n            if (exit === 'break') break;\n          }\n          assert.deepEqual(found, exit === 'break' ? ['A'] : ['A', 'B']);\n        }\n      };\n      if (closeFails) await assert.rejects(consume(), error => error === closeError);\n      else await consume();\n      await stream.return();\n      await stream.next();\n      assert.deepEqual(calls, { opens: 1, reads: exit === 'exhaustion' ? 3 : 1, closes: 1 });\n    }\n\n    // Primary failures retain their identity, even for a thrown undefined.\n    for (const failure of ['read', 'mapper', 'injected']) {\n      for (const original of [new Error(`${failure} failed`), undefined]) {\n        const { calls, stream } = fixture({\n          close,\n          read: failure === 'read' ? () => { throw original; } : undefined,\n          mapper: failure === 'mapper' ? () => { throw original; } : undefined,\n        });\n        if (failure === 'injected') await stream.next();\n        const result = failure === 'injected' ? stream.throw(original) : stream.next();\n        await assert.rejects(result, error => error === original);\n        await stream.next();\n        await stream.return();\n        assert.deepEqual(calls, { opens: 1, reads: 1, closes: 1 });\n      }\n    }\n  }\n\n  // Acquisition failure does not attempt to close a nonexistent lease.\n  {\n    const original = new Error('open failed');\n    let opens = 0;\n    const stream = new EventService({ open: async () => { opens++; throw original; } }).stream();\n    assert.equal(opens, 0);\n    await assert.rejects(stream.next(), error => error === original);\n    await stream.return();\n    assert.equal(opens, 1);\n  }\n}\n\nmodule.exports = main();\nmodule.exports.catch(error => {\n  console.error(error);\n  process.exitCode = 1;\n});\n",
+      "src/service.ts": "import { Source } from './source';\nimport { mapEvent } from './mapper';\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    const lease = await this.source.open();\n    let failed = false;\n    try {\n      for (;;) {\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      failed = true;\n      throw error;\n    } finally {\n      try {\n        await lease.close();\n      } catch (error) {\n        // A cleanup failure must not replace a read, mapper or injected error.\n        if (!failed) throw error;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 139,
+    "removed_lines": 24
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5011738339962903
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.055750333005562425,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04863416697480716,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

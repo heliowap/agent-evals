@@ -1,0 +1,560 @@
+{
+  "case": "requests-6991",
+  "axis": "spec",
+  "decisions": [
+    {
+      "blind_id": "b0101",
+      "target_hit": true,
+      "target_quote": "The digest `uri` no longer matches the request target.",
+      "target_reason": "Identifies build_digest_header in auth.py, the deleted or '/' fallback, empty-path/query header values, and the mismatch with models.py path_url; server rejection is explicitly conditional.",
+      "additional_claims": [
+        {
+          "quote": "Trailing semicolon is still dropped",
+          "category": "valid_extra",
+          "evidence": "For http://example.com/a;, Python 3.14.6 urlparse yields path='/a', params='', while urlsplit yields path='/a;'; the new auth.py truthiness guard omits the terminal semicolon. The reported nonempty-params case remains fixed; no server rejection measured."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0102",
+      "target_hit": true,
+      "target_quote": "the new Digest header therefore uses an empty `uri` (or just the query) while the request uses `/` (or `/?…`)",
+      "target_reason": "Explicitly locates the removed fallback in auth.py, explains the pathless URL case, and compares its Digest uri to unchanged models.py path_url; server rejection is conditional.",
+      "additional_claims": [
+        {
+          "quote": "A terminal semicolon can still be lost.",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://example.com/path;') yields path='/path', params='', while urlsplit retains '/path;'; auth.py only restores nonempty params. No server rejection was measured."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0103",
+      "target_hit": true,
+      "target_quote": "The digest `uri` thus diverges from the request-target the server sees",
+      "target_reason": "Correctly ties removal of auth.py's or '/' to pathless URLs and the models.py slash fallback, with the potential validation outcome framed conditionally.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0105",
+      "target_hit": true,
+      "target_quote": "`path` remains empty (or becomes `\"?foo=bar\"` when query parameters are appended) rather than defaulting to `\"/\"`.",
+      "target_reason": "Locates auth.py's fallback removal, explains empty-path Digest values, and contrasts them with RequestEncodingMixin.path_url; the mismatch is established by the pinned reproduction.",
+      "additional_claims": [
+        {
+          "quote": "Digest authentication against root endpoints will fail server verification.",
+          "category": "inconclusive",
+          "evidence": "candidate-research.md:75 measured base/head Digest headers and PreparedRequest.path_url only; it did not test a server response or full request-flow reachability for this URL."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0107",
+      "target_hit": true,
+      "target_quote": "a URL with no explicit path produces an empty `uri`, or `?foo=bar` rather than `/?foo=bar`.",
+      "target_reason": "Correct location, removed fallback, pathless-query mechanism, and divergence from models.py path_url are all stated; authentication failure is conditional.",
+      "additional_claims": [
+        {
+          "quote": "a trailing semicolon can still be lost",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://example.com/path;') produces path='/path' and params='', but urlsplit preserves '/path;'; auth.py's nonempty-params guard drops that delimiter. Reported nonempty-params input works."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0109",
+      "target_hit": true,
+      "target_quote": "the Digest header now starts with an empty path (or just `?query`).",
+      "target_reason": "Explains the auth.py path assignment without the old slash fallback for a no-explicit-path URL and contrasts it with models.py's request path '/'; consequence is a possible mismatch.",
+      "additional_claims": [
+        {
+          "quote": "the trailing semicolon is omitted from the header",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse on /path; splits off an empty params value; urlsplit keeps /path;. auth.py appends a semicolon only for truthy params; this is an edge case, not the issue's nonempty-params URL."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0110",
+      "target_hit": true,
+      "target_quote": "The digest `uri` no longer matches the request target.",
+      "target_reason": "Names build_digest_header and removed or '/', gives empty-path and query-only header values versus path_url's '/' and '/?x=1', and limits server rejection to a possibility.",
+      "additional_claims": [
+        {
+          "quote": "A trailing semicolon with empty params is still dropped",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://example.com/a;?q=1') returns path='/a', params='', query='q=1'; urlsplit preserves '/a;'. The pinned auth.py guard skips appending ';'."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0113",
+      "target_hit": true,
+      "target_quote": "this change builds the Digest URI as `?foo=bar` rather than `/?foo=bar`.",
+      "target_reason": "Specifies the auth.py change, empty-path URL, and contrast with models.py's slash default; actual server rejection is qualified as conditional.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0115",
+      "target_hit": true,
+      "target_quote": "omitting the default `\"/\"` path that `RequestEncodingMixin.path_url` generates",
+      "target_reason": "Locates deleted auth.py fallback and explains empty-path or query-only header value versus path_url's default slash; asserted real authentication failure is not part of the verified target.",
+      "additional_claims": [
+        {
+          "quote": "causing digest authentication to fail against compliant HTTP servers",
+          "category": "inconclusive",
+          "evidence": "Pinned candidate-research.md:75 reproduces only function-level header values and path_url, with no server validation or end-to-end normalization test."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0118",
+      "target_hit": true,
+      "target_quote": "the new code builds `?foo=bar` rather than `/?foo=bar`",
+      "target_reason": "Identifies build_digest_header's removed fallback and compares the query-only root URL to the models.py slash behavior, giving the Digest mismatch and conditional consequence.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0121",
+      "target_hit": true,
+      "target_quote": "a host-only URL produces `uri=\"\"`, and one with a query produces a URI beginning with `?` rather than `/?`.",
+      "target_reason": "Correctly gives changed auth.py line, empty-path mechanism, and mismatch against unchanged RequestEncodingMixin.path_url; server outcome remains conditional.",
+      "additional_claims": [
+        {
+          "quote": "Trailing semicolons still disappear",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse of /path; yields path='/path', params='', and urlsplit preserves /path;; new auth.py if p_parsed.params guard omits the lone trailing semicolon. No server response measured."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0125",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response says only 'No supported findings' and does not identify the auth.py fallback removal or its empty-path consequence.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0126",
+      "target_hit": true,
+      "target_quote": "The digest `uri` and the request target now disagree.",
+      "target_reason": "Cites auth.py build_digest_header's removed slash fallback, pathless URL header values, and models.py path_url's '/'; normal-flow reachability and server response are not asserted as measured.",
+      "additional_claims": [
+        {
+          "quote": "Trailing or empty parameter segment is still dropped",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse of /a; yields path='/a', params='', while urlsplit retains '/a;'; pinned auth.py truthiness guard cannot restore the terminal delimiter."
+        },
+        {
+          "quote": "The new test may not be collected",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml does not override python_files, pytest 8.4 standard discovery selects test_*.py or *_test.py, and candidate-research.md:81 reproduced omission of tests/test1.py under normal collection. CI state was not measured."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0127",
+      "target_hit": true,
+      "target_quote": "`path` becomes `\"\"` (or `\"?x=1\"`) instead of `\"/\"` (or `\"/?x=1\"`).",
+      "target_reason": "Locates auth.py's removed fallback, derives empty-path Digest values, and identifies mismatch with the '/' request target, a conditional code-path regression.",
+      "additional_claims": [
+        {
+          "quote": "New test is placed in `tests/test1.py`, likely not collected",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml leaves python_files at pytest defaults, and pytest 8.4 discovery/candidate-research.md:81 show this file is skipped by normal collection; CI outcome unmeasured."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0128",
+      "target_hit": true,
+      "target_quote": "the new code builds `?foo=bar` instead of `/?foo=bar`.",
+      "target_reason": "Names build_digest_header, the removed slash fallback, and a URL with no path; the supplied path_url context and issue establish the mismatched request target.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0129",
+      "target_hit": true,
+      "target_quote": "the changed code therefore builds an empty path (or just `?query`) and places it in the Authorization header",
+      "target_reason": "Links changed auth.py path assignment to empty-path Digest URI and explicit models.py default '/', with mismatch as the impact and no fabricated server result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0130",
+      "target_hit": true,
+      "target_quote": "The actual request-target built by `path_url` is `\"/\"`. Old code produced `\"/\"`.",
+      "target_reason": "Explains the auth.py deleted or '/' fallback for a bare-host URL and the new empty Digest uri against path_url's root path; the predicted 401 is beyond pinned measurement.",
+      "additional_claims": [
+        {
+          "quote": "auth mismatch/401",
+          "category": "inconclusive",
+          "evidence": "No actual server response to the empty-path URL was measured in candidate-research.md:75; only the header string and path_url were compared."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0132",
+      "target_hit": true,
+      "target_quote": "`uri` becomes empty (or starts immediately with `?query`)",
+      "target_reason": "Pinpoints the removed auth.py slash guard and derives empty-path header values; the unchanged models.py slash default and issue make the consequence a URI mismatch.",
+      "additional_claims": [
+        {
+          "quote": "causing authentication failures with Digest servers expecting a valid request URI path",
+          "category": "inconclusive",
+          "evidence": "Pinned reproduction proves header/path_url mismatch but does not measure a server rejecting the request or establish every normal-flow input."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0137",
+      "target_hit": true,
+      "target_quote": "The header then emits `uri=\"?foo=bar\"`, which is not a valid request-target",
+      "target_reason": "Identifies auth.py's deleted fallback, computes the no-path/query Digest URI, and compares it with RequestEncodingMixin.path_url's '/?foo=bar'; server-side 401 is not measured.",
+      "additional_claims": [
+        {
+          "quote": "trailing bare `;` is still dropped",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('/path;') returns path='/path', params='', whereas urlsplit preserves '/path;'; new auth.py guard skips empty params. No real server failure was measured."
+        },
+        {
+          "quote": "server-side digest mismatch/401 for pathless URLs",
+          "category": "inconclusive",
+          "evidence": "candidate-research.md:75 only reproduced header values and PreparedRequest.path_url; it did not exercise end-to-end URL preparation or an authenticating server."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0140",
+      "target_hit": true,
+      "target_quote": "it would put `uri=\"?foo=bar\"` in the header rather than `uri=\"/?foo=bar\"`.",
+      "target_reason": "Names auth.py's removed or '/', gives the empty-path query example, contrasts models.py path_url, and treats failed authentication as possible rather than observed.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0146",
+      "target_hit": true,
+      "target_quote": "it builds the Digest URI as `?foo=bar`, while `path_url` is `/?foo=bar`.",
+      "target_reason": "Explicit changed-line location in auth.py, deleted fallback, empty-path example, and contrary path_url value satisfy location/mechanism/consequence; server failure remains conditional.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0147",
+      "target_hit": true,
+      "target_quote": "For a URL with no path, `build_digest_header` therefore constructs `uri=\"\"` or, if there is a query, `uri=\"?…\"`",
+      "target_reason": "Identifies auth.py path assignment replacing its slash fallback and models.py's '/' default, then derives the empty-path header mismatch; live failure is expressly conditional.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0150",
+      "target_hit": true,
+      "target_quote": "`uri` becomes `\"\"` or `\"?foo=bar\"`, while the actual request line sent uses `\"/\"` / `\"/?foo=bar\"`.",
+      "target_reason": "Pinpoints deleted fallback in auth.py and correctly compares empty-path Digest URI with models.py path_url; the stronger all-requests failure prediction is not demonstrated.",
+      "additional_claims": [
+        {
+          "quote": "Trailing/empty params still drop the semicolon",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://x/path;') yields path='/path', params='', but urlsplit retains '/path;'; auth.py's truthiness guard skips it. The reported nonempty-params fix works."
+        },
+        {
+          "quote": "For any digest-authenticated request to a bare origin (pathless URL), the `uri` parameter mismatches the request target, breaking digest verification that previously worked.",
+          "category": "inconclusive",
+          "evidence": "Pinned reproduction invokes build_digest_header on an empty-path URL and compares path_url, but does not show what URL normal Digest flow supplies or a server verification result."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0152",
+      "target_hit": true,
+      "target_quote": "leaving the digest URI empty or missing the leading slash.",
+      "target_reason": "The changed auth.py line, empty parsed path with or without query, and the path_url '/' comparison are explicit; real server failure is not pinned.",
+      "additional_claims": [
+        {
+          "quote": "This causes Digest Authentication to fail against standards-compliant servers for URLs without a path.",
+          "category": "inconclusive",
+          "evidence": "Pinned candidate-research.md:75 measured different URI strings, not actual authentication or server validation; normal-flow reachability was not reproduced."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0153",
+      "target_hit": true,
+      "target_quote": "The emitted header then contains `uri=\"\"` (or `uri=\"?foo=bar\"`) instead of the previous `uri=\"/\"` (`\"/?foo=bar\"`)",
+      "target_reason": "Locates auth.py build_digest_header's deleted fallback, explains empty-path/query output and mismatch against prior root URI and request target, with end-to-end reachability qualified.",
+      "additional_claims": [
+        {
+          "quote": "`test1.py` matches neither, so a conventional `pytest tests/` run skips the file",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml does not override python_files, pytest 8.4 defaults are test_*.py/*_test.py, and candidate-research.md:81 reproduces skipped normal collection. No CI verdict is established."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0154",
+      "target_hit": true,
+      "target_quote": "old code yielded `/?foo=bar`, new code yields `?foo=bar`.",
+      "target_reason": "Directly describes removed or '/' in auth.py for a query-only root URL and compares new Digest URI with models.py path_url's '/?foo=bar'; rejection is only a hypothetical server consequence.",
+      "additional_claims": [
+        {
+          "quote": "`test1.py` matches neither pytest's default `test_*.py` nor `*_test.py` collection patterns",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml does not change python_files; pytest 8.4 standard discovery and candidate-research.md:81 confirm normal collection skips tests/test1.py. CI result unknown."
+        },
+        {
+          "quote": "Trailing-semicolon paths are not reconstructed losslessly.",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://example.com/a/b;') returns path='/a/b', params='', while urlsplit path is '/a/b;'; the new guard omits it."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0157",
+      "target_hit": true,
+      "target_quote": "the new code can produce an empty Digest `uri` instead of `/`.",
+      "target_reason": "Names auth.py's removed fallback, an empty-path URL, and the differing RequestEncodingMixin.path_url slash behavior and potential mismatch.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0158",
+      "target_hit": true,
+      "target_quote": "Either way, the digest `uri` no longer matches the request target in `path_url`.",
+      "target_reason": "Names build_digest_header's dropped or '/', derives empty and query-only URI examples, and cites unchanged path_url slash default; server failure is explicitly conditional.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0159",
+      "target_hit": true,
+      "target_quote": "the Authorization header’s `uri` remains empty. Meanwhile, `src/requests/models.py:93–96` defaults an empty request path to `/`.",
+      "target_reason": "Locates auth.py's direct path assignment, identifies the empty-path/no-query mechanism and contrast with models.py path_url, and gives conditional auth mismatch.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0160",
+      "target_hit": true,
+      "target_quote": "For `http://example.com`, it builds `uri=\"\"`; with a query, it builds `uri=\"?foo=bar\"` rather than `\"/?foo=bar\"`.",
+      "target_reason": "Names changed auth.py line, explains pathless URL and digest-versus-path_url mismatch, with server failure explicitly conditional.",
+      "additional_claims": [
+        {
+          "quote": "Trailing semicolon remains omitted",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse of /path; yields path='/path', params='', while urlsplit keeps /path;; pinned auth.py if p_parsed.params skips the suffix. This is narrower than the reported nonempty-params case."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0161",
+      "target_hit": true,
+      "target_quote": "the Digest header therefore receives `uri=\"\"` (or `uri=\"?...\"` if there is a query), while `path_url` uses `/`.",
+      "target_reason": "Changed auth.py assignment, omitted fallback, pathless URI value, and models.py request target are all explicit; server rejection is qualified.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0166",
+      "target_hit": true,
+      "target_quote": "Consequently, line 225 sets `uri=\"\"` or `uri=\"?<query>\"`.",
+      "target_reason": "Identifies removed or '/' in auth.py and pathless URL mechanism, explaining invalid/nonmatching Digest URI against the root request path; server outcome remains unverified.",
+      "additional_claims": [
+        {
+          "quote": "causing authentication failures against RFC-compliant servers",
+          "category": "inconclusive",
+          "evidence": "Pinned candidate-research.md:75 proves the header/path_url mismatch but does not test any server response or full-flow URL normalization."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0167",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "It names the deleted fallback and says empty paths map to '/' in models.py, but its only concrete inputs have explicit '/' paths, so its claimed empty URI mechanism does not apply to the examples; the target requires an actual empty-path URL.",
+      "additional_claims": [
+        {
+          "quote": "For a root URL such as `http://example.com/` or `http://example.com/?foo=bar`, the new code builds `uri=\"\"` or `uri=\"?foo=bar\"`",
+          "category": "refuted",
+          "evidence": "Python 3.14.6 urlparse of those exact URLs returns path='/', not ''; pinned auth.py builds '/' or '/?foo=bar', and pinned models.py path_url agrees. Only URLs without an explicit slash hit the target."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0168",
+      "target_hit": true,
+      "target_quote": "the header emits `uri=\"\"` / `uri=\"?x=1\"` instead of `uri=\"/\"`.",
+      "target_reason": "Correct auth.py fallback-removal location, pathless URL mechanism, and models.py path_url divergence; possible failure is risk rather than measured rejection.",
+      "additional_claims": [
+        {
+          "quote": "the sole test verifying the fix is silently skipped",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml leaves python_files unchanged, pytest 8.4 discovery excludes test1.py, and candidate-research.md:81 reproduces omission from normal test collection. CI was not run."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0170",
+      "target_hit": true,
+      "target_quote": "When `p_parsed.path` is empty, the new code can produce an empty Digest `uri` (or only the query), rather than `/` (or `/?query`).",
+      "target_reason": "Identifies changed auth.py path construction, removed default slash and conditional pathless-URL consequence; equivalent loss-of-leading-slash description satisfies the pinned target.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0171",
+      "target_hit": true,
+      "target_quote": "`path` remains `\"\"` and the emitted header becomes `uri=\"\"`.",
+      "target_reason": "Pinpoints build_digest_header's deleted or '/' and correctly traces a no-path URL to an empty Digest uri rather than the effective '/' request URI; server response is only hypothetical.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0172",
+      "target_hit": true,
+      "target_quote": "producing `uri=\"\"` or `uri=\"?q=...\"` in the `Authorization` header",
+      "target_reason": "Locates the auth.py fallback deletion and derives pathless/query-only Digest values versus prior '/' effective request URI; possible server rejection is not claimed as measured.",
+      "additional_claims": [
+        {
+          "quote": "Trailing semicolon with empty params is still dropped",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://host/path;') returns path='/path', params='', while urlsplit retains /path;; the pinned auth.py nonempty-params guard drops ';'."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0174",
+      "target_hit": true,
+      "target_quote": "The digest `uri` becomes `\"\"` or `\"?x=1\"`, while `path_url` still sends `/` or `/?x=1`.",
+      "target_reason": "Specifies build_digest_header's removed slash fallback and directly compares empty-path/new Digest values against unchanged models.py path_url, with conditional consequence.",
+      "additional_claims": [
+        {
+          "quote": "a trailing semicolon with empty params is still dropped",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse of /a; yields path='/a', params='', whereas urlsplit retains /a;; auth.py only reappends truthy params."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0177",
+      "target_hit": true,
+      "target_quote": "`path` becomes `\"\"` (or `\"?query=1\"`), omitting the root `/`.",
+      "target_reason": "Gives changed auth.py line, no-path parsed value and emitted malformed root Digest URI versus the required effective request path; server rejection is unmeasured.",
+      "additional_claims": [
+        {
+          "quote": "causing authentication rejection by the server",
+          "category": "inconclusive",
+          "evidence": "Pinned candidate-research.md:75 reproduces only header string and path_url divergence; no server rejected an empty-path Digest header in the recorded evidence."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0178",
+      "target_hit": true,
+      "target_quote": "the digest `uri` no longer matches the path actually sent.",
+      "target_reason": "Correctly ties auth.py's removed or '/' to empty-path/query-only Digest values and models.py request-target slash default; rejection is explicitly conditional.",
+      "additional_claims": [
+        {
+          "quote": "Trailing semicolon with empty params is still dropped",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('/a;') returns path='/a', params='', while urlsplit path is '/a;'; new auth.py if p_parsed.params skips it. Nonempty-params issue URL is reconstructed."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0181",
+      "target_hit": true,
+      "target_quote": "the resulting header contains `uri=\"\"` (or `uri=\"?x=1\"`), instead of the prior `uri=\"/\"`.",
+      "target_reason": "Names build_digest_header's removed default '/', demonstrates no-path header output and wrong digest target relative to '/' request path; potential server effect is conditional.",
+      "additional_claims": [
+        {
+          "quote": "the reconstruction is lossy in cases where `urlparse` does not return the params (e.g., an empty params segment after a trailing semicolon)",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse of /path; returns path='/path', params='', while urlsplit keeps /path;; pinned auth.py truthiness check drops ';'. No server outcome measured."
+        },
+        {
+          "quote": "may not run in CI collection depending on naming filters",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml leaves python_files default; pytest 8.4 discovery and candidate-research.md:81 prove normal collection skips tests/test1.py. No CI run was observed."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0185",
+      "target_hit": true,
+      "target_quote": "the emitted header contains `uri=\"\"` / `uri=\"?foo=bar\"` instead of `uri=\"/\"` / `uri=\"/?foo=bar\"`.",
+      "target_reason": "Correct auth.py location, deleted or '/' guard and pathless/query Digest behavior; issue and models.py slash default establish target mismatch, while end-to-end server failure is not proven.",
+      "additional_claims": [
+        {
+          "quote": "A path whose final segment ends in `;` (or `;` immediately before `?`) still loses that character",
+          "category": "valid_extra",
+          "evidence": "Python 3.14.6 urlparse('http://example.com/a;?q=1') yields path='/a', params='', query='q=1'; urlsplit path is '/a;'; pinned auth.py guard skips reattachment. Reported nonempty-params input works."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0188",
+      "target_hit": true,
+      "target_quote": "produces `uri=\"\"` or `uri=\"?foo=bar\"` instead of the previous `\"/\"`.",
+      "target_reason": "Specifies auth.py's removed fallback, empty-path/query output and mismatch with the real '/' request target; actual failed authentication was not demonstrated.",
+      "additional_claims": [
+        {
+          "quote": "if the project relies on default discovery, the file is skipped",
+          "category": "valid_extra",
+          "evidence": "Pinned pyproject.toml does not override pytest python_files; pytest 8.4 default discovery and candidate-research.md:81 demonstrate tests/test1.py omitted from normal collection. CI state unknown."
+        },
+        {
+          "quote": "digest authentication fails for path-less targets",
+          "category": "inconclusive",
+          "evidence": "Pinned candidate-research.md:75 measured header values and path_url only; no actual server failure or ordinary-flow URL passed into this method was measured."
+        }
+      ]
+    },
+    {
+      "blind_id": "b0189",
+      "target_hit": true,
+      "target_quote": "the new Digest header would contain `uri=\"\"` rather than the `/` used as the request path.",
+      "target_reason": "Cites auth.py's removed slash fallback, no-explicit-path URL, and unchanged path_url '/' behavior; possible auth failure is conditional.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0192",
+      "target_hit": true,
+      "target_quote": "this code leaves `path` empty and can emit an empty `uri` instead of `/`.",
+      "target_reason": "Locates auth.py's direct path assignment replacing or '/', describes empty-path Digest behavior and contrasts the models.py fallback, appropriately qualifying normal-flow reachability.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0193",
+      "target_hit": false,
+      "target_quote": null,
+      "target_reason": "The response says only 'No supported findings' and offers no location, mechanism, or consequence for the target.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0194",
+      "target_hit": true,
+      "target_quote": "a URL with no explicit path produces an empty `uri` (or one beginning with `?` if it has a query) rather than `/` (or `/?…`).",
+      "target_reason": "Explains auth.py's removed or '/' fallback, the empty-path/query Digest header and its effective request URI mismatch; auth failure is a possibility only.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0195",
+      "target_hit": true,
+      "target_quote": "For a URL with no path, this produces an empty Digest `uri` instead of `/` (or `/?query` when a query is present).",
+      "target_reason": "Connects changed auth.py path assignment to the absent root slash and RequestEncodingMixin.path_url's '/' fallback; treats server failure as conditional.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0198",
+      "target_hit": true,
+      "target_quote": "the new code leaves `path` empty (or just appends the query), and the header interpolation uses that value.",
+      "target_reason": "Provides build_digest_header location, deleted or '/' mechanism for an empty parsed path, and wrong root Digest URI consequence relative to the effective request path, qualifying reachability.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0199",
+      "target_hit": true,
+      "target_quote": "Meanwhile `path_url` sends the request line as `/` (or `/?x=1`).",
+      "target_reason": "Pinpoints auth.py fallback replacement and derives empty/query-only Digest URI versus path_url's root slash, meeting location/mechanism/consequence despite overstated 401 claim.",
+      "additional_claims": [
+        {
+          "quote": "The server hashes `/`, the client hashed the empty string → digest mismatch and rejected authentication (401)",
+          "category": "inconclusive",
+          "evidence": "Pinned candidate-research.md:75 did not test a server or end-to-end pathless Digest exchange; it reproduced only different header and PreparedRequest.path_url strings."
+        }
+      ]
+    }
+  ]
+}

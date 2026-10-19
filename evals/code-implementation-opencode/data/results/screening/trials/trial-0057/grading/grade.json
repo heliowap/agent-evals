@@ -1,0 +1,60 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_exporter.py": "import copy\nimport os\nimport sys\nimport unittest\nfrom unittest.mock import patch\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\nfrom src.csv_exporter import export_csv\nfrom src.dispatcher import export\nfrom src.exporter import export_rows\nfrom src.json_exporter import export_json\n\n\nclass OneShotRows:\n    def __init__(self, rows):\n        self.rows = rows\n        self.iterated = False\n\n    def __iter__(self):\n        if self.iterated:\n            raise AssertionError(\"rows iterated more than once\")\n        self.iterated = True\n        return iter(self.rows)\n\n\nclass ExporterTests(unittest.TestCase):\n    def test_exact_output_and_no_mutation(self):\n        rows = [\n            {\"name\": 'Zoë, \"雪\"\\nnext', \"id\": 7, \"ignored\": \"value\"},\n            {\"id\": None},\n            {\"name\": False, \"id\": 0},\n            {\"name\": \"\", \"id\": [1, 2]},\n            {},\n        ]\n        original = copy.deepcopy(rows)\n        expected = {\n            \"csv\": 'id,name\\n7,\"Zoë, \"\"雪\"\"\\nnext\"\\n,\\n0,False\\n\"[1, 2]\",\\n,\\n',\n            \"json\": '[{\"id\":\"7\",\"name\":\"Zoë, \\\\\"雪\\\\\"\\\\nnext\"},'\n            '{\"id\":\"\",\"name\":\"\"},{\"id\":\"0\",\"name\":\"False\"},'\n            '{\"id\":\"[1, 2]\",\"name\":\"\"},{\"id\":\"\",\"name\":\"\"}]',\n        }\n        for format, wrapper in ((\"csv\", export_csv), (\"json\", export_json)):\n            for entry in (export_rows, export):\n                with self.subTest(format=format, entry=entry):\n                    self.assertEqual(entry(OneShotRows(rows), format), expected[format])\n            self.assertEqual(wrapper(OneShotRows(rows)), expected[format])\n        self.assertEqual(rows, original)\n\n    def test_empty_rows(self):\n        for format, wrapper, expected in (\n            (\"csv\", export_csv, \"id,name\\n\"),\n            (\"json\", export_json, \"[]\"),\n        ):\n            self.assertEqual(export_rows(iter(()), format), expected)\n            self.assertEqual(wrapper(iter(())), expected)\n            self.assertEqual(export(iter(()), format), expected)\n\n    def test_unsupported_format_does_not_consume_rows(self):\n        for entry in (export_rows, export):\n            rows = OneShotRows([])\n            with self.assertRaisesRegex(ValueError, \"unsupported format\"):\n                entry(rows, \"xml\")\n            self.assertFalse(rows.iterated)\n\n    def test_wrappers_delegate(self):\n        for module, wrapper, format in (\n            (\"src.csv_exporter\", export_csv, \"csv\"),\n            (\"src.json_exporter\", export_json, \"json\"),\n        ):\n            rows = iter([{\"id\": 1}])\n            with patch(module + \".export_rows\", return_value=\"result\") as shared:\n                self.assertEqual(wrapper(rows), \"result\")\n                shared.assert_called_once_with(rows, format)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize_rows(rows):\n    for row in rows:\n        yield {\n            key: \"\" if row.get(key) is None else str(row[key])\n            for key in _FIELDS\n        }\n\n\ndef export_rows(rows, format):\n    if format == \"csv\":\n        buffer = io.StringIO(newline=\"\")\n        writer = csv.writer(buffer, lineterminator=\"\\n\")\n        writer.writerow(_FIELDS)\n        writer.writerows(row.values() for row in _normalize_rows(rows))\n        return buffer.getvalue()\n    if format == \"json\":\n        return json.dumps(\n            list(_normalize_rows(rows)), ensure_ascii=False, separators=(\",\", \":\")\n        )\n    raise ValueError(\"unsupported format\")\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/test_exporter.py",
+      "src/csv_exporter.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 116,
+    "removed_lines": 18
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.045327083993470296
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04996316699543968,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04811470798449591,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04797812501783483,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

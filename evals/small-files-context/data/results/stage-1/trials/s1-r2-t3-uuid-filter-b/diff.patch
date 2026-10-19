@@ -1,0 +1,110 @@
+diff --git a/bottle/02_helpers.py b/bottle/02_helpers.py
+index 75bfbc9..13ca221 100644
+--- a/bottle/02_helpers.py
++++ b/bottle/02_helpers.py
+@@ -4,7 +4,7 @@
+ ###############################################################################
+ 
+ import base64, calendar, email.utils, functools, hmac, itertools, \
+-    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib
++    mimetypes, os, re, tempfile, threading, time, uuid, warnings, weakref, hashlib
+ 
+ from types import FunctionType
+ from datetime import date as datedate, datetime, timedelta
+diff --git a/bottle/04_routing.py b/bottle/04_routing.py
+index 9676427..754e589 100644
+--- a/bottle/04_routing.py
++++ b/bottle/04_routing.py
+@@ -62,6 +62,8 @@ class Router:
+                                 None, None),
+             'int': lambda conf: (r'-?\d+', int, lambda x: str(int(x))),
+             'float': lambda conf: (r'-?[\d.]+', float, lambda x: str(float(x))),
++            'uuid': lambda conf: (r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}',
++                                  uuid.UUID, lambda x: str(uuid.UUID(str(x)))),
+             'path': lambda conf: (r'.+?', None, None)
+         }
+ 
+diff --git a/test/test_router.py b/test/test_router.py
+index 9762b10..24d5c4f 100755
+--- a/test/test_router.py
++++ b/test/test_router.py
+@@ -2,6 +2,7 @@
+ 
+ import unittest
+ import bottle
++import uuid
+ import warnings
+ 
+ 
+@@ -74,6 +75,40 @@ class TestRouter(unittest.TestCase):
+         self.assertRaises(bottle.HTTPError, self.match, '/object/')
+         self.assertRaises(bottle.HTTPError, self.match, '/object/.')
+ 
++    def testUUIDFilter(self):
++        uid = '12345678-1234-5678-9abc-def012345678'
++        self.assertMatches('/item/<id:uuid>', '/item/' + uid, id=uuid.UUID(uid))
++        self.assertMatches('/item/<id:uuid>', '/item/' + uid.upper(), id=uuid.UUID(uid))
++        self.assertIsInstance(self.match('/item/' + uid)[1]['id'], uuid.UUID)
++
++    def testUUIDFilterNotFound(self):
++        uid = '12345678-1234-5678-9abc-def012345678'
++        self.add('/item/<id:uuid>', 'handler')
++        for path in ['/item/', '/item/abc', '/item/' + uid[:-1], '/item/' + uid + '0',
++                     '/item/' + uid.replace('-', ''), '/item/{' + uid + '}',
++                     '/item/urn:uuid:' + uid, '/item/1234567-81234-5678-9abc-def012345678',
++                     '/item/12345678-1234-5678-9abc-def01234567g', '/item/ ' + uid,
++                     '/item/' + uid + '/more']:
++            with self.assertRaises(bottle.HTTPError) as e:
++                self.match(path)
++            self.assertEqual(404, e.exception.status_code, path)
++
++    def testAnonUUIDFilter(self):
++        self.add('/anon/<:uuid>', 'handler')
++        self.assertEqual('handler', self.match('/anon/12345678-1234-5678-9abc-def012345678')[0])
++        self.assertRaises(bottle.HTTPError, self.match, '/anon/nope')
++
++    def testBuildUUIDFilter(self):
++        add, build = self.add, self.r.build
++        add('/item/<id:uuid>', 'handler', name='uuidroute')
++        uid = uuid.UUID('12345678-1234-5678-9ABC-DEF012345678')
++        expected = '/item/12345678-1234-5678-9abc-def012345678'
++
++        self.assertEqual(expected, build('uuidroute', id=uid))
++        self.assertEqual(expected, build('uuidroute', id=str(uid).upper()))
++        self.assertEqual(expected, build('uuidroute', id=uid.hex))
++        self.assertRaises(ValueError, build, 'uuidroute', id='not-a-uuid')
++
+     def testPathFilter(self):
+         self.assertMatches('/<id:path>/:f', '/a/b', id='a', f='b')
+         self.assertMatches('/<id:path>', '/a', id='a')
+diff --git a/test/test_wsgi.py b/test/test_wsgi.py
+index 1310a4f..70e6181 100755
+--- a/test/test_wsgi.py
++++ b/test/test_wsgi.py
+@@ -1,6 +1,7 @@
+ # -*- coding: utf-8 -*-
+ from __future__ import with_statement
+ import bottle
++import uuid
+ from .tools import ServerTestBase, chdir
+ from bottle import tob, touni, HTTPResponse
+ 
+@@ -503,6 +504,18 @@ class TestDecorators(ServerTestBase):
+         bottle.request.environ['SCRIPT_NAME'] = 'app/'
+         self.assertEqual('/app/a/xxx/c', bottle.url('named', b='xxx'))
+ 
++    def test_uuid_filter(self):
++        """ WSGI: uuid filter passes UUID objects to callbacks and builds URLs """
++        uid = uuid.UUID('12345678-1234-5678-9abc-def012345678')
++        @bottle.route('/item/<id:uuid>', name='item')
++        def item(id):
++            return type(id).__name__ + ':' + str(id)
++        self.assertBody('UUID:' + str(uid), '/item/' + str(uid))
++        self.assertBody('UUID:' + str(uid), '/item/' + str(uid).upper())
++        self.assertStatus(404, '/item/not-a-uuid')
++        bottle.request.environ['SCRIPT_NAME'] = ''
++        self.assertEqual('/item/' + str(uid), bottle.app().get_url('item', id=uid))
++
+     def test_autoroute(self):
+         app = bottle.Bottle()
+         def a(): pass

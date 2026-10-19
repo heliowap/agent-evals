@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/auth.cjs": "const assert = require('node:assert/strict');\n\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\n\nconst baseDocs = [\n  { id: 'a1', tenant: 'a', owner: 'alice', deleted: false, archived: false },\n  { id: 'a2', tenant: 'a', owner: 'bob', deleted: false, archived: false },\n  { id: 'b1', tenant: 'b', owner: 'alice', deleted: false, archived: false },\n  { id: 'gone', tenant: 'a', owner: 'alice', deleted: true, archived: false },\n  { id: 'done', tenant: 'a', owner: 'alice', deleted: false, archived: true },\n];\n\nfunction setup() {\n  const repo = new DocumentRepository(baseDocs.map(d => ({ ...d })));\n  return { repo, service: new DocumentService(repo) };\n}\n\nconst admin = { tenant: 'a', user: 'alice', role: 'admin' };\nconst editorOwner = { tenant: 'a', user: 'alice', role: 'editor' };\nconst editorOther = { tenant: 'a', user: 'bob', role: 'editor' };\nconst viewer = { tenant: 'a', user: 'alice', role: 'viewer' };\nconst foreignAdmin = { tenant: 'b', user: 'x', role: 'admin' };\n\n// Admin can archive any visible document in tenant.\n{\n  const { repo, service } = setup();\n  service.archive(admin, 'a2');\n  assert.equal(repo.documents[1].archived, true);\n  assert.deepEqual(repo.audit, [{ actor: 'alice', document: 'a2' }]);\n}\n\n// Editor can archive own document.\n{\n  const { repo, service } = setup();\n  service.archive(editorOwner, 'a1');\n  assert.equal(repo.documents[0].archived, true);\n  assert.deepEqual(repo.audit, [{ actor: 'alice', document: 'a1' }]);\n}\n\n// Editor cannot archive someone else's document: forbidden, no changes.\n{\n  const { repo, service } = setup();\n  assert.throws(() => service.archive(editorOther, 'a1'), /forbidden/);\n  assert.equal(repo.documents[0].archived, false);\n  assert.deepEqual(repo.audit, []);\n}\n\n// Viewer can never archive: forbidden, no changes.\n{\n  const { repo, service } = setup();\n  assert.throws(() => service.archive(viewer, 'a1'), /forbidden/);\n  assert.equal(repo.documents[0].archived, false);\n  assert.deepEqual(repo.audit, []);\n}\n\n// Missing, deleted, foreign-tenant: not found, even for admin; no changes.\nfor (const [actor, id] of [[admin, 'missing'], [admin, 'gone'], [admin, 'b1'], [foreignAdmin, 'a1'], [editorOwner, 'b1']]) {\n  const { repo, service } = setup();\n  assert.throws(() => service.archive(actor, id), /not found/);\n  assert.deepEqual(repo.audit, []);\n  assert.deepEqual(repo.documents.map(d => d.archived), baseDocs.map(d => d.archived));\n}\n\n// Already archived visible document: no-op with permission, forbidden without.\n{\n  const { repo, service } = setup();\n  service.archive(admin, 'done');\n  assert.equal(repo.documents[4].archived, true);\n  assert.deepEqual(repo.audit, []);\n}\n{\n  const { repo, service } = setup();\n  assert.throws(() => service.archive(editorOther, 'done'), /forbidden/);\n  assert.deepEqual(repo.audit, []);\n}\n\nconsole.log('auth checks passed');\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\n\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    if (!document || document.deleted || document.tenant !== actor.tenant) {\n      throw new Error('not found');\n    }\n    if (!this.isAuthorized(actor, document)) {\n      throw new Error('forbidden');\n    }\n    if (!document.archived) {\n      this.repository.archive(document, actor.user);\n    }\n  }\n\n  private isAuthorized(actor: Actor, document: Document): boolean {\n    switch (actor.role) {\n      case 'admin':\n        return true;\n      case 'editor':\n        return document.owner === actor.user;\n      case 'viewer':\n        return false;\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/auth.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 108,
+    "removed_lines": 10
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 1.7290269169898238
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.5480452089977916,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 1.1044379580125678,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

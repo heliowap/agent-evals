@@ -1,0 +1,15 @@
+{
+  "files": {
+    "src/api.py": "from .money import _to_cents, _from_cents, MAX_CENTS, format_amount\n\n\ndef make_invoice(amounts):\n    if type(amounts) is not list:\n        raise ValueError(\"amounts must be a list\")\n    items = list(amounts)\n    total = 0\n    for item in items:\n        total += _to_cents(item)\n        if total > MAX_CENTS:\n            raise ValueError(\"total too large\")\n    return {\"total\": format_amount(_from_cents(total)), \"count\": len(items)}\n",
+    "src/money.py": "import re\nfrom decimal import Decimal\n\nMAX_CENTS = 100000000  # 1000000.00\n_STR_RE = re.compile(r\"([+-]?)([0-9]+)(?:\\.([0-9]+))?\")\n\n\ndef _to_cents(value):\n    \"\"\"Validate value and return exact positive integer cents (no context use).\"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"invalid amount\")\n    if isinstance(value, Decimal):\n        if not value.is_finite():\n            raise ValueError(\"amount must be finite\")\n        sign, digits, exp = value.as_tuple()\n        if sign:\n            raise ValueError(\"amount must be positive\")\n        n = int(\"\".join(map(str, digits)) or \"0\")\n        if n == 0:\n            raise ValueError(\"amount must be positive\")\n        if exp >= 0:\n            if exp > 9 or len(digits) + exp > 12:\n                raise ValueError(\"amount too large\")\n            cents = n * 10 ** (exp + 2)\n        elif -exp - 2 <= 0:\n            cents = n * 10 ** (exp + 2)\n        else:\n            shift = -exp - 2\n            if shift > len(digits):\n                raise ValueError(\"amount not representable in cents\")\n            cents, rem = divmod(n, 10 ** shift)\n            if rem:\n                raise ValueError(\"amount not representable in cents\")\n    elif isinstance(value, int):\n        if value <= 0 or value > MAX_CENTS // 100:\n            raise ValueError(\"amount out of range\")\n        cents = value * 100\n    elif isinstance(value, str):\n        m = _STR_RE.fullmatch(value)\n        if not m:\n            raise ValueError(\"invalid amount string\")\n        sign, whole, frac = m.group(1), m.group(2), m.group(3) or \"\"\n        if sign == \"-\":\n            raise ValueError(\"amount must be positive\")\n        frac = frac.rstrip(\"0\") if len(frac) > 2 else frac\n        if len(frac) > 2:\n            raise ValueError(\"amount not representable in cents\")\n        cents = int(whole) * 100 + int(frac.ljust(2, \"0\")) if (whole or frac) else 0\n    else:\n        raise ValueError(\"unsupported amount type\")\n    if cents <= 0:\n        raise ValueError(\"amount must be positive\")\n    if cents > MAX_CENTS:\n        raise ValueError(\"amount too large\")\n    return cents\n\n\ndef _from_cents(cents):\n    digits = tuple(int(c) for c in str(cents))\n    return Decimal((0, digits, -2))\n\n\ndef parse_amount(value):\n    return _from_cents(_to_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+  },
+  "changed_files": [
+    "src/api.py",
+    "src/money.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 2,
+  "added_lines": 81,
+  "removed_lines": 12
+}

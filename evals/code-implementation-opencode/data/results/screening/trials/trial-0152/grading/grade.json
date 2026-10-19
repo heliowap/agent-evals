@@ -1,0 +1,60 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_exporter.py": "import copy\nimport os\nimport sys\nimport unittest\nfrom unittest.mock import patch\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\nfrom src.csv_exporter import export_csv\nfrom src.dispatcher import export\nfrom src.exporter import export_rows\nfrom src.json_exporter import export_json\n\n\nclass ExporterTests(unittest.TestCase):\n    def test_exact_output_and_inputs(self):\n        rows = [\n            {\"id\": 0, \"name\": 'Zoë, \"Hi\"\\nNext', \"extra\": \"ignored\"},\n            {\"name\": None},\n            {\"id\": False, \"name\": 42},\n            {\"id\": None},\n        ]\n        original = copy.deepcopy(rows)\n        expected = {\n            \"csv\": 'id,name\\n0,\"Zoë, \"\"Hi\"\"\\nNext\"\\n,\\nFalse,42\\n,\\n',\n            \"json\": '[{\"id\":\"0\",\"name\":\"Zoë, \\\\\"Hi\\\\\"\\\\nNext\"},'\n                    '{\"id\":\"\",\"name\":\"\"},{\"id\":\"False\",\"name\":\"42\"},'\n                    '{\"id\":\"\",\"name\":\"\"}]',\n        }\n        for format, wrapper in ((\"csv\", export_csv), (\"json\", export_json)):\n            for entry in (export_rows, export):\n                self.assertEqual(entry(iter(rows), format), expected[format])\n            self.assertEqual(wrapper(iter(rows)), expected[format])\n        self.assertEqual(rows, original)\n\n    def test_empty(self):\n        self.assertEqual(export_rows(iter(()), \"csv\"), \"id,name\\n\")\n        self.assertEqual(export_rows(iter(()), \"json\"), \"[]\")\n\n    def test_unsupported_format_does_not_consume_rows(self):\n        def rows():\n            self.fail(\"unsupported format must not consume rows\")\n            yield {}\n\n        for entry in (export_rows, export):\n            with self.assertRaisesRegex(ValueError, \"unsupported format\"):\n                entry(rows(), \"xml\")\n\n    def test_wrappers_delegate(self):\n        rows = iter([{}])\n        for module, wrapper, format in (\n            (\"src.csv_exporter\", export_csv, \"csv\"),\n            (\"src.json_exporter\", export_json, \"json\"),\n        ):\n            with patch(module + \".export_rows\", return_value=\"result\") as shared:\n                self.assertEqual(wrapper(rows), \"result\")\n                shared.assert_called_once_with(rows, format)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/exporter.py": "\"\"\"Shared normalization and serialization for row exports.\"\"\"\n\nimport csv\nimport io\nimport json\n\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize_rows(rows):\n    for row in rows:\n        yield {\n            key: \"\" if row.get(key) is None else str(row[key])\n            for key in _FIELDS\n        }\n\n\ndef export_rows(rows, format):\n    \"\"\"Export id and name fields as CSV or compact JSON.\"\"\"\n    if format == \"csv\":\n        buffer = io.StringIO(newline=\"\")\n        writer = csv.DictWriter(buffer, fieldnames=_FIELDS, lineterminator=\"\\n\")\n        writer.writeheader()\n        writer.writerows(_normalize_rows(rows))\n        return buffer.getvalue()\n    if format == \"json\":\n        return json.dumps(\n            list(_normalize_rows(rows)), ensure_ascii=False, separators=(\",\", \":\")\n        )\n    raise ValueError(\"unsupported format\")\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/test_exporter.py",
+      "src/csv_exporter.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 102,
+    "removed_lines": 18
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04427074998966418
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0461545410216786,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0489173749811016,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04763466599979438,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

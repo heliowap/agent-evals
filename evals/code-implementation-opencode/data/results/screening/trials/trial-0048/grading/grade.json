@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nc.execute(\"INSERT INTO documents VALUES (1, 't', 'o', 'Title', 'Body', NULL)\")\nc.commit()\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"}\nassert list_documents(c, \"t\", \"o\") == [{\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"}]\nassert get_document(c, \"t\", \"o\", 99) is None\nc.executemany(\"INSERT INTO documents VALUES (?,?,?,?,?,?)\", [\n    (2, \"t\", \"o\", \"Two\", \"B2\", None),\n    (3, \"t2\", \"o\", \"X\", \"X\", None),\n    (4, \"t\", \"o2\", \"X\", \"X\", None),\n    (5, \"t\", \"o\", \"Del\", \"X\", \"2020\"),\n    (6, \"t'q\", \"o'q\", \"Q\", \"QB\", None)])\nassert [d[\"id\"] for d in list_documents(c, \"t\", \"o\")] == [1, 2]\nfor i in (3, 4, 5):\n    assert get_document(c, \"t\", \"o\", i) is None\nassert get_document(c, \"t'q\", \"o'q\", 6)[\"title\"] == \"Q\"\nassert list_documents(c, \"t' OR '1'='1\", \"o\") == []\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    rows = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n        (tenant, owner),\n    ).fetchall()\n    return [decode(row) for row in rows]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/public.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 50,
+    "removed_lines": 32
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.046334832994034514
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.048845665995031595,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04760170797817409,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

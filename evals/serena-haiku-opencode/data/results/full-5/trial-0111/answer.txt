@@ -1,0 +1,24 @@
+`import_contacts` and `handle_import` are implemented, and both `checks/public.py` and a new `checks/import_checks.py` pass.
+
+**Changes**
+
+- **`src/repository.py`**: added `existing_emails(connection, emails)`, which returns the subset of the given emails already stored. `put_contact` and `list_contacts` are unchanged.
+- **`src/service.py`**: `import_contacts` does the following:
+  - Validates every row before touching the database. Each row must be a dict with exactly `email` and `name`, both strings. Both are trimmed, and the email is lowercased. The email must have exactly one `@`, nonempty sides and no whitespace. The name must be nonempty. Duplicate normalized emails are rejected. Any violation raises `ValueError`.
+  - Returns `{'inserted': 0, 'updated': 0}` for an empty batch.
+  - Otherwise, inside one `with connection:` block, looks up existing emails, then upserts each row. Any database error rolls back the whole batch.
+  - Counts an email as `updated` if it already existed, even if the name is unchanged, and as `inserted` otherwise.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the `contacts` key and a list value, raising `ValueError` otherwise. It then returns the summary from `import_contacts`. `handle_add` is unchanged.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `checks/import_checks.py` covers:
+  - Trimming and lowercasing.
+  - Insert/update counting, including an unchanged name.
+  - Empty batches.
+  - Each invalid-row case, checking that the table is unchanged afterward.
+  - Malformed envelopes.
+  - Rollback when a SQLite trigger aborts the second row of a batch, which leaves the first row unwritten.
+
+One thing to be aware of: existing stored emails are compared against the normalized form, so a pre-existing row stored with uppercase letters (from `add_contact`, which does not normalize) would not match an imported lowercase email and would be inserted as a separate row.

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/patch.cjs": "const assert = require('node:assert/strict');\nconst { ProfileService } = require('../.build/service');\nconst { parseProfile } = require('../.build/parser');\n\nconst profile = { displayName: 'before', tags: ['old'] };\nconst service = new ProfileService(profile);\nconst originalTags = profile.tags;\nassert.equal(service.patch({}), profile);\nassert.equal(profile.tags, originalTags);\nassert.deepEqual(parseProfile({}), {\n  displayName: { kind: 'keep' }, tags: { kind: 'keep' },\n});\n\nconst input = Object.freeze({\n  displayName: '  after  ', tags: Object.freeze([' one ', 'two']),\n});\nassert.deepEqual(service.patch(input), { displayName: 'after', tags: ['one', 'two'] });\nassert.deepEqual(input, { displayName: '  after  ', tags: [' one ', 'two'] });\nassert.notEqual(profile.tags, input.tags);\nconst callerTags = ['mutable'];\nservice.patch({ tags: callerTags });\ncallerTags.push('extra');\nassert.deepEqual(profile.tags, ['mutable']);\nprofile.tags.push('stored only');\nassert.deepEqual(callerTags, ['mutable', 'extra']);\n\nassert.deepEqual(service.patch({ displayName: null }), {\n  displayName: null, tags: ['mutable', 'stored only'],\n});\nassert.deepEqual(service.patch({ tags: null }), { displayName: null, tags: [] });\nservice.patch({ tags: ['tag'] });\nassert.deepEqual(service.patch({ tags: [] }), { displayName: null, tags: [] });\nconst nullPrototype = Object.assign(Object.create(null), { displayName: ' null prototype ' });\nassert.deepEqual(service.patch(nullPrototype), { displayName: 'null prototype', tags: [] });\nassert.deepEqual(service.patch({ displayName: 'x'.repeat(40), tags: ['x'.repeat(12), 'a', 'b', 'c', 'd'] }), {\n  displayName: 'x'.repeat(40), tags: ['x'.repeat(12), 'a', 'b', 'c', 'd'],\n});\n\nconst invalidInputs = [\n  null, undefined, [], 'name', 42, true, () => {}, new Date(),\n  Object.create({ displayName: 'inherited' }),\n  { unknown: true }, { [Symbol('unknown')]: true },\n  Object.defineProperty({}, 'hidden', { value: true }),\n  ...[undefined, 1, false, {}, [], '', '  ', 'x'.repeat(41)].map(displayName => ({ displayName })),\n  ...[undefined, 1, false, {}, 'tag', [1], [null], [''], [' '],\n    ['x'.repeat(13)], ['same', ' same '], ['a', 'b', 'c', 'd', 'e', 'f'],\n    Array(1)].map(tags => ({ tags })),\n  { displayName: 'valid', tags: ['duplicate', ' duplicate '] },\n  { displayName: ' ', tags: ['valid'] },\n  { displayName: 'valid', tags: ['valid'], extra: true },\n];\nfor (const invalid of invalidInputs) {\n  const before = { displayName: profile.displayName, tags: [...profile.tags] };\n  const tags = profile.tags;\n  assert.throws(() => service.patch(invalid), { name: 'Error', message: 'invalid profile' });\n  assert.deepEqual(profile, before);\n  assert.equal(profile.tags, tags);\n}\nconsole.log('PATCH contract checks passed');\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Error('invalid profile');\n  const prototype = Object.getPrototypeOf(input);\n  if (prototype !== Object.prototype && prototype !== null) throw new Error('invalid profile');\n  for (const key of Reflect.ownKeys(input)) {\n    if (key !== 'displayName' && key !== 'tags') throw new Error('invalid profile');\n  }\n\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n  if (Object.prototype.hasOwnProperty.call(input, 'displayName')) {\n    const value = (input as { displayName: unknown }).displayName;\n    if (value === null) {\n      displayName = { kind: 'set', value: null };\n    } else {\n      if (typeof value !== 'string') throw new Error('invalid profile');\n      const trimmed = value.trim();\n      if (trimmed.length < 1 || trimmed.length > 40) throw new Error('invalid profile');\n      displayName = { kind: 'set', value: trimmed };\n    }\n  }\n  if (Object.prototype.hasOwnProperty.call(input, 'tags')) {\n    const value = (input as { tags: unknown }).tags;\n    if (value === null) {\n      tags = { kind: 'set', value: [] };\n    } else {\n      if (!Array.isArray(value) || value.length > 5) throw new Error('invalid profile');\n      const strings: string[] = [];\n      for (const tag of value) {\n        if (typeof tag !== 'string') throw new Error('invalid profile');\n        const trimmed = tag.trim();\n        if (trimmed.length < 1 || trimmed.length > 12 || strings.includes(trimmed)) {\n          throw new Error('invalid profile');\n        }\n        strings.push(trimmed);\n      }\n      tags = { kind: 'set', value: strings };\n    }\n  }\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    // Validate the entire patch before changing either stored field.\n    const parsed = parseProfile(input);\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = [...parsed.tags.value];\n    return this.profile;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/patch.cjs",
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 113,
+    "removed_lines": 26
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5343157910101581
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05705770800705068,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.046605832991190255,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/idempotency.cjs": "const assert = require('node:assert/strict');\nconst { Ledger } = require('../.build/ledger');\nconst { PaymentService } = require('../.build/service');\nconst { Transient } = require('../.build/transport');\n\nasync function main() {\n  // Repeated equal amount returns original receipt, one debit.\n  {\n    const ledger = new Ledger();\n    const svc = new PaymentService(ledger, { acknowledge: async () => {} });\n    const a = await svc.pay('t', 'k', 5);\n    const b = await svc.pay('t', 'k', 5);\n    assert.deepEqual(a, b);\n    assert.equal(ledger.entries.length, 1);\n  }\n  // Concurrent equal calls: one debit, same receipt.\n  {\n    const ledger = new Ledger();\n    const svc = new PaymentService(ledger, { acknowledge: async () => { await new Promise(r => setTimeout(r, 5)); } });\n    const rs = await Promise.all([svc.pay('t', 'k', 5), svc.pay('t', 'k', 5), svc.pay('t', 'k', 5)]);\n    assert.equal(ledger.entries.length, 1);\n    assert.deepEqual(rs[0], rs[1]); assert.deepEqual(rs[1], rs[2]);\n  }\n  // Same key, different amount: key conflict, no second debit.\n  {\n    const ledger = new Ledger();\n    const svc = new PaymentService(ledger, { acknowledge: async () => {} });\n    await svc.pay('t', 'k', 5);\n    await assert.rejects(svc.pay('t', 'k', 6), /^Error: key conflict$/);\n    assert.equal(ledger.entries.length, 1);\n  }\n  // Scoping: same key different tenant is a separate debit; no key collision across tenants.\n  {\n    const ledger = new Ledger();\n    const svc = new PaymentService(ledger, { acknowledge: async () => {} });\n    await svc.pay('a', 'b|c', 5);\n    await svc.pay('a|b', 'c', 7);\n    await svc.pay('a', 'k', 1);\n    await svc.pay('b', 'k', 2);\n    assert.equal(ledger.entries.length, 4);\n  }\n  // Transient ack after commit retries with the same receipt; one debit.\n  {\n    const ledger = new Ledger();\n    const seen = [];\n    let calls = 0;\n    const svc = new PaymentService(ledger, { acknowledge: async r => {\n      seen.push(r); if (++calls < 3) throw new Transient('x');\n    } });\n    const r = await svc.pay('t', 'k', 9, 3);\n    assert.equal(calls, 3); assert.equal(ledger.entries.length, 1);\n    for (const s of seen) assert.deepEqual(s, r);\n  }\n  // Exhausted retries rethrow the last Transient.\n  {\n    const ledger = new Ledger();\n    let n = 0;\n    const err = new Transient('final');\n    const svc = new PaymentService(ledger, { acknowledge: async () => { n++; throw n === 2 ? err : new Transient('early'); } });\n    await assert.rejects(svc.pay('t', 'k', 9, 2), e => e === err);\n    assert.equal(n, 2); assert.equal(ledger.entries.length, 1);\n  }\n  // Non-Transient errors are not retried.\n  {\n    const ledger = new Ledger();\n    let n = 0;\n    const boom = new Error('boom');\n    const svc = new PaymentService(ledger, { acknowledge: async () => { n++; throw boom; } });\n    await assert.rejects(svc.pay('t', 'k', 9, 5), e => e === boom);\n    assert.equal(n, 1);\n  }\n  // Invalid input throws before any ledger or transport action.\n  {\n    let touched = 0;\n    const ledger = new Ledger();\n    const origApply = ledger.apply.bind(ledger);\n    ledger.apply = async (...a) => { touched++; return origApply(...a); };\n    const svc = new PaymentService(ledger, { acknowledge: async () => { touched++; } });\n    const bad = [\n      ['', 'k', 1, 3], ['t', '', 1, 3], [undefined, 'k', 1, 3], ['t', 'k', 0, 3], ['t', 'k', 1.5, 3],\n      ['t', 'k', -1, 3], ['t', 'k', 1, 0], ['t', 'k', 1, 6], ['t', 'k', 1, 1.5], ['t', 'k', 1, '2'],\n    ];\n    for (const args of bad) {\n      await assert.rejects(svc.pay(...args), /^Error: invalid payment$/, JSON.stringify(args));\n    }\n    assert.equal(touched, 0);\n    assert.equal(ledger.entries.length, 0);\n  }\n  console.log('idempotency checks OK');\n}\nmodule.exports = main();\n",
+      "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  // Idempotency records scoped by tenant, then key. Nested maps avoid\n  // collisions between distinct (tenant, key) pairs.\n  private readonly records = new Map<string, Map<string, Receipt>>();\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    // No await before this point: the lookup and the insert below run in one\n    // synchronous step, so concurrent calls with the same tenant/key cannot\n    // both debit.\n    let byKey = this.records.get(tenant);\n    if (!byKey) { byKey = new Map(); this.records.set(tenant, byKey); }\n    const existing = byKey.get(key);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return { ...existing };\n    }\n    const receipt: Receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    byKey.set(key, receipt);\n    return { ...receipt };\n  }\n}\n",
+      "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nconst MAX_ATTEMPTS = 5;\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (\n      typeof tenant !== 'string' || tenant.length === 0 ||\n      typeof key !== 'string' || key.length === 0 ||\n      !Number.isSafeInteger(cents) || cents <= 0 ||\n      !Number.isSafeInteger(attempts) || attempts < 1 || attempts > MAX_ATTEMPTS\n    ) throw new Error('invalid payment');\n    // The receipt from the first successful apply is reused for every\n    // acknowledgement attempt. Ledger.apply is idempotent, so re-applying is\n    // safe, but we only apply again if no receipt has been obtained yet.\n    let receipt: Receipt | undefined;\n    for (let n = 0; ; n++) {\n      try {\n        receipt ??= await this.ledger.apply(tenant, key, cents);\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n === attempts - 1) throw error;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/idempotency.cjs",
+      "src/ledger.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 141,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.548098041996127
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06570429200655781,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.060371374973328784,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

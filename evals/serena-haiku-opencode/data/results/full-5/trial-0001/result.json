@@ -1,0 +1,129 @@
+{
+  "id": "trial-0001",
+  "configuration": "haiku-medium-native",
+  "effort": "medium",
+  "arm": "native",
+  "case": "py-document-scope",
+  "role": "implementation",
+  "rep": 1,
+  "position": 1,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/test_service_scoping.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\ndef make_db():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    rows = [\n        (1, \"t\", \"o\", \"A\", \"a\", None),\n        (2, \"t\", \"o\", \"B\", \"b\", \"2026-01-01\"),   # deleted\n        (3, \"other\", \"o\", \"C\", \"c\", None),       # cross-tenant\n        (4, \"t\", \"x\", \"D\", \"d\", None),           # cross-owner\n        (5, \"t\", \"o\", \"E'quote\", \"e\", None),     # quote in data\n        (6, \"t\", \"o\", \"F\", \"f\", None),\n    ]\n    c.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\n    c.commit()\n    return c\n\ndef test_get_document_scoped():\n    c = make_db()\n    assert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"A\", \"body\": \"a\"}\n    assert get_document(c, \"t\", \"o\", 2) is None  # deleted\n    assert get_document(c, \"t\", \"o\", 3) is None  # cross-tenant\n    assert get_document(c, \"t\", \"o\", 4) is None  # cross-owner\n    assert get_document(c, \"t\", \"o\", 99) is None\n    assert get_document(c, \"t\", \"o\", \"1 OR 1=1\") is None\n\ndef test_list_documents_scoped_and_ordered():\n    c = make_db()\n    out = list_documents(c, \"t\", \"o\")\n    assert out == [\n        {\"id\": 1, \"title\": \"A\", \"body\": \"a\"},\n        {\"id\": 5, \"title\": \"E'quote\", \"body\": \"e\"},\n        {\"id\": 6, \"title\": \"F\", \"body\": \"f\"},\n    ]\n    assert all(set(d) == {\"id\", \"title\", \"body\"} for d in out)\n\ndef test_quoted_names_are_bound():\n    c = make_db()\n    assert list_documents(c, \"t'; --\", \"o\") == []\n    assert get_document(c, \"t' OR '1'='1\", \"o\", 1) is None\n    assert list_documents(c, \"t\", \"o' OR '1'='1\") == []\n\nif __name__ == \"__main__\":\n    for name, fn in list(globals().items()):\n        if name.startswith(\"test_\") and callable(fn):\n            fn(); print(\"ok\", name)\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents \"\n        \"WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents \"\n            \"WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+        "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+      },
+      "changed_files": [
+        "checks/test_service_scoping.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 81,
+      "removed_lines": 20
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.06640425004297867
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.06085191702004522,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.07310391601640731,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 18.220234624983277,
+  "preparation_s": 5.752567957970314,
+  "export_s": 0.38935629097977653,
+  "grading_s": 0.41809745802311227,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "used": false,
+    "tool_calls": 0,
+    "useful_successful_calls": 0,
+    "errors": 0,
+    "catalog_ready_s": null
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 4,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_38ad17c5c9b0cfdcdc75",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "medium"
+  },
+  "usage": {
+    "input_tokens": 8,
+    "output_tokens": 2150,
+    "reasoning_tokens": 234,
+    "cached_input_tokens": 6565,
+    "cache_write_tokens": 3583
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 3,
+  "error_events": [],
+  "reported_cost_usd": 0.001706325,
+  "total_trial_s": 24.885448124958202
+}

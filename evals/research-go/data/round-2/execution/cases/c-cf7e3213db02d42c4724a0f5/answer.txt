@@ -1,0 +1,35 @@
+I'll research the official Compose dependency and restart documentation.
+
+## Decision
+
+On plugin **2.18.0**, convert short-form `depends_on` to long syntax and use:
+
+```yaml
+api:
+  restart: always
+  depends_on:
+    db:
+      condition: service_healthy
+      restart: true        # long-syntax depends_on.restart, introduced 2.17.0 — OK on 2.18.0
+    migrate:
+      condition: service_completed_successfully
+      restart: true
+```
+
+Documented basis: long-syntax `condition` values (`service_started`, `service_healthy`, `service_completed_successfully`) and `depends_on.restart` (explicitly "Introduced in Docker Compose version 2.17.0") are all in the reference ([depends_on section](https://docs.docker.com/reference/compose-file/services/#depends_on)); the startup-order guide shows exactly this pattern ([Example](https://docs.docker.com/compose/how-tos/startup-order/#example)).
+
+**Separating the lifecycle stages:**
+- **Container startup:** short syntax only guarantees the dependency was *started*, not ready ([short syntax](https://docs.docker.com/reference/compose-file/services/#short-syntax-1)). Short form must be replaced.
+- **Health/readiness:** `service_healthy` makes Compose wait for the db healthcheck to pass before creating/starting the API ([startup-order guide](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)).
+- **Migration completion:** `service_completed_successfully` on the one-shot migrate service blocks API start until it exits 0. Note ordering: Compose starts dependencies in dependency order, but you should also give *migrate* its own `depends_on: db: condition: service_healthy` so migrations run against a ready DB (recommendation; exact transitive timing is **UNVERIFIED** on 2.18.0 — verify with a `docker compose up` run).
+- **Explicit operator restarts:** `depends_on.restart: true` restarts dependents when the db is restarted by a Compose operation such as `docker compose restart` ([startup-order guide](https://docs.docker.com/compose/how-tos/startup-order/#example)). This satisfies the "API restarts after explicit db restart" requirement.
+- **Runtime restarts (db crash):** the docs explicitly exclude this — `restart: true` "applies to an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies" ([depends_on reference](https://docs.docker.com/reference/compose-file/services/#depends_on)). The db's `restart: always` governs only the db container itself ([restart](https://docs.docker.com/reference/compose-file/services/#restart)). The assumed propagation of API restarts on crash-recovery is therefore **not guaranteed** — this premise is incorrect. Applications should instead handle connection loss and reconnect themselves (recommendation), or operators must restart the API explicitly.
+
+## Proposal parts that cannot be relied on
+
+- **`required: false`** — introduced in Compose **2.20.0** ([depends_on reference](https://docs.docker.com/reference/compose-file/services/#depends_on)); on 2.18.0 this is unupgradable as proposed. Either upgrade the plugin to ≥2.20.0 for the optional telemetry dependency, or gate telemetry with a Compose profile (recommendation).
+- **Runtime-crash propagation** — as above, not covered by `restart: true`.
+
+## Can this promise continuous readiness through later database failures?
+
+**No.** All of the documented guarantees above are about *start/stop ordering* at bring-up and explicit Compose restarts. Nothing in this configuration makes the API's readiness a function of subsequent database health; a later db outage with `restart: always`-style recovery leaves the API running and unready to serve DB-dependent requests. Do not make that promise based on this configuration alone. A documented mechanism to re-run dependency gating on later failures is absent from these pages (**UNVERIFIED**) — next evidence targets: the Compose CLI reference for `docker compose restart`/`watch`, and release notes for versions ≥2.20.0.

@@ -1,0 +1,86 @@
+diff --git a/bottle.py b/bottle.py
+index 9edceaf..27f3fb3 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -69,7 +69,7 @@ if __name__ == '__main__':
+ ###############################################################################
+ 
+ import base64, calendar, email.utils, functools, hmac, itertools, \
+-    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib
++    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib, uuid
+ 
+ from types import FunctionType
+ from datetime import date as datedate, datetime, timedelta
+@@ -291,6 +291,8 @@ class Router:
+                                 None, None),
+             'int': lambda conf: (r'-?\d+', int, lambda x: str(int(x))),
+             'float': lambda conf: (r'-?[\d.]+', float, lambda x: str(float(x))),
++            'uuid': lambda conf: (r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
++                                  uuid.UUID, lambda x: str(uuid.UUID(str(x)))),
+             'path': lambda conf: (r'.+?', None, None)
+         }
+ 
+diff --git a/test/test_router.py b/test/test_router.py
+index 9762b10..c145457 100755
+--- a/test/test_router.py
++++ b/test/test_router.py
+@@ -1,6 +1,7 @@
+ # -*- coding: utf-8 -*-
+ 
+ import unittest
++import uuid
+ import bottle
+ import warnings
+ 
+@@ -74,6 +75,32 @@ class TestRouter(unittest.TestCase):
+         self.assertRaises(bottle.HTTPError, self.match, '/object/')
+         self.assertRaises(bottle.HTTPError, self.match, '/object/.')
+ 
++    def testUUIDFilter(self):
++        uid = uuid.UUID('12345678-1234-5678-1234-567812345678')
++        self.assertMatches('/object/<id:uuid>', '/object/12345678-1234-5678-1234-567812345678', id=uid)
++        self.assertMatches('/object/<id:uuid>', '/object/12345678-ABCD-5678-ABCD-567812345678',
++                           id=uuid.UUID('12345678-abcd-5678-abcd-567812345678'))
++        self.assertMatches('/object/<id:uuid>', '/object/12345678-aBcD-5678-1234-567812345678',
++                           id=uuid.UUID('12345678-abcd-5678-1234-567812345678'))
++        self.assertRaises(bottle.HTTPError, self.match, '/object/')
++        self.assertRaises(bottle.HTTPError, self.match, '/object/abc')
++        self.assertRaises(bottle.HTTPError, self.match, '/object/12345678123456781234567812345678') # No hyphens
++        self.assertRaises(bottle.HTTPError, self.match, '/object/12345678-1234-5678-1234-56781234567') # Too short
++        self.assertRaises(bottle.HTTPError, self.match, '/object/12345678-1234-5678-1234-5678123456789') # Too long
++        self.assertRaises(bottle.HTTPError, self.match, '/object/1234567g-1234-5678-1234-567812345678') # Not hex
++        self.assertRaises(bottle.HTTPError, self.match, '/object/{12345678-1234-5678-1234-567812345678}')
++        self.assertRaises(bottle.HTTPError, self.match, '/object/urn:uuid:12345678-1234-5678-1234-567812345678')
++        self.assertRaises(bottle.HTTPError, self.match, '/object/12345678-1234-5678-1234-567812345678/')
++
++    def testUUIDFilter_status(self):
++        self.add('/object/<id:uuid>', 'handler')
++        try:
++            self.match('/object/nope')
++        except bottle.HTTPError as e:
++            self.assertEqual(404, e.status_code)
++        else:
++            self.fail('HTTPError not raised')
++
+     def testPathFilter(self):
+         self.assertMatches('/<id:path>/:f', '/a/b', id='a', f='b')
+         self.assertMatches('/<id:path>', '/a', id='a')
+@@ -133,6 +160,18 @@ class TestRouter(unittest.TestCase):
+         # RouteBuildError: Missing URL argument: anon0.
+         self.assertRaises(ValueError, build, 'introute', 'hello')
+ 
++    def testBuildUUIDFilter(self):
++        add, build = self.add, self.r.build
++        add('/item/<id:uuid>', 'handler', name='uuidroute')
++        uid = uuid.UUID('12345678-1234-5678-1234-567812345678')
++
++        self.assertEqual('/item/12345678-1234-5678-1234-567812345678', build('uuidroute', id=uid))
++        self.assertEqual('/item/12345678-abcd-5678-1234-567812345678',
++                         build('uuidroute', id=uuid.UUID('12345678-ABCD-5678-1234-567812345678')))
++        self.assertEqual('/item/12345678-1234-5678-1234-567812345678',
++                         build('uuidroute', id='12345678-1234-5678-1234-567812345678'))
++        self.assertRaises(ValueError, build, 'uuidroute', id='hello')
++
+     def test_dynamic_before_static_any(self):
+         ''' Static ANY routes have lower priority than dynamic GET routes. '''
+         self.add('/foo', 'foo', 'ANY')

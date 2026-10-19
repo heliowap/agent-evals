@@ -1,0 +1,17 @@
+**Verdict: Runner A builds; B and C refuse. Reject both proposals.**
+
+**Runner A (auto).** `auto` is shorthand for `local+auto` (https://go.dev/doc/toolchain#select). Bundled 1.21.3 is older than `toolchain go1.21.9`, so the go command runs go1.21.9, searching PATH then downloading/caching it (https://go.dev/doc/toolchain#intro, #select).
+
+**Runner B (`local`).** `local` always runs the bundled toolchain, and toolchains "refuse to load a module or workspace that declares a minimum required Go version greater than the toolchain's own version" (https://go.dev/doc/toolchain#config, #select). go 1.21.9 > 1.21.3 → refusal error, not a silent downgrade.
+
+**Runner C (`go1.21.3+path`).** Default 1.21.3, toolchain line 1.21.9 is newer, so it would switch; `+path` "disables the download fallback, causing the go command to stop after searching the executable path" (https://go.dev/doc/toolchain#select). No go1.21.9 on PATH → refusal.
+
+**go vs toolchain.** `go` is the mandatory minimum version (and the enforced language version); `toolchain` is a *suggestion* that "only takes effect when the module is the main module and the default toolchain is older than the suggested toolchain" (https://go.dev/doc/modules/gomod-ref#toolchain). For downstream consumers only the dependency's `go` line matters: it can force a switch during `go get`/`go install pkg@version` (https://go.dev/doc/toolchain#switch), and a main module's `go` line must be ≥ every dependency's `go` line (https://go.dev/doc/toolchain#config). A dependency's `toolchain` line does nothing to consumers.
+
+**GOSUMDB=off — premise wrong.** "toolchain downloads fail for lack of verification if GOSUMDB=off," and "GOPRIVATE and GONOSUMDB patterns do not apply to the toolchain downloads" (https://go.dev/doc/toolchain#download). Turning it off disables auto downloads rather than enabling them.
+
+**`+path` network-free — wrong.** `+path` only removes the toolchain download fallback; module fetches still happen unless cached/vendored (e.g. `GOPROXY=off`, `-mod=vendor`). Claim UNVERIFIED as stated.
+
+**Recommendation (mine).** Keep GOSUMDB on and checksum verification. In restricted CI, preinstall needed toolchains on PATH and pin with `GOTOOLCHAIN=go1.21.9+path` (or a `go.work`/`toolchain` pin), adding a module proxy/mirror if network is required.
+
+**Not established:** neither setting guarantees one reproducible toolchain across runners nor a network-free build. Verify with `toolchaintrace=1` (Go 1.24+) and your own proxy configuration (https://go.dev/doc/toolchain#select).

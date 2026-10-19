@@ -1,0 +1,19 @@
+## Selection by runner (all facts from go.dev)
+
+**Runner A** — bundled 1.21.3 < `toolchain go1.21.9`, so the toolchain line wins: the go command looks in PATH for `go1.21.9`, finds none, and downloads+verifies it, running **go1.21.9** ([toolchain#select](https://go.dev/doc/toolchain#select), [toolchain#config](https://go.dev/doc/toolchain#config)).
+
+**Runner B** — `GOTOOLCHAIN=local` always runs the bundled toolchain, and toolchains refuse to load a module whose `go` line is newer. `go 1.21.9` > 1.21.3 → **refusal**, not a build ([toolchain#select](https://go.dev/doc/toolchain#select), [toolchain#config](https://go.dev/doc/toolchain#config)).
+
+**Runner C** — default is go1.21.3, module's `toolchain go1.21.9` is newer, so it needs go1.21.9; `+path` disables the download fallback and "stop[s] after searching the executable path" → absent → **error/refusal** ([toolchain#select](https://go.dev/doc/toolchain#select)).
+
+## Directive semantics
+
+`go` is the **mandatory minimum** language/toolchain version enforced by the compiler; `toolchain` is only a **suggestion**, taking effect "only when the module is the main module and the default toolchain is older" ([gemod-ref#go](https://go.dev/doc/modules/gomod-ref#go), [gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). A **dependency's `toolchain` line has no effect on consumers**; its `go` line does, since a module's `go` line must be ≥ every dependency's, propagating a higher minimum downstream ([toolchain#config](https://go.dev/doc/toolchain#config)).
+
+## Proposals: both premises are wrong
+
+`GOSUMDB=off` does **not** enable downloads — documented: "toolchain downloads fail for lack of verification if GOSUMDB=off," and GOPRIVATE/GONOSUMDB don't apply to them ([toolchain#download](https://go.dev/doc/toolchain#download)). Keep GOSUMDB on; in restricted CI set GOPROXY to a trusted mirror and pin `GOTOOLCHAIN=go1.21.9` (or preinstall go1.21.9 on PATH).
+
+`+path` disables only the **toolchain-download fallback**, not module/proxy traffic, so it does not make a build network-free — treat that claim as **UNVERIFIED**; resolve via the modules reference (https://go.dev/ref/mod#module-proxy / #checksum-database).
+
+**Recommendation:** preinstall pinned toolchains, GOPROXY mirror, GOSUMDB on. None of these settings establish offline reproducibility or verified toolchain integrity beyond checksum DB enforcement.

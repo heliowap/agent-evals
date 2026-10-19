@@ -1,0 +1,20 @@
+I'll start with the D1 overview and follow the read-replication links.
+
+Now the read replication best-practices page, which should cover session semantics and lag.
+
+**Decision (recommended contract)**
+- **Checkout write request:** open `env.DB.withSession("first-primary")`, execute header + line items as one `session.batch([...])`, then persist `session.getBookmark()` to client state (cookie or `x-d1-bookmark` header). Batching is the correct transaction boundary; a failed statement "aborts or rolls back the entire sequence," so do **not** expect earlier inserts to remain committed — retry the whole batch idempotently ([batch()](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)).
+- **Later read request:** `env.DB.withSession(bookmarkFromClient)`, which starts "at least as up-to-date as the provided bookmark," preserving your prior write context across requests ([start from previous context](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)).
+- **Anonymous/first-visit reads only:** `withSession("first-unconstrained")` to minimise latency from the first query ([without constraints](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)).
+
+Without the Sessions API all queries keep going to the primary, and writes are always forwarded to the primary regardless of session type ([primary vs replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas)).
+
+**Premises that are wrong**
+1. `"first-primary"` does **not** pin the whole session to the primary; only the first query is directed there, and "Subsequent queries in the Session may use read replicas" ([withSession parameters](https://developers.cloudflare.com/d1/worker-api/d1-database/#parameters-4)).
+2. `withSession()` is not "always latest": it equals `"first-unconstrained"`, allowing the first query to be served by a replica — potentially stale ([docs](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints), [tutorial](https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#2-get-apiproducts)).
+
+**Advertising claims**
+- "Globally latest reads" is **not supported**: replicas "may be arbitrarily out of date"; the documented guarantee is *sequential consistency within a session* (read-my-own-writes, monotonic reads) ([consistency model](https://developers.cloudflare.com/d1/best-practices/read-replication/#replica-lag-and-consistency-model)).
+- A hard 100 ms post-commit lag bound is **UNVERIFIED** in first-party docs, including [D1 limits](https://developers.cloudflare.com/d1/platform/limits/). Next evidence target: Cloudflare's D1 read-replication launch blog/SLA terms.
+
+Caveats: read replication applies only when deployed, and disabling it can take up to 24 hours ([known limitations](https://developers.cloudflare.com/d1/best-practices/read-replication/#disable-read-replication-via-rest-api)).

@@ -1,0 +1,25 @@
+Implemented the exact-cents rules in `src/money.py` and `src/api.py`. Both `checks/public.py` and a new `checks/test_money_rules.py` pass.
+
+**What changed**
+
+- **`src/money.py`**
+  - `parse_amount` no longer uses `float`. It accepts `Decimal`, non-bool `int`, and strings matching a plain signed decimal regex (no whitespace or exponent).
+  - Every rejection raises `ValueError`, including unsupported types, as the spec asks.
+  - Conversion goes through the `Decimal` tuple and integer arithmetic. A nonzero fractional cent is rejected, never rounded. Trailing zeros are fine.
+  - Range checks run before any large arithmetic, so inputs like `1E+999999` or `1E-999999999` are rejected quickly.
+  - The result is built from a tuple with exponent `-2`. The decimal context is never read for rounding or modified.
+  - `format_amount` is unchanged.
+- **`src/api.py`**
+  - `make_invoice` materializes the input once with `list()`, so the caller's list is never modified.
+  - Each item goes through the same validation. The running total is kept as integer cents and checked against 1000000.00.
+  - An empty list returns `{"total": "0.00", "count": 0}`.
+
+**Verification**
+
+- `checks/public.py` still passes.
+- `checks/test_money_rules.py` covers accepted forms, each rejection case (floats, bool, non-finite, zero, negatives, over the limit, unrepresentable cents, odd strings), the total limit, the context being unchanged, and input not being mutated.
+
+**Decisions to review**
+
+- The regex accepts `"3."` and `".5"` as plain decimals. If you want to require digits on both sides of the point, tighten `_PLAIN_DECIMAL`.
+- `"+3"` is accepted. Negative values are rejected by the positive-amount rule.

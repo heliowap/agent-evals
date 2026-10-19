@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/import_contacts.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, list_contacts\nfrom src.service import import_contacts\nfrom src.api import handle_add, handle_import\nimport src.service\n\n\ndef fresh():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    return c\n\n\ndef expect_value_error(fn, *args):\n    try:\n        fn(*args)\n    except ValueError:\n        return\n    raise AssertionError(\"expected ValueError for %r\" % (args,))\n\n\n# empty batch\nc = fresh()\nassert import_contacts(c, []) == {\"inserted\": 0, \"updated\": 0}\nassert list_contacts(c) == []\n\n# insert + update; existing counted as updated even when name unchanged\nc = fresh()\nassert import_contacts(c, [\n    {\"email\": \" A@B.com \", \"name\": \" Alice \"},\n    {\"email\": \"bob@x.com\", \"name\": \"Bob\"},\n]) == {\"inserted\": 2, \"updated\": 0}\nassert list_contacts(c) == [(\"a@b.com\", \"Alice\"), (\"bob@x.com\", \"Bob\")]\nassert import_contacts(c, [\n    {\"email\": \"A@B.COM\", \"name\": \"Alice Prime\"},\n    {\"email\": \"bob@x.com\", \"name\": \"Bob\"},\n]) == {\"inserted\": 0, \"updated\": 2}\nassert list_contacts(c) == [(\"a@b.com\", \"Alice Prime\"), (\"bob@x.com\", \"Bob\")]\n\n# malformed rows\nfor bad in [\n    \"nope\",\n    [1],\n    [],\n    {\"email\": \"a@b\"},\n    {\"email\": \"a@b\", \"name\": \"A\", \"extra\": 1},\n    {\"email\": 1, \"name\": \"A\"},\n    {\"email\": \"a@b\", \"name\": 2},\n    {\"email\": \"ab\", \"name\": \"A\"},\n    {\"email\": \"a@b@c\", \"name\": \"A\"},\n    {\"email\": \"@b\", \"name\": \"A\"},\n    {\"email\": \"a@\", \"name\": \"A\"},\n    {\"email\": \" a @ b \", \"name\": \"A\"},\n    {\"email\": \"a@b\", \"name\": \"   \"},\n    {\"email\": \"a@b\", \"name\": \"\"},\n]:\n    c = fresh()\n    expect_value_error(import_contacts, c, [bad])\n    assert list_contacts(c) == []\n\n# duplicate normalized emails in batch\nc = fresh()\nexpect_value_error(import_contacts, c, [{\"email\": \"a@b\", \"name\": \"A\"}, {\"email\": \" A@B \", \"name\": \"B\"}])\nassert list_contacts(c) == []\n\n# non-list rows / non-list contacts\nc = fresh()\nexpect_value_error(import_contacts, c, {\"email\": \"a@b\", \"name\": \"A\"})\nassert list_contacts(c) == []\n\n# API envelope\nc = fresh()\nassert handle_import(c, {\"contacts\": [{\"email\": \"a@b\", \"name\": \"Alice\"}]}) == {\"inserted\": 1, \"updated\": 0}\nassert list_contacts(c) == [(\"a@b\", \"Alice\")]\nfor envelope in [[], None, {}, {\"contacts\": None}, {\"contacts\": {}}, {\"contacts\": [], \"x\": 1}]:\n    c = fresh()\n    expect_value_error(handle_import, c, envelope)\n    assert list_contacts(c) == []\n\n# atomicity on mid-batch database failure\nc = fresh()\nhandle_add(c, {\"email\": \"a@b\", \"name\": \"Alice\"})\noriginal = src.service.put_contact\ncalls = {\"n\": 0}\ndef flaky(connection, email, name):\n    calls[\"n\"] += 1\n    if calls[\"n\"] == 2:\n        raise sqlite3.OperationalError(\"boom\")\n    return original(connection, email, name)\nsrc.service.put_contact = flaky\ntry:\n    import_contacts(c, [\n        {\"email\": \"x@y\", \"name\": \"X\"},\n        {\"email\": \"a@b\", \"name\": \"Alice2\"},\n    ])\n    raise AssertionError(\"expected failure\")\nexcept sqlite3.OperationalError:\n    pass\nfinally:\n    src.service.put_contact = original\nassert list_contacts(c) == [(\"a@b\", \"Alice\")], list_contacts(c)\n\nprint(\"checks/import_contacts.py OK\")\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict):\n        raise ValueError(\"payload must be an object\")\n    if set(payload.keys()) != {\"contacts\"}:\n        raise ValueError(\"payload must have exactly a contacts field\")\n    contacts = payload[\"contacts\"]\n    if not isinstance(contacts, list):\n        raise ValueError(\"contacts must be a list\")\n    return import_contacts(connection, contacts)\n",
+      "src/service.py": "from .repository import put_contact\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef _validate_rows(rows):\n    if not isinstance(rows, list):\n        raise ValueError(\"rows must be a list\")\n    validated = []\n    seen = set()\n    for row in rows:\n        if not isinstance(row, dict):\n            raise ValueError(\"each contact must be an object\")\n        if set(row.keys()) != {\"email\", \"name\"}:\n            raise ValueError(\"each contact must have exactly email and name fields\")\n        email = row[\"email\"]\n        name = row[\"name\"]\n        if not isinstance(email, str) or not isinstance(name, str):\n            raise ValueError(\"email and name must be strings\")\n        email = email.strip()\n        name = name.strip()\n        if email.count(\"@\") != 1:\n            raise ValueError(\"email must contain exactly one @\")\n        local, domain = email.split(\"@\")\n        if not local or not domain:\n            raise ValueError(\"email must have nonempty local and domain parts\")\n        if any(ch.isspace() for ch in email):\n            raise ValueError(\"email must not contain whitespace\")\n        if not name:\n            raise ValueError(\"name must be nonempty\")\n        email = email.lower()\n        if email in seen:\n            raise ValueError(\"duplicate email in batch: %s\" % email)\n        seen.add(email)\n        validated.append((email, name))\n    return validated\n\ndef import_contacts(connection, rows):\n    validated = _validate_rows(rows)\n    inserted = 0\n    updated = 0\n    with connection:\n        for email, name in validated:\n            existing = connection.execute(\n                \"SELECT name FROM contacts WHERE email = ?\", (email,)\n            ).fetchone()\n            if existing is None:\n                put_contact(connection, email, name)\n                inserted += 1\n            else:\n                put_contact(connection, email, name)\n                updated += 1\n    return {\"inserted\": inserted, \"updated\": updated}\n"
+    },
+    "changed_files": [
+      "checks/import_contacts.py",
+      "src/api.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 174,
+    "removed_lines": 16
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.05297916699782945
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.052909082995029166,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05734470899915323,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/security.py": "import os\nimport sqlite3\nimport sys\nimport unittest\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\n\nclass DocumentAccessTests(unittest.TestCase):\n    def setUp(self):\n        self.connection = sqlite3.connect(\":memory:\")\n        self.addCleanup(self.connection.close)\n        initialize(self.connection)\n        self.connection.executemany(\n            \"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\",\n            [\n                (5, \"t\", \"o\", \"Later\", \"Later body\", None),\n                (1, \"t\", \"o\", \"Title\", \"Body\", None),\n                (2, \"other\", \"o\", \"Other tenant\", \"Body\", None),\n                (3, \"t\", \"other\", \"Other owner\", \"Body\", None),\n                (4, \"t\", \"o\", \"Deleted\", \"Body\", \"2026-01-01\"),\n                (6, \"t\", \"o\", \"Also deleted\", \"Body\", \"\"),\n                (7, \"tenant's\", \"owner's\", \"Quoted\", \"Quoted body\", None),\n            ],\n        )\n\n    def test_unavailable_ids_are_indistinguishable(self):\n        for document_id in (2, 3, 4, 6, 99):\n            with self.subTest(document_id=document_id):\n                self.assertIsNone(get_document(self.connection, \"t\", \"o\", document_id))\n\n    def test_visible_results_keep_fields_and_order(self):\n        expected = [\n            {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"},\n            {\"id\": 5, \"title\": \"Later\", \"body\": \"Later body\"},\n        ]\n        self.assertEqual(list_documents(self.connection, \"t\", \"o\"), expected)\n        self.assertEqual(get_document(self.connection, \"t\", \"o\", 1), expected[0])\n        self.assertEqual(list_documents(self.connection, \"missing\", \"o\"), [])\n\n    def test_parameters_are_bound(self):\n        expected = {\"id\": 7, \"title\": \"Quoted\", \"body\": \"Quoted body\"}\n        self.assertEqual(get_document(self.connection, \"tenant's\", \"owner's\", 7), expected)\n        self.assertEqual(list_documents(self.connection, \"tenant's\", \"owner's\"), [expected])\n        for tenant, owner in ((\"t' OR 1=1 --\", \"o\"), (\"t\", \"o' OR 1=1 --\")):\n            self.assertIsNone(get_document(self.connection, tenant, owner, 1))\n            self.assertEqual(list_documents(self.connection, tenant, owner), [])\n        self.assertIsNone(get_document(self.connection, \"t\", \"o\", \"1 OR 1=1\"))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents \"\n        \"WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [decode(row) for row in connection.execute(\n        \"SELECT id, title, body FROM documents \"\n        \"WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n        (tenant, owner),\n    )]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/security.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 82,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04646379197947681
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.047896709002088755,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04865445799077861,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,269 @@
+{
+  "info": {
+    "id": "ses_61eff29785d05dd35be8",
+    "projectID": "3abbab60fbc6712861589655f111d44e496e22f9",
+    "agent": "implementer",
+    "model": {
+      "id": "cpa-claude-opus-5-5",
+      "providerID": "cli_proxy",
+      "variant": "medium"
+    },
+    "cost": 0.0812822,
+    "tokens": {
+      "input": 8,
+      "output": 2989,
+      "reasoning": 0,
+      "cache": {
+        "read": 6851,
+        "write": 4020
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1791685308228,
+      "updated": 1791685339924,
+      "idle": 1791685339926
+    },
+    "title": "Project change",
+    "location": {
+      "directory": "/tmp/folders/T/private-runtime-qbrou_2x/project"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_128c42f90001uksyshUxk4GU2W",
+      "time": {
+        "created": 1791685308304
+      },
+      "type": "agent-switched",
+      "agent": "implementer",
+      "previous": "implementer"
+    },
+    {
+      "id": "msg_128c42f8f001tPZSCpg2LqJhTo",
+      "time": {
+        "created": 1791685308421
+      },
+      "text": "\"Fix stream_rows(resource, transform) in src/service.py so each started iterator closes its resource exactly once on exhaustion, explicit generator.close(), iteration errors and transformation errors. A transform failure propagates and no further row is read. Keep processing lazy, preserving order and transformed values; constructing or closing an unstarted generator performs no read or close. If cleanup also raises while an iteration or transform error is active, preserve the original error; otherwise propagate the cleanup error. src/consumer.py.take must close the iterator after taking its requested positive number of rows or if consuming fails. A limit of zero returns [] without starting the stream. Start in src/service.py and src/consumer.py. Resource.read_next() returns None at EOF.\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_128c43008001gtnRlEzHPUqsfs",
+      "time": {
+        "created": 1791685308433,
+        "streamed": 1791685310800,
+        "completed": 1791685310866
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_014WDzR3KNzpcireJZRE1Pb5",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && find . -type f -not -path './.git/*' | head -50 && cat src/service.py src/consumer.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"./checks/public.py\\n./README.md\\n./src/service.py\\n./src/resource.py\\n./src/__init__.py\\n./src/consumer.py\\ndef stream_rows(resource, transform):\\n    while True:\\n        row = resource.read_next()\\n        if row is None:\\n            break\\n        yield transform(row)\\n    resource.close()\\nfrom .service import stream_rows\\n\\ndef take(resource, transform, limit):\\n    stream = stream_rows(resource, transform)\\n    result = []\\n    for row in stream:\\n        result.append(row)\\n        if len(result) >= limit:\\n            break\\n    return result\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791685310267,
+            "ran": 1791685310790,
+            "completed": 1791685310863
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.005078399999999999,
+      "tokens": {
+        "input": 2,
+        "output": 101,
+        "reasoning": 0,
+        "cache": {
+          "read": 927,
+          "write": 573
+        }
+      }
+    },
+    {
+      "id": "msg_128c4399a001rRjDcXUoG4V714",
+      "time": {
+        "created": 1791685310880,
+        "streamed": 1791685313242,
+        "completed": 1791685313299
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_01X7RocWu6haefMwLJ19eMwf",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat checks/public.py README.md src/resource.py src/__init__.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"import os, sys\\nsys.path.insert(0, os.getcwd())\\nfrom src.resource import Rows\\nfrom src.service import stream_rows\\nr = Rows([1, 2, 3])\\nassert list(stream_rows(r, lambda value: value * 2)) == [2, 4, 6]\\nassert (r.reads, r.closes) == (4, 1)\\n# Service component\\n\\nFix stream_rows(resource, transform) in src/service.py so each started iterator closes its resource exactly once on exhaustion, explicit generator.close(), iteration errors and transformation errors. A transform failure propagates and no further row is read. Keep processing lazy, preserving order and transformed values; constructing or closing an unstarted generator performs no read or close. If cleanup also raises while an iteration or transform error is active, preserve the original error; otherwise propagate the cleanup error. src/consumer.py.take must close the iterator after taking its requested positive number of rows or if consuming fails. A limit of zero returns [] without starting the stream. Start in src/service.py and src/consumer.py. Resource.read_next() returns None at EOF.\\n\\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\\nclass Rows:\\n    def __init__(self, rows):\\n        self.rows = list(rows)\\n        self.index = 0\\n        self.reads = 0\\n        self.closes = 0\\n\\n    def read_next(self):\\n        self.reads += 1\\n        if self.index == len(self.rows):\\n            return None\\n        value = self.rows[self.index]\\n        self.index += 1\\n        return value\\n\\n    def close(self):\\n        self.closes += 1\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791685312764,
+            "ran": 1791685313231,
+            "completed": 1791685313295
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.003893,
+      "tokens": {
+        "input": 2,
+        "output": 90,
+        "reasoning": 0,
+        "cache": {
+          "read": 1500,
+          "write": 357
+        }
+      }
+    },
+    {
+      "id": "msg_128c4431a001UmKSQkHOPzwNVh",
+      "time": {
+        "created": 1791685313312,
+        "streamed": 1791685333948,
+        "completed": 1791685333988
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I need to make sure the original error takes priority during cleanup - if closing raises while an exception is already active, I should catch that explicitly rather than letting Python's default chaining replace the original error. For GeneratorExit on explicit close, if cleanup fails, that error should propagate since it's not an iteration/transform error. I should also handle the case where limit is zero or negative.\n\nI'm sketching the generator function: loop reading rows via read_next, yielding transform(row) until None, with a try/except around the loop that catches GeneratorExit separately from other exceptions, closing the resource in both paths and re-raising the original error rather than any cleanup error.\n\nFor `take`, I confirm limit <= 0 returns [] immediately, otherwise I iterate the lazy generator with a try/finally that calls stream.close() -- which is a no-op if the generator already finished naturally, but triggers GeneratorExit and resource cleanup if we stop early after hitting the limit.\n\n",
+          "state": {
+            "signature": "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"
+          },
+          "time": {
+            "created": 1791685315173,
+            "completed": 1791685325674
+          }
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01JB9Ns5DZFANfcRnz2Bpo9W",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat > src/service.py <<'EOF'\ndef stream_rows(resource, transform):\n    \"\"\"Lazily yield transform(row) for each row until read_next() returns None.\n\n    Once started, the resource is closed exactly once: on exhaustion, on\n    explicit generator close(), or when reading/transforming raises. If\n    cleanup raises while a read/transform error is active, the original\n    error is preserved; otherwise the cleanup error propagates.\n    \"\"\"\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            yield transform(row)\n    except GeneratorExit:\n        resource.close()\n        raise\n    except BaseException:\n        try:\n            resource.close()\n        except Exception:\n            pass  # keep the original iteration/transform error\n        raise\n    resource.close()\nEOF\ncat > src/consumer.py <<'EOF'\nfrom .service import stream_rows\n\ndef take(resource, transform, limit):\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    finally:\n        stream.close()\n    return result\nEOF\ncat > checks/lifecycle.py <<'EOF'\nimport os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.resource import Rows\nfrom src.service import stream_rows\nfrom src.consumer import take\n\nclass Boom(Exception): pass\n\nclass BadClose(Rows):\n    def close(self):\n        super().close()\n        raise RuntimeError(\"close\")\n\nclass BadRead(Rows):\n    def read_next(self):\n        if self.index == 1:\n            self.reads += 1\n            raise Boom(\"read\")\n        return super().read_next()\n\ndef bad(v):\n    if v == 2: raise Boom(\"t\")\n    return v\n\n# exhaustion\nr = Rows([1, 2, 3]); assert list(stream_rows(r, str)) == [\"1\", \"2\", \"3\"]; assert (r.reads, r.closes) == (4, 1)\n# unstarted\nr = Rows([1]); g = stream_rows(r, str); g.close(); assert (r.reads, r.closes) == (0, 0)\n# explicit close\nr = Rows([1, 2, 3]); g = stream_rows(r, str); assert next(g) == \"1\"; g.close(); g.close(); assert (r.reads, r.closes) == (1, 1)\n# transform error\nr = Rows([1, 2, 3]); g = stream_rows(r, bad); assert next(g) == 1\ntry: next(g); raise AssertionError\nexcept Boom: pass\nassert (r.reads, r.closes) == (2, 1); g.close(); assert r.closes == 1\n# read error\nr = BadRead([1, 2]); g = stream_rows(r, str); next(g)\ntry: next(g); raise AssertionError\nexcept Boom: pass\nassert r.closes == 1\n# original error preserved over cleanup error\nr = BadClose([1, 2]); g = stream_rows(r, bad); next(g)\ntry: next(g); raise AssertionError\nexcept Boom: pass\nassert r.closes == 1\n# cleanup error propagates otherwise\nr = BadClose([1]);\ntry: list(stream_rows(r, str)); raise AssertionError\nexcept RuntimeError: pass\nr = BadClose([1, 2]); g = stream_rows(r, str); next(g)\ntry: g.close(); raise AssertionError\nexcept RuntimeError: pass\nassert r.closes == 1\n# take\nr = Rows([1, 2, 3]); assert take(r, str, 2) == [\"1\", \"2\"]; assert (r.reads, r.closes) == (2, 1)\nr = Rows([1, 2, 3]); assert take(r, str, 0) == []; assert (r.reads, r.closes) == (0, 0)\nr = Rows([1]); assert take(r, str, 5) == [\"1\"]; assert (r.reads, r.closes) == (2, 1)\nr = Rows([1, 2, 3])\ntry: take(r, bad, 3); raise AssertionError\nexcept Boom: pass\nassert (r.reads, r.closes) == (2, 1)\nprint(\"ok\")\nEOF\npython3 checks/public.py && python3 checks/lifecycle.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"ok\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791685325678,
+            "ran": 1791685333915,
+            "completed": 1791685333987
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0505294,
+      "tokens": {
+        "input": 2,
+        "output": 2330,
+        "reasoning": 0,
+        "cache": {
+          "read": 1857,
+          "write": 710
+        }
+      }
+    },
+    {
+      "id": "msg_128c493e90015VhQj8yoJRpYou",
+      "time": {
+        "created": 1791685333998,
+        "streamed": 1791685339923,
+        "completed": 1791685339924
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I fixed `stream_rows` and `take`. The existing check and a new set of lifecycle checks both pass.\n\n**`src/service.py` (`stream_rows`)**\n- It still works one row at a time, keeping the original order and transformed values. Nothing is read or closed until the first `next()`, so creating or closing a generator that was never started does nothing.\n- Once started, the resource is closed exactly once in each case: when the rows run out, on an explicit `generator.close()`, and when reading or the transform raises an error.\n- If the transform fails, the error is passed on and no more rows are read.\n- If closing the resource also fails while a read or transform error is already being raised, the original error is kept. In every other case, the closing error is passed on.\n\n**`src/consumer.py` (`take`)**\n- A limit of zero returns `[]` without starting the stream. I also applied this to negative limits; before, a negative limit read one row and returned it.\n- Otherwise it closes the stream when it stops: after reaching the limit, when the rows run out first, or when consuming fails. Closing an already-finished stream does nothing, so the resource is still only closed once.\n\n**Checks**\n- `python3 checks/public.py` passes.\n- I added `checks/lifecycle.py`, which also passes. It covers each case above, including counts of reads and closes, resources whose `close()` raises, and `take` with limits of zero, partial and larger than the data, plus a transform failure."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0.021781400000000003,
+      "tokens": {
+        "input": 2,
+        "output": 468,
+        "reasoning": 0,
+        "cache": {
+          "read": 2567,
+          "write": 2380
+        }
+      }
+    },
+    {
+      "id": "msg_128c4ab16002EJmg6tonASFrsD",
+      "time": {
+        "created": 1791685339926
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

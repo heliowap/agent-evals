@@ -1,0 +1,137 @@
+[
+  {
+    "blind_id": "b-83390a72a7380998b7ec63c4",
+    "units": [
+      {
+        "id": "C09.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly traces the builder through the transform factory to a pipe with the original schema as input and the callback-bearing ZodTransform as output.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "return pipe(this, transform(tx));"},
+          {"source_id": "e-0006", "quote": "return new ZodTransform({"},
+          {"source_id": "e-0006", "quote": "type: \"transform\","},
+          {"source_id": "e-0006", "quote": "transform: fn as any,"},
+          {"source_id": "e-0008", "quote": "in: in_ as unknown as core.$ZodType,"},
+          {"source_id": "e-0008", "quote": "out: out as unknown as core.$ZodType,"}
+        ]
+      },
+      {
+        "id": "C09.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "The synchronous forward trace correctly runs the input before handing its result to the output stage. The source also chains Promise input without changing that order; asynchronous details are outside the requested synchronous scope.",
+        "evidence": [
+          {"source_id": "e-0008", "quote": "core.$ZodPipe.init(inst, def);"},
+          {"source_id": "e-0010", "quote": "const left = def.in._zod.run(payload, ctx);"},
+          {"source_id": "e-0010", "quote": "return handlePipeResult(left, def.out, ctx);"},
+          {"source_id": "e-0010", "quote": "return left.then((left) => handlePipeResult(left, def.out, ctx));"}
+        ]
+      },
+      {
+        "id": "C09.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Although one summary sentence says any issue stops the pipe, its immediately stated exception and quoted predicate clearly qualify that sentence: any non-unrecognized_keys issue aborts, while exceptional issues remain in the forwarded payload.",
+        "evidence": [
+          {"source_id": "e-0010", "quote": "if (left.issues.some((iss) => iss.code !== \"unrecognized_keys\")) {"},
+          {"source_id": "e-0010", "quote": "left.aborted = true;"},
+          {"source_id": "e-0010", "quote": "return next._zod.run({ value: left.value, issues: left.issues }, ctx);"}
+        ]
+      },
+      {
+        "id": "C09.U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "The cited classic parser establishes the equivalent callback, payload.value assignment, and returned-payload behavior for a non-Promise result. This satisfies the frozen alternative without requiring the core body's literal _out variable or claiming that body executes after the classic override.",
+        "evidence": [
+          {"source_id": "e-0006", "quote": "inst._zod.parse = (payload, _ctx) => {"},
+          {"source_id": "e-0006", "quote": "const output = def.transform(payload.value, payload);"},
+          {"source_id": "e-0006", "quote": "if (output instanceof Promise) {"},
+          {"source_id": "e-0006", "quote": "packages/zod/src/v4/classic/schemas.ts:2285:       payload.value = output;"},
+          {"source_id": "e-0006", "quote": "packages/zod/src/v4/classic/schemas.ts:2286:       return payload;"}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": false,
+    "auxiliary": {
+      "citation_coverage": "Implementation paths and line spans accompany every required part of the trace.",
+      "citation_entailment": "The retrieved classic and core spans entail the required representation, ordering, issue exception, and synchronous payload propagation.",
+      "source_authority": "Support comes from eligible reads of the assigned v4 implementation.",
+      "unsupported_extras": "The claim that the builder is on a prototype is not established by the retrieved builder slice alone; it is incidental, not decisive to the requested trace.",
+      "uncertainty": "The answer identifies unread run internals and does not infer an arbitrary callback's concrete output. No unresolved semantic judgment affects a unit.",
+      "usability": "Clearly organized source trace with the required classic/core paths, spans, and exception; no code or tests are run in the supplied evidence.",
+      "tool_navigation": "Targeted classic and core reads successfully retrieve the implementation needed for all units."
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  },
+  {
+    "blind_id": "b-843308791a511cb0abef315f",
+    "units": [
+      {
+        "id": "U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "The maintainer advisory identifies this CVE, affects versions below 2.32.0 (including 2.31.0), and describes the exact first-unverified Session scenario.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "CVE-2024-35195"},
+          {"source_id": "e-0002", "quote": "< 2.32.0"},
+          {"source_id": "e-0002", "quote": "When making requests through a Requests Session, if the first request is made with verify=False to disable cert verification, all subsequent requests to the same origin will continue to ignore cert verification regardless of changes to the value of verify."}
+        ]
+      },
+      {
+        "id": "U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly rejects verify=True as a reliable restoration on the affected same-origin pooled connection; the advisory explicitly says changing verify does not restore verification.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "all subsequent requests to the same origin will continue to ignore cert verification regardless of changes to the value of verify."}
+        ]
+      },
+      {
+        "id": "U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly bounds persistence by the pooled connection's lifecycle rather than an immutable Session lifetime.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "This behavior will continue for the lifecycle of the connection in the connection pool."}
+        ]
+      },
+      {
+        "id": "U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly gives 2.32.0 as the advisory's minimum patch, supported by its visible affected/patched fields and upgrade instruction, without presenting it as today's latest recommendation.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "< 2.32.0"},
+          {"source_id": "e-0002", "quote": "Upgrade to requests>=2.32.0."}
+        ]
+      },
+      {
+        "id": "U5",
+        "correct": true,
+        "supported": true,
+        "rationale": "Both offered mitigations match the maintainer advisory: clear existing connections by closing the Session, or avoid the first unverified request.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "For requests<2.32.0, call close() on Session objects to clear existing connections if verify=False is used."},
+          {"source_id": "e-0002", "quote": "For requests<2.32.0, avoid setting verify=False for the first request to a host while using a Requests Session."}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": false,
+    "auxiliary": {
+      "citation_coverage": "The answer names the maintainer advisory and both identifiers and attributes the required claims to it; it supplies no clickable source URL, so no numeric citation precision is assigned.",
+      "citation_entailment": "The fetched maintainer advisory directly entails every required claim.",
+      "source_authority": "The eligible fetch is the psf/requests maintainer security advisory, dated May 20, 2024, within the specified source cutoff.",
+      "unsupported_extras": "The added causal explanation about retaining the initial TLS context is not independently established by the fetched advisory's text. It does not change the supported connection-lifecycle conclusion.",
+      "uncertainty": "Definitive required conclusions are warranted by the advisory. The additional internal-mechanism explanation is not marked as an inference.",
+      "usability": "Directly answers all five requested questions, respects 2.31.0, distinguishes the advisory minimum patch, and gives actionable documented mitigations.",
+      "tool_navigation": "The successful eligible advisory fetch supplies all necessary primary-source evidence."
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  }
+]

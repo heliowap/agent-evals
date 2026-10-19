@@ -1,0 +1,15 @@
+{
+  "files": {
+    "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  private readonly index = new Map<string, Map<string, Receipt>>();\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    // Lookup and insert happen synchronously, so concurrent calls cannot both debit.\n    let keys = this.index.get(tenant);\n    if (!keys) { keys = new Map(); this.index.set(tenant, keys); }\n    const existing = keys.get(key);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return existing;\n    }\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    keys.set(key, receipt);\n    return receipt;\n  }\n}\n",
+    "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0 ||\n        !Number.isInteger(attempts) || attempts < 1 || attempts > 5) throw new Error('invalid payment');\n    const receipt = await this.ledger.apply(tenant, key, cents);\n    for (let n = 1; ; n++) {\n      try {\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n >= attempts) throw error;\n      }\n    }\n  }\n}\n"
+  },
+  "changed_files": [
+    "src/ledger.ts",
+    "src/service.ts"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 2,
+  "added_lines": 38,
+  "removed_lines": 27
+}

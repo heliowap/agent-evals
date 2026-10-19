@@ -1,0 +1,18 @@
+`parse_amount` no longer uses floats, and `make_invoice` applies the same rules. The public check and the new unit tests both pass.
+
+**What changed**
+
+- **`src/money.py`**: a new `parse_cents(value)` validates an input and returns integer cents. `parse_amount` wraps it and returns a `Decimal` with exponent -2. Validation order: reject `bool` first, then accept `Decimal`, `int`, or a plain decimal string matched by a strict regex (ASCII digits, optional sign, no whitespace or exponent). Non-finite, zero, negative, over 1000000.00, and fractional-cent values raise `ValueError`. Cent exactness uses `ROUND_DOWN` in a private `Context` that is never installed globally, and the result is compared against the input, so nothing is rounded silently. `format_amount` is unchanged.
+- **`src/api.py`**: `make_invoice` sums the per-item integer cents, which is exact and independent of the caller's decimal precision. It rejects a total over 1000000.00 and returns `{'total': ..., 'count': N}`. An empty list gives `0.00`. It reads the input and never modifies it.
+- **`checks/test_amounts.py`** (new): 17 unittest cases covering accepted and rejected inputs, bool, non-finite values, the total cap, fractional cents, trailing zeros, context immutability under a modified local context, and input non-mutation.
+
+**Decisions to review**
+
+- `".50"` and `"+3.10"` are accepted. `"5."`, `"."`, and anything with an exponent or separator are rejected.
+- `make_invoice` now requires a `list` or `tuple`. Previously a string would have been split into characters, and a generator would have failed on `len()` anyway. Say if you want other iterables accepted.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 -m unittest checks/test_amounts.py` passes (17 tests).
+- Spot checks: `1.005` is rejected, `1.5000` returns `1.50`, a huge exponent is rejected quickly, and with the global precision set to 2, `make_invoice(["123456.78", "0.22"])` still returns `123457.00`.

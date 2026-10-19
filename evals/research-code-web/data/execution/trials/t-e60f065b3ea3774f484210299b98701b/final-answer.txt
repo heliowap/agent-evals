@@ -1,0 +1,44 @@
+## Pydantic v1 → v2.12 validator migration (answers)
+
+Evidence base: the official **v2.12** Migration Guide and the **v2.12** Validators concepts page (the migration page I fetched is explicitly labelled "You're viewing docs for v2.12"). Both are the versioned primary sources the question asks for.
+
+### 1. Replacement decorators
+
+- `@validator` → **`@field_validator`** ("`@validator` has been deprecated, and should be replaced with `@field_validator`").
+- `@root_validator` → **`@model_validator`** ("`@root_validator` has been deprecated, and should be replaced with `@model_validator`").
+
+For the field validator, `pre=True` becomes `mode='before'` (the v2.12 Validators page shows `@field_validator('value', mode='before')` and `mode='after'` examples; `model_validator` likewise accepts `mode='before' | 'after' | 'wrap'`). Don't forget V2 also requires `@classmethod` on field/model validators in the documented examples.
+
+### 2. `each_item=True` and the item-type annotation
+
+**No** — the new decorator cannot take `each_item`. The migration guide states: "The new `@field_validator` decorator does not have the `each_item` keyword argument; validators you want to apply to items within a generic container should be added by annotating the type argument." The documented replacement pattern for a list of nonnegative ints is exactly:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+class Model(BaseModel):
+    values: list[Annotated[int, Field(ge=0)]]   # replaces each_item=True on list[int]
+```
+
+The same guide generalises this under "Changes to `pydantic.Field`": constraints are no longer pushed down to generic parameters (`my_list: list[str] = Field(pattern=".*")` no longer validates each element); you annotate the item type instead. For custom item logic use item-level `BeforeValidator`/`AfterValidator` inside `Annotated`, per the v2.12 Validators page ("When using the annotated pattern, the order in which validators are applied…"), which also notes decorator-based validators are internally converted to their annotated-form equivalent.
+
+### 3. `TypeError` inside a validator
+
+In V1 a `TypeError` raised inside a validator was wrapped into a `ValidationError`, and "in some cases (such as with FastAPI), these errors might be displayed to end users". In V2 it is **no longer converted**: the migration guide's section "TypeError is no longer converted to ValidationError in validators" gives the example of returning `str.lower(v)` in a validator and asserts `with pytest.raises(TypeError): Model(x=1)` — the `TypeError` propagates out of validation. This "applies to all validation decorators." To signal a genuine validation failure, raise `ValueError` (most common), `AssertionError`, or `PydanticCustomError` — the three exception types listed under "Raising validation errors" in the v2.12 Validators page (note `TypeError` is absent from that list).
+
+### 4. Legacy `root_validator` and `skip_on_failure`
+
+`skip_on_failure=False` is **not permitted** if you temporarily keep the deprecated `@root_validator`. The guide: "Even if you keep using the deprecated `@root_validator` decorator, due to refactors in validation logic, you can no longer run with `skip_on_failure=False` (which is the default value of this keyword argument, so must be set explicitly to `True`)." In other words the required setting is the explicit **`skip_on_failure=True`**:
+
+```python
+@root_validator(skip_on_failure=True)   # temporary; skip_on_failure=False is disallowed in V2
+@classmethod
+def check(cls, values): ...
+```
+
+Better: move to `@model_validator`. The guide warns the allowed signatures changed and that under some circumstances (e.g. assignment with `model_config['validate_assignment'] is True`) a `@model_validator` receives a model instance rather than a dict of values.
+
+### Limitations
+
+The Validators-page slice I retrieved corroborated `mode` handling and error-raising types but did not restate the `each_item` prohibition or the `mode`-equivalent of `pre=True`/`skip_on_failure`; those points rest on the v2.12 Migration Guide excerpts quoted above. I did not retrieve API-reference signatures for `field_validator`/`root_validator`, so the absence of `each_item` is established from the guide's prose rather than a parameter listing.

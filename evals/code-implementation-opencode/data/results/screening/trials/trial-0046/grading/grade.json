@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/security.py": "import os\nimport sys\n\nsys.path.insert(0, os.getcwd())\n\nimport sqlite3\n\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nc.executemany(\n    \"INSERT INTO documents (id, tenant, owner, title, body, deleted_at) VALUES (?, ?, ?, ?, ?, ?)\",\n    [\n        (1, \"t1\", \"o1\", \"T1\", \"B1\", None),\n        (2, \"t1\", \"o1\", \"T2\", \"B2\", None),\n        (3, \"t2\", \"o1\", \"T3\", \"B3\", None),\n        (4, \"t1\", \"o2\", \"T4\", \"B4\", None),\n        (5, \"t1\", \"o1\", \"T5\", \"B5\", \"2024-01-01\"),\n        (6, \"t1\", \"o1\", 'q\"t', \"quoted\", None),\n    ],\n)\nc.commit()\n\n# Matching tenant and owner, not deleted.\nassert get_document(c, \"t1\", \"o1\", 1) == {\"id\": 1, \"title\": \"T1\", \"body\": \"B1\"}\nassert get_document(c, \"t1\", \"o1\", 6) == {\"id\": 6, \"title\": 'q\"t', \"body\": \"quoted\"}\n\n# Indistinguishable None for cross-tenant, cross-owner, deleted, missing.\nassert get_document(c, \"t1\", \"o1\", 3) is None\nassert get_document(c, \"t1\", \"o1\", 4) is None\nassert get_document(c, \"t1\", \"o1\", 5) is None\nassert get_document(c, \"t1\", \"o1\", 99) is None\nassert get_document(c, \"t2\", \"o1\", 1) is None\nassert get_document(c, \"t1\", \"o2\", 1) is None\n\n# Lists are tenant/owner scoped, exclude deleted rows and are ordered by id.\nassert list_documents(c, \"t1\", \"o1\") == [\n    {\"id\": 1, \"title\": \"T1\", \"body\": \"B1\"},\n    {\"id\": 2, \"title\": \"T2\", \"body\": \"B2\"},\n    {\"id\": 6, \"title\": 'q\"t', \"body\": \"quoted\"},\n]\nassert list_documents(c, \"t1\", \"o2\") == [{\"id\": 4, \"title\": \"T4\", \"body\": \"B4\"}]\nassert list_documents(c, \"t2\", \"o1\") == [{\"id\": 3, \"title\": \"T3\", \"body\": \"B3\"}]\nassert list_documents(c, \"t2\", \"o2\") == []\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents\"\n        \" WHERE id = ? AND tenant = ? AND owner = ? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents\"\n            \" WHERE tenant = ? AND owner = ? AND deleted_at IS NULL\"\n            \" ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+      "src/service.py": "from .repository import find, listing\n\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/security.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 83,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04442820799886249
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.049300250015221536,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04747499999939464,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

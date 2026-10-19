@@ -1,0 +1,76 @@
+Based on the official Pydantic documentation (including the Pydantic V2 migration guide), here are the details for migrating your Pydantic v1 model to Pydantic v2.12:
+
+---
+
+### 1. Replacement Decorators
+
+* **Field Validators:** 
+  * Replaced by **`@field_validator`** (imported from `pydantic`). It deprecates and replaces the v1 `@validator` decorator.
+* **Whole-Model / Root Validators:** 
+  * Replaced by **`@model_validator`** (imported from `pydantic`), configured with an evaluation mode such as `@model_validator(mode='before')`, `@model_validator(mode='after')`, or `@model_validator(mode='wrap')`. It deprecates and replaces the v1 `@root_validator`.
+
+---
+
+### 2. Validating Lists of Nonnegative Integers (`each_item=True` Replacement)
+
+* **Can `@field_validator` accept `each_item=True`?**
+  * **No.** In Pydantic V2, the `each_item` keyword argument was completely removed from field validation decorators.
+* **What item-type annotation replaces that pattern?**
+  * Validation constraints on items inside generic collections must now be defined directly on the inner type argument using `typing.Annotated`.
+  * For a list of nonnegative integers, the recommended pattern is:
+    ```python
+    from typing import Annotated
+    from pydantic import Field
+
+    # Annotation for a list of integers each >= 0
+    numbers: list[Annotated[int, Field(ge=0)]]
+    ```
+  * Alternatively, Pydantic's built-in constrained types (such as `list[NonNegativeInt]`) or custom functional validators (such as `Annotated[int, AfterValidator(...)]`) can be used, but `list[Annotated[int, Field(ge=0)]]` is the direct standard replacement shown in the official migration documentation.
+
+---
+
+### 3. Behavior of `TypeError` Raised Inside a Validator
+
+* **In Pydantic V1:** A `TypeError` raised inside a validator function was automatically caught and wrapped into a `pydantic.ValidationError`.
+* **In Pydantic V2:** A `TypeError` raised inside a validator is **no longer converted into a `ValidationError`**. 
+  * Instead, it propagates directly as an unhandled Python `TypeError`.
+  * *Reasoning:* Wrapping `TypeError` in v1 often obscured programming mistakes—such as calling internal helper functions with mismatched arguments—and improperly surfaced internal bugs as user-facing validation errors.
+  * To produce a `ValidationError` from a custom validator in V2, code must raise `ValueError`, `AssertionError`, or `PydanticCustomError`.
+
+---
+
+### 4. Legacy Post-Validation `root_validator` Rules
+
+* **Is `skip_on_failure=False` permitted?**
+  * **No.** In Pydantic V2, refactoring of the internal validation pipeline means legacy root validators can no longer run with `skip_on_failure=False`.
+* **What setting is required instead?**
+  * If a legacy post-validation root validator (`pre=False`, which is the default) is kept temporarily, you must explicitly pass:
+    ```python
+    @root_validator(skip_on_failure=True)
+    ```
+  * In v1, `skip_on_failure` defaulted to `False`. In v2, running the deprecated decorator with `skip_on_failure=False` is rejected.
+
+---
+
+### 5. Summary Code Representation
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field, root_validator
+
+class ExampleModel(BaseModel):
+    # Replaces @validator with each_item=True
+    values: list[Annotated[int, Field(ge=0)]]
+
+    # Temporary legacy root validator
+    @root_validator(skip_on_failure=True)
+    def legacy_root_val(cls, values):
+        return values
+```
+
+---
+
+### Unresolved Limitations
+
+* While retaining `@root_validator(skip_on_failure=True)` provides a temporary transition path, full migration requires rewriting whole-model validation logic to `@model_validator(mode='after')` or `mode='before'`, where signatures and input types change (e.g., `mode='after'` passes the validated model instance `self` rather than a raw dictionary).
+* Automated tools like `bump-pydantic` can perform AST transforms for these deprecations, but manual review is still necessary if validator functions previously relied on catching `TypeError` or accessing v1 inspection attributes like `info.field` / `ModelField`.

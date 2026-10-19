@@ -1,0 +1,19 @@
+{
+  "files": {
+    "checks/exporter_checks.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\nrows = [\n    {\"id\": 2, \"name\": \"Zoë\", \"extra\": \"x\"},\n    {\"id\": None},\n    {\"name\": 'a,\"b\"\\nc'},\n]\nsnapshot = [dict(r) for r in rows]\nexpected_csv = 'id,name\\n2,Zoë\\n,\\n,\"a,\"\"b\"\"\\nc\"\\n'\nexpected_json = '[{\"id\":\"2\",\"name\":\"Zoë\"},{\"id\":\"\",\"name\":\"\"},{\"id\":\"\",\"name\":\"a,\\\\\"b\\\\\"\\\\nc\"}]'\nassert export_csv(rows) == expected_csv\nassert export_json(rows) == expected_json\nassert export_rows(rows, \"csv\") == expected_csv\nassert export_rows(rows, \"json\") == expected_json\nassert export(rows, \"csv\") == expected_csv\nassert export(rows, \"json\") == expected_json\nassert rows == snapshot, \"inputs mutated\"\n# one-shot iterables\nassert export_csv(iter(rows)) == expected_csv\nassert export_json(r for r in rows) == expected_json\nassert export_csv([]) == \"id,name\\n\"\nassert export_json([]) == \"[]\"\nfor bad in (\"xml\", \"CSV\", None):\n    for fn in (lambda: export_rows([], bad), lambda: export([], bad)):\n        try:\n            fn()\n        except ValueError as e:\n            assert str(e) == \"unsupported format\"\n        else:\n            raise AssertionError(bad)\nprint(\"ok\")\n",
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/exporter.py": "import csv\nimport io\nimport json\n\nFIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Yield new dicts with only the export fields; '' for missing/None, str() otherwise.\"\"\"\n    for row in rows:\n        clean = {}\n        for key in FIELDS:\n            value = row.get(key)\n            clean[key] = \"\" if value is None else str(value)\n        yield clean\n\n\ndef _to_csv(rows):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(FIELDS)\n    for row in rows:\n        writer.writerow([row[key] for key in FIELDS])\n    return buffer.getvalue()\n\n\ndef _to_json(rows):\n    return json.dumps(list(rows), ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\"csv\": _to_csv, \"json\": _to_json}\n\n\ndef export_rows(rows, format):\n    try:\n        serializer = _SERIALIZERS[format]\n    except (KeyError, TypeError):\n        raise ValueError(\"unsupported format\") from None\n    return serializer(_normalize(rows))\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "checks/exporter_checks.py",
+    "src/csv_exporter.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 4,
+  "added_lines": 85,
+  "removed_lines": 18
+}

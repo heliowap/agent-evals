@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  private readonly seen = new Map<string, { cents: number; receipt: Receipt }>();\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    // Synchronous check-and-set so concurrent calls cannot both debit.\n    const id = JSON.stringify([tenant, key]);\n    const prior = this.seen.get(id);\n    if (prior) {\n      if (prior.cents !== cents) throw new Error('key conflict');\n      return prior.receipt;\n    }\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    this.seen.set(id, { cents, receipt });\n    return receipt;\n  }\n}\n",
+      "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0 ||\n        !Number.isInteger(attempts) || attempts < 1 || attempts > 5) throw new Error('invalid payment');\n    // The debit is applied once; only acknowledgement is retried with the same receipt.\n    const receipt = await this.ledger.apply(tenant, key, cents);\n    for (let n = 1; ; n++) {\n      try {\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n >= attempts) throw error;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "src/ledger.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 38,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5260616660234518
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06284254198544659,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06157758299377747,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

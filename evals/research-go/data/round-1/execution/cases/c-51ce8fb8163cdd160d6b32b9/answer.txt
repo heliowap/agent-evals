@@ -1,0 +1,18 @@
+## Decision: Do not deploy as proposed
+
+**Cannot certify tenant isolation.** Neither document supports using the Permission Model as the sole boundary. Node.js documents it as a "seat belt" that "does not protect against malicious code" and "does not provide security guarantees in the presence of malicious code" ([permissions.html#permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions)). SECURITY.md says it is "designed to reduce the blast radius of mistakes in trusted application code, not to act as a security boundary against intentional misuse or a compromised process" ([SECURITY.md](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md)). Customer JS is untrusted code; the threat model trusts "the code it is asked to run," which "inherits all the privileges of the execution user." Add OS-level isolation (separate users, containers, seccomp).
+
+## Assumptions to change
+
+- **`--allow-fs-read=/srv/jobs/*.js` does not mean "only .js".** "After passing a wildcard character (*) all subsequent characters will be ignored... /home/*.js will work similar to /home/*" ([permissions.html#file-system-permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions)). This effectively grants all of `/srv/jobs`.
+- **Relative symlinks are disqualifying.** "you must ensure that no paths to which access has been granted contain relative symbolic links" ([#limitations-and-known-issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues)).
+- **`--env-file` bypasses the model** by design (loads before initialization) ([#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints), [--env-file](https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#--env-filefile)) — do not treat as contained.
+- **An already-open FD bypasses the Permission Model** via `node:fs` ([#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)).
+
+## Worker inheritance — conflicting evidence (UNVERIFIED)
+
+`permissions.html` states "The model does not inherit to a worker thread." SECURITY.md states "Workers inherit the permission restrictions of their parent process." These directly conflict. Do not silently pick one; resolve against source/tests or a runtime check before relying on `--allow-worker`.
+
+## Useful mechanism, and audit mode
+
+The model is appropriate for **trusted application code** to prevent accidental resource use. `--permission-audit` publishes violations to `node:permission-model:*` channels without denying; if both flags are set, `--permission` wins ([#audit-mode](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#audit-mode)).

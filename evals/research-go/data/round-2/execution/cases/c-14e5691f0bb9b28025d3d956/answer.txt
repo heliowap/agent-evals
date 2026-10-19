@@ -1,0 +1,26 @@
+I'll fetch the D1 documentation, starting with the overview and then following replication and session links.
+
+Now the Worker binding API details and batch/transaction semantics.
+
+Let me verify whether any official page states a replica-lag SLA or timing guarantee.
+
+## Decision
+
+**Neither teammate is fully right, and the batch premise is wrong.**
+
+`withSession("first-primary")` does **not** pin the whole session to the primary: only the *first* query (read or write) is directed to the primary; "Subsequent queries in the Session may use read replicas" ([withSession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)). And bare `withSession()` is *not* "latest data" — it equals `first-unconstrained`, routing the first query to *any* instance, likely a replica, and is "best when your application does not require the latest database version" ([start a session without constraints](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)).
+
+**Batch/failure:** the team's expectation is contradicted by the docs. `batch()` statements are a SQL transaction; "If a statement in the sequence fails, then an error is returned... and it aborts or rolls back the entire sequence" ([batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)). Earlier statements do **not** remain committed. Design for all-or-nothing: if the line-item insert fails, the header rolls back, so retry the whole batch.
+
+## Recommended contract
+
+1. Direct `env.DB.prepare(...).run()` bypasses replication — without Sessions API "all queries will continue to be executed only by the primary database" ([Use Sessions API](https://developers.cloudflare.com/d1/best-practices/read-replication/#use-sessions-api)).
+2. **Checkout write request:** `withSession("first-primary")`, run the batch, then capture `session.getBookmark()` and return it (e.g. `x-d1-bookmark`) ([getBookmark](https://developers.cloudflare.com/d1/worker-api/d1-database/#getbookmark)).
+3. **Later read request:** `withSession(bookmark)` from that header. This guarantees a version "at least as up-to-date as the provided bookmark," preserving read-your-writes ([bookmark section](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)). Reserve `first-unconstrained` (default) for non-critical, latency-sensitive reads.
+
+## Advertised claims
+
+- **"Globally latest reads": NOT supported.** Replicas "may be arbitrarily out of date"; only sequential consistency within a session is offered ([consistency model](https://developers.cloudflare.com/d1/best-practices/read-replication/#replica-lag-and-consistency-model)).
+- **"100 ms max lag after commit": UNVERIFIED — no such guarantee appears** in [limits](https://developers.cloudflare.com/d1/platform/limits/) or the replication page. Resolve by asking Cloudflare support for a written SLA; do not advertise it.
+
+Recommendation vs fact: the bookmark flow is documented; treating 100 ms as a public guarantee is unsupported.

@@ -1,0 +1,23 @@
+I replaced the float-based parser in `src/money.py` and made `make_invoice` in `src/api.py` apply the same rules. `python3 checks/public.py` passes, and so do the 14 new tests in `checks/test_amounts.py`.
+
+**`src/money.py`**
+- `parse_amount` accepts `Decimal`, `int` (not `bool`), and strings matching `[+-]?[0-9]+(\.[0-9]+)?`. The regex is ASCII-only and uses `fullmatch`, so whitespace, exponents, `NaN`/`Infinity`, and trailing newlines are rejected.
+- Every other type raises `ValueError`, including floats and `bool`.
+- Non-finite values are checked first, before any comparison, so `sNaN` is handled.
+- Zero, negatives, and values above `1000000.00` are rejected. The limit itself is allowed.
+- The cents check works on the digit tuple: trailing zeros beyond the cent are dropped, and anything still beyond the cent raises `ValueError`. Nothing is rounded.
+- The return value is a `Decimal` with exponent -2.
+- `format_amount` is unchanged.
+- I added `to_cents`, which converts a `-2`-exponent `Decimal` to an integer exactly.
+
+**`src/api.py`**
+- `make_invoice` copies its input with `list(amounts)`, parses each item with `parse_amount`, and sums integer cents.
+- A total above `1000000.00` raises `ValueError`. An empty list returns `{'total': '0.00', 'count': 0}`.
+
+**Checks (`checks/test_amounts.py`)**
+- Accepted and rejected inputs for each rule, including non-cent values like `1.001` and `1.2550`.
+- The API limit, empty list, and per-item rules.
+- The caller's list is unchanged after the call.
+- The global decimal context's precision, rounding, exponent limits, and traps are unchanged.
+
+I made two judgment calls the spec didn't settle. `"12."` and `".5"` are rejected because I read "plain decimal" as digits on both sides of the dot. Also, `parse_amount` raises `ValueError` for wrong types rather than `TypeError`, because the spec said to use `ValueError` for all rejections.

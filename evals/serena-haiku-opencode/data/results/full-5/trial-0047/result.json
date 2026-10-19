@@ -1,0 +1,255 @@
+{
+  "id": "trial-0047",
+  "configuration": "haiku-medium-serena",
+  "effort": "medium",
+  "arm": "serena",
+  "case": "py-document-scope",
+  "role": "implementation",
+  "rep": 4,
+  "position": 3,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/isolation.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"Title\", \"Body\", None),\n    (2, \"t\", \"o\", \"Deleted\", \"Gone\", \"2026-01-01\"),\n    (3, \"other\", \"o\", \"Cross tenant\", \"X\", None),\n    (4, \"t\", \"other\", \"Cross owner\", \"Y\", None),\n    (5, \"t\", \"o\", \"It's \\\"quoted\\\"\", \"Q'; DROP TABLE documents; --\", None),\n    (6, \"t'x\", \"o'x\", \"Quote names\", \"Z\", None),\n    (7, \"t\", \"o\", \"Second\", \"B2\", None),\n]\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\nc.commit()\n\n# Accessible documents return exactly id, title, body.\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"}\nassert get_document(c, \"t\", \"o\", 5) == {\"id\": 5, \"title\": \"It's \\\"quoted\\\"\", \"body\": \"Q'; DROP TABLE documents; --\"}\n\n# Unavailable IDs are indistinguishable: all return None.\nassert get_document(c, \"t\", \"o\", 2) is None      # deleted\nassert get_document(c, \"t\", \"o\", 3) is None      # cross-tenant\nassert get_document(c, \"t\", \"o\", 4) is None      # cross-owner\nassert get_document(c, \"t\", \"o\", 99) is None     # missing\nassert get_document(c, \"t\", \"o\", 6) is None\nassert get_document(c, \"t'x\", \"o'x\", 6) == {\"id\": 6, \"title\": \"Quote names\", \"body\": \"Z\"}\n\n# Lists: only accessible rows, ordered by id, no deletion metadata.\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"},\n    {\"id\": 5, \"title\": \"It's \\\"quoted\\\"\", \"body\": \"Q'; DROP TABLE documents; --\"},\n    {\"id\": 7, \"title\": \"Second\", \"body\": \"B2\"},\n]\nassert list_documents(c, \"other\", \"o\") == [{\"id\": 3, \"title\": \"Cross tenant\", \"body\": \"X\"}]\nassert list_documents(c, \"t\", \"missing\") == []\nassert list_documents(c, \"t'x\", \"o'x\") == [{\"id\": 6, \"title\": \"Quote names\", \"body\": \"Z\"}]\nassert list_documents(c, \"t' OR '1'='1\", \"o\") == []\n\n# Table is intact (no injection side effects).\nassert c.execute(\"SELECT COUNT(*) FROM documents\").fetchone()[0] == 7\nprint(\"isolation checks passed\")\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+        "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+      },
+      "changed_files": [
+        "checks/isolation.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 75,
+      "removed_lines": 20
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.044928374991286546
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.04845291702076793,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.0489611669909209,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 30.039549792010803,
+  "preparation_s": 1.6091415000264533,
+  "export_s": 0.3101956669706851,
+  "grading_s": 0.2909456670167856,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "request_names": [
+      "initial_instructions",
+      "get_symbols_overview",
+      "get_symbols_overview",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body"
+    ],
+    "response_names": [
+      "initial_instructions",
+      "get_symbols_overview",
+      "get_symbols_overview",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "find_symbol",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body"
+    ],
+    "pending_calls": 0,
+    "tool_calls": 13,
+    "useful_successful_calls": 12,
+    "used": true,
+    "errors": 0,
+    "rejected_calls": 0,
+    "bridge_errors": 0,
+    "catalog_ready_s": 0.521907375,
+    "calls": [
+      {
+        "name": "initial_instructions",
+        "error": false,
+        "useful": false,
+        "wall_s": 0.068412959
+      },
+      {
+        "name": "get_symbols_overview",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.124326
+      },
+      {
+        "name": "get_symbols_overview",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.126605
+      },
+      {
+        "name": "find_symbol",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.075126875
+      },
+      {
+        "name": "find_symbol",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.078633375
+      },
+      {
+        "name": "find_symbol",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.086385542
+      },
+      {
+        "name": "find_symbol",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.02217775
+      },
+      {
+        "name": "find_symbol",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.104851875
+      },
+      {
+        "name": "find_symbol",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.041664125
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.0486445
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.049343667
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.049679208
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.105072
+      }
+    ],
+    "native_export_reconciled": true
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 7,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_19280965d8ffbdba0ada",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "medium"
+  },
+  "usage": {
+    "input_tokens": 14,
+    "output_tokens": 3813,
+    "reasoning_tokens": 799,
+    "cached_input_tokens": 62804,
+    "cache_write_tokens": 9083
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 16,
+  "error_events": [],
+  "reported_cost_usd": 0.004070815,
+  "total_trial_s": 32.479396209004335
+}

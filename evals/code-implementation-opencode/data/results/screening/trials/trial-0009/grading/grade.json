@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\nassert format_amount(parse_amount(\"12.50\")) == \"12.50\"\nassert make_invoice([\"1.20\", \"2.30\"]) == {\"total\": \"3.50\", \"count\": 2}\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\n\n# --- additional checks ---\nimport decimal\nfrom decimal import Decimal as D\n\ndef bad(v):\n    try:\n        parse_amount(v)\n    except ValueError:\n        return\n    raise AssertionError(f\"accepted {v!r}\")\n\nfor v in [1.5, True, False, None, [], b\"1\", \"\", \" 1\", \"1 \", \"1\\n\", \"1e2\", \"0\", \"0.00\", \"-1\", \"-0.00\",\n          \"1.001\", \"0.005\", \"1000000.01\", 1000001, D(\"NaN\"), D(\"sNaN\"), D(\"Infinity\"), D(\"-Infinity\"),\n          D(\"0\"), D(\"-5\"), D(\"1E-999999\"), D(\"1E+400\"), \"٣\", \"1.\", \".5\", \"1_0\"]:\n    bad(v)\nfor v, exp in [(\"12.5\", \"12.50\"), (\"+3\", \"3.00\"), (\"1.2300\", \"1.23\"), (5, \"5.00\"), (D(\"1E+2\"), \"100.00\"),\n               (\"1000000.00\", \"1000000.00\"), (\"0.01\", \"0.01\"), (D(\"2.500\"), \"2.50\"),\n               (\"0.0100000000000000000000000000000000000000000000000000000\", \"0.01\")]:\n    r = parse_amount(v)\n    assert r == D(exp) and r.as_tuple().exponent == -2, (v, r)\n\nctx = decimal.getcontext().copy()\nbefore = (ctx.prec, ctx.rounding, ctx.Emin, ctx.Emax)\nsrc = [\"1.10\", D(\"2.20\")]\nsnapshot = list(src)\nassert make_invoice(src) == {\"total\": \"3.30\", \"count\": 2}\nassert src == snapshot\nassert (decimal.getcontext().prec, decimal.getcontext().rounding, decimal.getcontext().Emin,\n        decimal.getcontext().Emax) == before\n\nassert make_invoice([\"500000.00\", \"500000.00\"])[\"total\"] == \"1000000.00\"\nfor bad_list in [[\"500000.00\", \"500000.01\"], [\"1\", 1.5], [\"1\", \"0\"], \"12\", None]:\n    try:\n        make_invoice(bad_list)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(bad_list)\nprint(\"ok\")\n",
+      "src/api.py": "from decimal import Decimal\n\nfrom .money import MAX_AMOUNT, _CTX, parse_amount, format_amount\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, (list, tuple)):\n        raise ValueError(\"amounts must be a list\")\n    total = Decimal(\"0.00\")\n    for item in amounts:\n        total = _CTX.add(total, parse_amount(item))\n    if total > MAX_AMOUNT:\n        raise ValueError(\"total too large\")\n    return {\"total\": format_amount(total), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Context, Decimal, ROUND_DOWN\n\nMAX_AMOUNT = Decimal(\"1000000.00\")\n_CENT = Decimal(\"0.01\")\n_PLAIN_DECIMAL = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\", re.ASCII)\n\n# Private context: the global decimal context is never read or modified.\n_CTX = Context(prec=50, rounding=ROUND_DOWN, Emin=-999999999, Emax=999999999, traps=[])\n\n\ndef _to_decimal(value):\n    if isinstance(value, bool):\n        raise ValueError(\"booleans are not valid amounts\")\n    if isinstance(value, Decimal):\n        return value\n    if isinstance(value, int):\n        return Decimal(value)\n    if isinstance(value, str):\n        if not _PLAIN_DECIMAL.fullmatch(value):\n            raise ValueError(\"invalid amount string\")\n        return Decimal(value)\n    raise ValueError(\"unsupported amount type\")\n\n\ndef parse_amount(value):\n    \"\"\"Return a positive Decimal with exponent -2, or raise ValueError.\"\"\"\n    dec = _to_decimal(value)\n    if not dec.is_finite():\n        raise ValueError(\"amount must be finite\")\n    if dec <= 0:\n        raise ValueError(\"amount must be positive\")\n    if dec > MAX_AMOUNT:\n        raise ValueError(\"amount too large\")\n    cents = dec.quantize(_CENT, context=_CTX)\n    if cents != dec:  # exact comparison: a nonzero sub-cent part is never rounded away\n        raise ValueError(\"amount not representable in cents\")\n    return cents\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/public.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 103,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.045266374974744394
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05232170800445601,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05610945800435729,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

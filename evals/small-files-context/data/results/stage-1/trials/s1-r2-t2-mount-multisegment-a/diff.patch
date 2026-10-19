@@ -1,0 +1,39 @@
+diff --git a/bottle.py b/bottle.py
+index 6c928b3..9edceaf 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -697,7 +697,7 @@ class Bottle:
+                 rs.body = itertools.chain(rs.body, body) if rs.body else body
+                 return rs
+             finally:
+-                request.path_shift(-1)
++                request.path_shift(-path_depth)
+ 
+         options.setdefault('skip', True)
+         options.setdefault('method', 'PROXY')
+diff --git a/test/test_mount.py b/test/test_mount.py
+index f29018a..db08c25 100644
+--- a/test/test_mount.py
++++ b/test/test_mount.py
+@@ -77,7 +77,20 @@ class TestAppMounting(ServerTestBase):
+         self.assertBody('WSGI /', '/test/')
+         self.assertHeader('X-Test', 'WSGI', '/test/')
+         self.assertBody('WSGI /test/bar', '/test/test/bar')
+-            
++
++    def test_mount_wsgi_multi_segment_prefix(self):
++        def app(environ, start_response):
++            start_response('200 OK', [])
++            return 'WSGI ' + environ['SCRIPT_NAME'] + ' ' + environ['PATH_INFO']
++        @self.app.hook('after_request')
++        def log_path():
++            response.set_header('X-Path', bottle.request.path)
++            response.set_header('X-Script-Name', bottle.request.script_name)
++        self.app.mount('/api/v1', app)
++        self.assertBody('WSGI /api/v1 /foo', '/api/v1/foo')
++        self.assertHeader('X-Path', '/api/v1/foo', '/api/v1/foo')
++        self.assertHeader('X-Script-Name', '/', '/api/v1/foo')
++
+     def test_mount_cookie(self):
+         @self.subapp.route('/cookie')
+         def test_cookie():

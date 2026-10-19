@@ -1,0 +1,37 @@
+I'll research this using official Docker documentation.
+
+## Decision
+
+On Compose plugin **2.18.0**, use long-form `depends_on` with conditions; do not use the optional-dependency proposal as stated.
+
+**Documented facts (v2.18.0 applicability):**
+
+- Correcting a premise: "running" ≠ ready. Compose only waits until a container is *running*, not ready, unless you set a condition ([docs.docker.com/compose/how-tos/startup-order/](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)). Short-form `depends_on` explicitly does not wait for health ([reference/services#short-syntax-1](https://docs.docker.com/reference/compose-file/services/#short-syntax-1)), so your current short form is insufficient even though the DB has a healthcheck — a healthcheck alone does nothing for dependency ordering.
+- `restart: true` on a `depends_on` entry was **introduced in 2.17.0**, so it is available [reference/services#long-syntax-1](https://docs.docker.com/reference/compose-file/services/#long-syntax-1). It restarts the dependent service after Compose operations restart the dependency — but the reference explicitly states it **"excludes automated restart by the container runtime after the container dies"** ([anchor above](https://docs.docker.com/reference/compose-file/services/#depends_on)). So developers get the explicit `docker compose restart db` case; the crash-and-runtime-restart assumption is **UNVERIFIED-wrong**: `_restart: always` is a restart policy on container termination — it doesn't restart dependents either.
+- `depends_on.required: false` was **introduced in Compose 2.20.0** [reference/services#long-syntax-1](https://docs.docker.com/reference/compose-file/services/#long-syntax-1). Upgrading matters: without the upgrade, use Compose profiles for the optional telemetry service (2.18-compatible) instead.
+
+**Recommended configuration:**
+
+```yaml
+migrations:
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: "no"          # one-shot; verify success via compose exit status
+api:
+  depends_on:
+    db:
+      condition: service_healthy
+      restart: true      # covers operator restarts only (2.17.0+ ✓)
+    migrations:
+      condition: service_completed_successfully
+```
+
+**Layer separation:**
+- **Container startup:** `service_started` / short syntax — start order only.
+- **Readiness:** `service_healthy` + DB `healthcheck` — required, since `restart: always` is not a readiness signal.
+- **Migration success:** `service_completed_successfully` on the API's dependency on `migrations`.
+- **Operator restarts:** `restart: true` in `depends_on` — documented for Compose-controlled restarts.
+- **Runtime restarts (crash + daemon restart):** no Compose configuration here propagates this to dependents. Reconnection must be handled in the API application (connection retry/backoff), or the Compose file alone restarts DB and API independently. UNVERIFIED whether any 2.18.0 ordering mechanism exists for this; next evidence target would be release notes for versions ≥2.17.0 and the Docker daemon restart-policy CLI reference.
+
+**Answer to the readiness promise:** **No.** These settings guarantee state *at startup* (started / healthy / completed successfully). Nothing in documented Compose behavior monitors a dependency after the dependent is up and restarts the API when the later database crashes and the runtime resurrects it — `restart: true` explicitly excludes runtime restarts, and `restart: always` only restarts the DB container itself. Promising continuous API readiness throughout later DB outages is unsupported; the API must self-heal at the application layer, and monitoring/liveness checks would be a separate guarantee (recommendation, not documented behavior).

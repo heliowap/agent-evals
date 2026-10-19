@@ -1,0 +1,264 @@
+{
+  "blind_id": "b-5b021b4d6cbe51bb8f302234e0448287",
+  "task_id": "T3",
+  "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nOur PostgreSQL 18 service has concurrent workers that read a cross-row business invariant and then update different rows. The team proposes Repeatable Read because a stable snapshot and absence of phantom rows should make the combined decisions equivalent to serial execution. If a transaction fails for a serialization reason, the proposed recovery retries only the failed SQL statement, expecting PostgreSQL to replay the earlier decision logic automatically. A generic retry wrapper would also retry every unique-key violation without inspecting its cause.\n\nDecide whether this isolation/recovery design is sufficient and recommend the narrow changes that matter for correctness. Separate PostgreSQL's implementation from the SQL standard's minimum guarantees. Explain who owns retrying, the appropriate retry unit, and whether unique violations belong in an unconditional retry bucket. Product also wants a documented promise that every operation will commit within at most three attempts under contention; can we make it?\n\nStarting URLs\n- https://www.postgresql.org/docs/18/mvcc.html",
+  "answer": "## Decision: The proposed design is **not sufficient** as stated\n\n**Premise correction.** \"Stable snapshot + no phantoms\" is true under Repeatable Read (it prohibits all standard phenomena except serialization anomaly, going beyond the SQL standard's minimum — Table 13.1), but a stable snapshot does **not** make concurrent decisions equivalent to serial execution. The docs warn directly: \"the view will not necessarily always be consistent with some serial execution\" and attempts to enforce business rules at this level \"are not likely to work correctly without careful use of explicit locks.\" Read/write-dependency cycles (write skew) defeat exactly the \"read invariant, then update different rows\" pattern described (https://www.postgresql.org/docs/18/transaction-iso.html#XACT-REPEATABLE-READ; https://www.postgresql.org/docs/18/applevel-consistency.html).\n\n**Standard vs. implementation.** The SQL standard defines each level's phenomena as *minimum* protections; PostgreSQL's Repeatable Read (Snapshot Isolation) exceeds that minimum by preventing phantom reads, yet still permits serialization anomalies. Only Serializable (implemented via Serializable Snapshot Isolation with nonblocking predicate locks) ensures committed transactions' effects equal some serial order (https://www.postgresql.org/docs/18/transaction-iso.html#XACT-SERIALIZABLE).\n\n**Isolation choice.** For a cross-row invariant read-then-write, use Serializable, *or* Repeatable Read plus explicit blocking — `SELECT FOR UPDATE/SHARE`/`LOCK TABLE` (with locks taken *before* queries, since the RR snapshot freezes at the first query) — ideally reduced to what integrity requires (https://www.postgresql.org/docs/18/applevel-consistency.html#SERIALIZABLE-CONSISTENCY, #NON-SERIALIZABLE-CONSISTENCY). A single write-only transaction that never re-evaluates multi-row invariants can stay at Repeatable Read.\n\n**Recovery and retry ownership.** PostgreSQL offers **no automatic retry facility**: \"It is important to retry the complete transaction, including all logic that decides which SQL to issue… PostgreSQL does not offer an automatic retry facility, since it cannot do so with any guarantee of correctness\" (https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-Failure-HANDLING). Statement-level replay is therefore incorrect.\n\n**Retry unit and codes.**\n- Retry the **whole transaction** (all reads + decisions + writes), owned by the **application** (or its framework-wrapper at transaction boundaries).\n- Retry `40001` (serialization_failure) unconditionally; `40P01` (deadlock) is advisable.\n- Unique-key `23505`/exclusion `23P01`: **not** an unconditional bucket. Though sometimes an undetected serialization failure (\"the server will not 'see' the connection between the inserted value and the previous reads\"), they \"might represent persistent error conditions,\" so retry only after cause inspection (same page). Serializable can even raise unique violations despite prior existence checks when not all inserters follow the check-first protocol (transaction-iso.html#XACT-SERIALIZABLE).\n\n**Three-attempt commit promise.** Cannot be honestly made. The docs state \"multiple retries may be needed\" under high contention, possibly \"many attempts,\" and pinned prepared transactions can block progress indefinitely (failure-handling page). A bounded-attempts SLA is a product policy choice, not a PostgreSQL guarantee — document it as best-effort with fallback behavior (UNVERIFIED as a universal guarantee; a load/contention benchmark of these workers would only bound observed, not guaranteed, attempt counts).\n\n**Narrow changes that matter:** switch the invariant pattern to Serializable (or RR + pre-snapshot explicit locks); move retry to transaction scope, driven by SQLSTATE code; make unique-violation retries conditional on cause.",
+  "sources": [
+    {
+      "url": "https://www.postgresql.org/docs/18/mvcc.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s1.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://www.postgresql.org/docs/18/mvcc.html",
+      "candidate_visible_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s1.txt"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s2.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+      "candidate_visible_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s2.txt"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/18/applevel-consistency.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s3.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://www.postgresql.org/docs/18/applevel-consistency.html",
+      "candidate_visible_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s3.txt"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+      "candidate_visible_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/18/mvcc.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s5.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s6.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+      "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s7.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    }
+  ],
+  "rubric": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirement": "Repeatable Read really prevents phantoms in PostgreSQL",
+        "accepted": [
+          "retain this true part of the premise; PostgreSQL Repeatable Read does not allow phantom reads, though the SQL standard permits them at this level."
+        ],
+        "contradicted": [
+          "blindly repeat the SQL-standard table as PostgreSQL behavior. The single scored comparison is PG's stronger phantom protection."
+        ],
+        "rubric_text": "S: retain this true part of the premise; PostgreSQL Repeatable Read does not allow phantom reads, though the SQL standard permits them at this level. X: blindly repeat the SQL-standard table as PostgreSQL behavior. The single scored comparison is PG's stronger phantom protection.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+            "quote": "The table also shows that PostgreSQL's Repeatable Read implementation does not allow phantom reads.",
+            "source_id": "PG-T",
+            "anchor": null,
+            "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "requirement": "Repeatable Read still admits serialization anomalies",
+        "accepted": [
+          "stable snapshots/no phantoms do not establish serializable cross-row decisions."
+        ],
+        "contradicted": [
+          "assert Repeatable Read makes all committed outcomes equivalent to a serial order. O: only recommend Serializable without explaining this failure of the premise."
+        ],
+        "rubric_text": "S: stable snapshots/no phantoms do not establish serializable cross-row decisions. X: assert Repeatable Read makes all committed outcomes equivalent to a serial order. O: only recommend Serializable without explaining this failure of the premise.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/transaction-iso.html#XACT-REPEATABLE-READ",
+            "quote": "prevents all of the phenomena described in Table 13.1 except for serialization anomalies.",
+            "source_id": "PG-T",
+            "anchor": "XACT-REPEATABLE-READ",
+            "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "requirement": "Serializable's successful-commit guarantee",
+        "accepted": [
+          "consistent use of Serializable provides serial-equivalent effects for committed transactions, making it the documented isolation-level alternative for these decisions. Careful explicit locking is also a defensible recommendation, but still state what Serializable guarantees."
+        ],
+        "contradicted": [
+          "claim Serializable admits the same successful serialization anomalies or prevents every possible database error."
+        ],
+        "rubric_text": "S: consistent use of Serializable provides serial-equivalent effects for committed transactions, making it the documented isolation-level alternative for these decisions. Careful explicit locking is also a defensible recommendation, but still state what Serializable guarantees. X: claim Serializable admits the same successful serialization anomalies or prevents every possible database error.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/transaction-iso.html#XACT-SERIALIZABLE",
+            "quote": "This level emulates serial transaction execution for all committed transactions; as if transactions had been executed one after another, serially, rather than concurrently.",
+            "source_id": "PG-T",
+            "anchor": "XACT-SERIALIZABLE",
+            "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "requirement": "Retry the whole decision transaction",
+        "accepted": [
+          "redo the complete transaction including application logic selecting SQL and values, not just the final failing statement."
+        ],
+        "contradicted": [
+          "use only a statement/savepoint replay as the documented remedy. Backoff is optional advice, not an additional point."
+        ],
+        "rubric_text": "S: redo the complete transaction including application logic selecting SQL and values, not just the final failing statement. X: use only a statement/savepoint replay as the documented remedy. Backoff is optional advice, not an additional point.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+            "quote": "It is important to retry the complete transaction, including all logic that decides which SQL to issue and/or which values to use.",
+            "source_id": "PG-R",
+            "anchor": null,
+            "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt"
+          }
+        ]
+      },
+      {
+        "id": "C5",
+        "requirement": "PostgreSQL does not provide automatic correct retries",
+        "accepted": [
+          "application owns a correct retry facility; engine does not automatically replay application decision logic."
+        ],
+        "contradicted": [
+          "assert PostgreSQL transparently retries the transaction for this design. This is separate from identifying the retry unit."
+        ],
+        "rubric_text": "S: application owns a correct retry facility; engine does not automatically replay application decision logic. X: assert PostgreSQL transparently retries the transaction for this design. This is separate from identifying the retry unit.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+            "quote": "PostgreSQL does not offer an automatic retry facility, since it cannot do so with any guarantee of correctness.",
+            "source_id": "PG-R",
+            "anchor": null,
+            "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "requirement": "Unique violations are conditional, not blanket transient failures",
+        "accepted": [
+          "some `23505` failures can reflect concurrent key-selection races, but others are persistent, so classify them carefully rather than retry every one unconditionally. Exact code is useful but the scored fact is the conditional classification."
+        ],
+        "contradicted": [
+          "every unique violation is retryable, or unique violations can never be concurrency-related."
+        ],
+        "rubric_text": "S: some `23505` failures can reflect concurrent key-selection races, but others are persistent, so classify them carefully rather than retry every one unconditionally. Exact code is useful but the scored fact is the conditional classification. X: every unique violation is retryable, or unique violations can never be concurrency-related.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+            "quote": "more care is needed when retrying these other error codes, since they might represent persistent error conditions rather than transient failures.",
+            "source_id": "PG-R",
+            "anchor": null,
+            "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt"
+          }
+        ]
+      }
+    ],
+    "uncertainty": {
+      "id": "U",
+      "requirement": "No bounded-attempt completion guarantee",
+      "pass": "decline the three-attempt guarantee; the official retry page explicitly says retries may not complete and high contention can require many attempts. Next collect workload/contention evidence and define an application retry limit/failure policy; do not mislabel that policy as a PostgreSQL success guarantee.",
+      "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+      "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+      "source_evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "quote": "Transaction retry does not guarantee that the retried transaction will complete; multiple retries may be needed.",
+          "source_id": "PG-R",
+          "anchor": null,
+          "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt"
+        },
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "quote": "In cases with very high contention, it is possible that completion of a transaction may take many attempts.",
+          "source_id": "PG-R",
+          "anchor": null,
+          "source_path": "blind/cases/b-5b021b4d6cbe51bb8f302234e0448287/sources/s4.txt"
+        }
+      ]
+    },
+    "critical_errors": [
+      "equate phantom-free snapshots with serializability",
+      "promise statement-only or transparent correct retries",
+      "unconditionally retry persistent uniqueness errors",
+      "guarantee three-attempt success. Missing `40001` is not a hidden seventh omission",
+      "if mentioned, the retry page explicitly documents it as `serialization_failure`."
+    ],
+    "critical_errors_text": "equate phantom-free snapshots with serializability; promise statement-only or transparent correct retries; unconditionally retry persistent uniqueness errors; guarantee three-attempt success. Missing `40001` is not a hidden seventh omission; if mentioned, the retry page explicitly documents it as `serialization_failure`.",
+    "source_rules": {
+      "description": "`www.postgresql.org`, under `/docs/18/`. Archive the three exact base URLs above. Do not replace 18 with floating `current`/`devel`; no claim that 18 is the newest release is needed. Both answer-bearing pages were practical untruncated Markdown fetches. The manual is sufficient; no database or SQL execution is necessary.",
+      "allowed_url_patterns": [
+        "https://www\\.postgresql\\.org/docs/18/[^?#]*"
+      ],
+      "required_source_urls": [
+        "https://www.postgresql.org/docs/18/mvcc.html",
+        "https://www.postgresql.org/docs/18/transaction-iso.html",
+        "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html"
+      ],
+      "minimum_distinct_sources": 3,
+      "minimum_answer_bearing_sources": 2,
+      "discovery_chain": {
+        "description": "Chapter 13 index → Transaction Isolation and Serialization Failure Handling. The fetched index links both. Combine the implementation's anomaly guarantee with retry responsibility; do not cite just the anomaly table. **Minimum distinct content sources: 3 including index; 2 answer-bearing.**",
+        "edges": [
+          {
+            "from": "https://www.postgresql.org/docs/18/mvcc.html",
+            "to": "https://www.postgresql.org/docs/18/transaction-iso.html",
+            "relation": "documentation_link"
+          },
+          {
+            "from": "https://www.postgresql.org/docs/18/mvcc.html",
+            "to": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+            "relation": "documentation_link"
+          }
+        ],
+        "minimum_distinct_sources": 3
+      }
+    }
+  },
+  "mechanical": {
+    "attempted": true,
+    "operational_complete": true,
+    "visible_words": 459,
+    "word_cap": false,
+    "source_rules": true,
+    "tool_rules": true,
+    "fetched_two_sources": true,
+    "distinct_fetched_pages": 4,
+    "requested_tool_calls": 4,
+    "fetch_attempts": 4,
+    "truncated_fetches": 0,
+    "semantic_grading": "required; not automatically assigned",
+    "explicit_self_identification_redacted": false
+  }
+}

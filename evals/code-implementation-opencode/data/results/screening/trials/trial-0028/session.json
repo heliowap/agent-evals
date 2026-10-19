@@ -1,0 +1,284 @@
+{
+  "info": {
+    "id": "ses_74b328463d3f63a78e78",
+    "projectID": "372ee6bcd26aff63c2b983466333c07e2de63702",
+    "agent": "implementer",
+    "model": {
+      "id": "cpa-claude-opus-5-5",
+      "providerID": "cli_proxy",
+      "variant": "medium"
+    },
+    "cost": 0.09155640000000001,
+    "tokens": {
+      "input": 8,
+      "output": 3377,
+      "reasoning": 0,
+      "cache": {
+        "read": 9522,
+        "write": 4416
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1791683654580,
+      "updated": 1791683684773,
+      "idle": 1791683684778
+    },
+    "title": "Project change",
+    "location": {
+      "directory": "/tmp/folders/T/private-runtime-jm6wmn4p/project"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_128aaf406001s957QQill0nbzA",
+      "time": {
+        "created": 1791683654662
+      },
+      "type": "agent-switched",
+      "agent": "implementer",
+      "previous": "implementer"
+    },
+    {
+      "id": "msg_128aaf405001foqK0P0thvwRwv",
+      "time": {
+        "created": 1791683654778
+      },
+      "text": "\"Fix PaymentService.pay in src/service.ts and Ledger.apply in src/ledger.ts so retries\nnever duplicate a debit. Idempotency is scoped by tenant and key; a repeated equal\namount returns the original receipt, including during concurrent calls. Reusing that\ntenant/key with another amount throws Error('key conflict') without another debit.\nAcknowledgement is external and may throw Transient after the debit committed.\nRetry only Transient, up to attempts total tries, forwarding the same receipt each time.\nPreserve the final thrown exception if retries are exhausted; do not retry other errors.\nValidate nonempty tenant/key, positive integer cents and attempts integer 1..5 before\nany ledger or transport action; invalid input throws Error('invalid payment').\n\nYou may change src/ and add or update checks/. Preserve public interfaces unless the request explicitly changes them. Run tsc -p tsconfig.json && node checks/public.cjs and describe the change.\n\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_128aaf47d001F7PGb0qWDb4Gqs",
+      "time": {
+        "created": 1791683654791,
+        "streamed": 1791683656223,
+        "completed": 1791683656274
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_01Hcd4XBsjAqLzWQTFRXS5Ut",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && find . -type f -not -path './node_modules/*' | head -50 && cat src/*.ts checks/* tsconfig.json package.json 2>/dev/null"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"./checks/public.cjs\\n./README.md\\n./.gitignore\\n./tsconfig.json\\n./src/ledger.ts\\n./src/transport.ts\\n./src/service.ts\\nexport interface Receipt { id: number; tenant: string; key: string; cents: number }\\nexport class Ledger {\\n  readonly entries: Receipt[] = [];\\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\\n    this.entries.push(receipt);\\n    return receipt;\\n  }\\n}\\nimport { Ledger, Receipt } from './ledger';\\nimport { Transient, Transport } from './transport';\\nexport class PaymentService {\\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\\n    if (!tenant || !key || !Number.isInteger(cents) || cents <= 0) throw new Error('invalid payment');\\n    for (let n = 0; n < attempts; n++) {\\n      try {\\n        const receipt = await this.ledger.apply(tenant, key, cents);\\n        await this.transport.acknowledge(receipt);\\n        return receipt;\\n      } catch (error) {\\n        if (!(error instanceof Transient) || n === attempts - 1) throw error;\\n      }\\n    }\\n    throw new Error('invalid payment');\\n  }\\n}\\nimport { Receipt } from './ledger';\\nexport class Transient extends Error {}\\nexport interface Transport { acknowledge(receipt: Receipt): Promise<void> }\\nconst assert = require('node:assert/strict');\\n\\n        const { Ledger } = require('../.build/ledger');\\n        const { PaymentService } = require('../.build/service');\\n        async function main() {\\n          const ledger = new Ledger(); const receipts = [];\\n          const service = new PaymentService(ledger, { acknowledge: async r => { receipts.push(r); } });\\n          assert.deepEqual(await service.pay('shop', 'sale', 123), { id: 1, tenant: 'shop', key: 'sale', cents: 123 });\\n          assert.equal(ledger.entries.length, 1); assert.equal(receipts.length, 1);\\n          await assert.rejects(service.pay('shop', 'bad', 0), /invalid payment/);\\n        }\\n        module.exports = main();\\n{\\n  \\\"compilerOptions\\\": {\\n    \\\"target\\\": \\\"ES2022\\\",\\n    \\\"module\\\": \\\"CommonJS\\\",\\n    \\\"strict\\\": true,\\n    \\\"outDir\\\": \\\".build\\\",\\n    \\\"rootDir\\\": \\\"src\\\",\\n    \\\"lib\\\": [\\n      \\\"ES2022\\\",\\n      \\\"DOM\\\"\\n    ],\\n    \\\"forceConsistentCasingInFileNames\\\": true\\n  },\\n  \\\"include\\\": [\\n    \\\"src/**/*.ts\\\"\\n  ]\\n}\\n\",\"exit_code\":1,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791683655618,
+            "ran": 1791683656209,
+            "completed": 1791683656271
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0054751999999999995,
+      "tokens": {
+        "input": 2,
+        "output": 119,
+        "reasoning": 0,
+        "cache": {
+          "read": 1011,
+          "write": 577
+        }
+      }
+    },
+    {
+      "id": "msg_128aafa5b001d7DNVgrm5pWvoB",
+      "time": {
+        "created": 1791683656288,
+        "streamed": 1791683666230,
+        "completed": 1791683666231
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I'm designing the ledger's apply method to be idempotent by keying on tenant and key together, using a synchronous check-and-insert so concurrency isn't an issue, and deciding to return the same receipt object reference when forwarding a duplicate rather than a copy.\n\nFor the service layer, I'm thinking the flow should validate, apply once without retrying ledger errors like key conflicts (since the ledger is in-memory, only the acknowledge step benefits from retries), then loop on acknowledgement; validation could reasonably live in the ledger too, throwing an invalid-payment error there as well. Attempts should be validated as an integer between 1 and 5 with a default of 3, concurrent calls with the same key should safely converge on the same receipt, and I need a typeof check to ensure tenant and key are strings.\n\n",
+          "state": {
+            "signature": "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"
+          },
+          "time": {
+            "created": 1791683656910,
+            "completed": 1791683663337
+          }
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01JpzvTqL9hRDTNNGG1kQsJu",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat README.md .gitignore; cat > src/ledger.ts <<'EOF'\nexport interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  private readonly byKey = new Map<string, Receipt>();\n  // Check-and-insert happens synchronously (no await), so concurrent calls for the\n  // same tenant/key cannot both create a debit.\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0) {\n      throw new Error('invalid payment');\n    }\n    const scope = JSON.stringify([tenant, key]);\n    const existing = this.byKey.get(scope);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return existing;\n    }\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.byKey.set(scope, receipt);\n    this.entries.push(receipt);\n    return receipt;\n  }\n}\nEOF\ncat > src/service.ts <<'EOF'\nimport { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0 ||\n        !Number.isInteger(attempts) || attempts < 1 || attempts > 5) {\n      throw new Error('invalid payment');\n    }\n    // Debit exactly once (idempotent per tenant/key); only acknowledgement is retried.\n    const receipt = await this.ledger.apply(tenant, key, cents);\n    for (let n = 1; ; n++) {\n      try {\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n >= attempts) throw error;\n      }\n    }\n  }\n}\nEOF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"# Service workspace\\n\\nRun `tsc -p tsconfig.json && node checks/public.cjs` from this directory.\\n.build/\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791683663339,
+            "ran": 1791683666152,
+            "completed": 1791683666197
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0308606,
+      "tokens": {
+        "input": 2,
+        "output": 1223,
+        "reasoning": 0,
+        "cache": {
+          "read": 1588,
+          "write": 1215
+        }
+      }
+    },
+    {
+      "id": "msg_128ab213b001q7gUfCAeAsboTF",
+      "time": {
+        "created": 1791683666240,
+        "streamed": 1791683675948,
+        "completed": 1791683676701
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Now add a check covering the new behavior."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01YHnXeLkgqRhvMm6knxihaH",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat > checks/idempotency.cjs <<'EOF'\nconst assert = require('node:assert/strict');\nconst { Ledger } = require('../.build/ledger');\nconst { PaymentService } = require('../.build/service');\nconst { Transient } = require('../.build/transport');\nasync function main() {\n  // Transient after commit: retried with same receipt, single debit.\n  { const ledger = new Ledger(); const seen = []; let fails = 2;\n    const s = new PaymentService(ledger, { acknowledge: async r => { seen.push(r); if (fails-- > 0) throw new Transient('t'); } });\n    const r = await s.pay('t', 'k', 50, 3);\n    assert.equal(ledger.entries.length, 1); assert.equal(seen.length, 3);\n    assert.ok(seen.every(x => x === r));\n    assert.equal(await s.pay('t', 'k', 50), r); assert.equal(ledger.entries.length, 1);\n    await assert.rejects(s.pay('t', 'k', 51), /key conflict/); assert.equal(ledger.entries.length, 1);\n    await s.pay('t2', 'k', 51); await s.pay('t', 'k2', 51); assert.equal(ledger.entries.length, 3);\n  }\n  // Exhaustion preserves final error; non-transient not retried.\n  { const ledger = new Ledger(); let n = 0; const errs = [];\n    const s = new PaymentService(ledger, { acknowledge: async () => { const e = new Transient('t' + ++n); errs.push(e); throw e; } });\n    await assert.rejects(s.pay('a', 'b', 1, 2), e => e === errs[1]); assert.equal(n, 2);\n    await assert.rejects(s.pay('a', 'b', 1, 2), e => e === errs[3]); assert.equal(ledger.entries.length, 1);\n    let m = 0; const boom = new Error('boom');\n    const s2 = new PaymentService(new Ledger(), { acknowledge: async () => { m++; throw boom; } });\n    await assert.rejects(s2.pay('a', 'b', 1, 5), e => e === boom); assert.equal(m, 1);\n  }\n  // Concurrency.\n  { const ledger = new Ledger(); const s = new PaymentService(ledger, { acknowledge: async () => {} });\n    const rs = await Promise.all([1, 2, 3].map(() => s.pay('t', 'k', 9)));\n    assert.equal(ledger.entries.length, 1); assert.ok(rs.every(r => r === rs[0]));\n  }\n  // Validation before any action.\n  { const ledger = new Ledger(); let acks = 0; const s = new PaymentService(ledger, { acknowledge: async () => { acks++; } });\n    for (const args of [['', 'k', 1], ['t', '', 1], ['t', 'k', 1.5], ['t', 'k', -1], ['t', 'k', 1, 0], ['t', 'k', 1, 6], ['t', 'k', 1, 2.5], ['t', 'k', NaN]])\n      await assert.rejects(s.pay(...args), /^Error: invalid payment$/);\n    assert.equal(ledger.entries.length, 0); assert.equal(acks, 0);\n  }\n}\nmodule.exports = main();\nEOF\nnpx tsc -p tsconfig.json && node checks/public.cjs && node checks/idempotency.cjs && echo ALL OK"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"ALL OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791683667276,
+            "ran": 1791683675947,
+            "completed": 1791683676698
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0322336,
+      "tokens": {
+        "input": 2,
+        "output": 1254,
+        "reasoning": 0,
+        "cache": {
+          "read": 2803,
+          "write": 1317
+        }
+      }
+    },
+    {
+      "id": "msg_128ab4a290012rV7HYMPLoaz55",
+      "time": {
+        "created": 1791683676725,
+        "streamed": 1791683684770,
+        "completed": 1791683684773
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-opus-5-5",
+        "providerID": "cli_proxy",
+        "variant": "medium"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I'm checking that the regex assertion against the error message matches correctly, confirming the test passes as expected.\n\n",
+          "state": {
+            "signature": "CAQS8gYKEAgSGAI4AUIIdGhpbmtpbmcSDHthMrgPlKgvQd4AchoMuLsmd66sZIu1I592IjCDZT0lEol2QFFCzJHyDRjjuw4tlNbz6h72HI/w8xI4CauCcQTuHktHJyOV6N/sFE8qjwYwpY9SnIwYpSFIzPkwnzb4h50TCgBNk6H6o/g5rCd7aTCYrrQJvtieZlCO7PLoxbo/mGOkKgaRNQy5SnSAJIc7XM+VTISQzAfkTk4Xd996315dePtJry9EIWSj2SRwAxlaQOIFWmOC84WYZO1BDSVEYDFXuHYNT4z6Y1VZAkeGIKPpYzzpZ2LD1C7MlyKCl237Kolllr7ScSlOOS1WRFVj6KUZ0CWkJmn2SJPb4UypKaCQDylwpaX/r5mAMiZLUTC6VgfQ29clYU2HkAfn4eJ64nr4jZFmo7IiN86ypjb1zkXVWaHhdXCjTQYCrt8Fv5/+H9XdgoazTbVkhnuiJRH8qVJhTXJ/baZu3FgMUcpFNuZpUIj70dwR0UzlaXRKJrt8bvvmlbZnnCIxxPmwxH8pxDJr0zmwp98YrJJRFjLlrLDNcqchyJ05r2OSqvVhf8IPE9aPfRkdV1EIOrPzMYsshmooU5EhEjAby3c3gQ3WVraTOyMTXvzObx3sKnQw/PLyQ2x34RVby03hUhM5L4VMzb8MBh8OoG4Bu3O5Zbve5dgwXh+KstFF8GoDsAG7ORjXxIXIZf8ELGRm1z5wySDht2kzLY8tkx9KTfGm6YbrITLnu87Vw5E3+wsq2wMR8UzLzdqfArZOb2ojXmn48uFv/YnGnXHit/5JcsNWIN7mpLK6Cm9jKyZWxSFMo7ibHUPsH67kMyfD4+H2kjXATUZkHkzeGB1ZtwyhqdaqgYtSAXIvefL5mixO95tbfDG4pYvsvwtQVimf1tWf+RxMHJRB3s3VJwOFh1HLUdTp6wwvyYSjsQmsCxuNqbIUcwMybDBSzvrECs1fD60RTDvqVfYvNqTp8289x22bSwK575P0SKDN4pVGQfcrUX8L0iIpJbcJbA1KXFDw4qAlRbpaF/Ww/i55YrVNf7iU+BO0/dOntzMTuUjkzaeHFWH50b0cnFcS2MyCunYfQY/Qry4eouGHiSAN/4gdiR9GyBDtbOKvC7t3nE+4wouJ2tGDI5NCi6degHx2MgPdlEmru8nqlREYAQ=="
+          },
+          "time": {
+            "created": 1791683677321,
+            "completed": 1791683684193
+          }
+        },
+        {
+          "type": "text",
+          "text": "I fixed both methods so retries no longer create duplicate debits. `tsc -p tsconfig.json && node checks/public.cjs` passes, and so does a new check I added, `checks/idempotency.cjs`.\n\n**`Ledger.apply` (`src/ledger.ts`)**\n- Each debit is now recorded under its tenant and key together, so the same key under two different tenants never clashes.\n- If the same tenant and key comes back with the same amount, it returns the original receipt and doesn't add another debit.\n- If it comes back with a different amount, it throws `Error('key conflict')` and nothing is debited.\n- Two calls arriving at the same time can't both create a debit: the \"already exists?\" check and the save happen in one uninterrupted step.\n- It also rejects invalid input with `Error('invalid payment')`, so calling it directly can't create a bad debit either.\n\n**`PaymentService.pay` (`src/service.ts`)**\n- It checks the input before touching the ledger or the transport: tenant and key must be non-empty, cents a positive whole number, and attempts a whole number from 1 to 5. Anything else throws `Error('invalid payment')`.\n- It debits once, and only the acknowledgement is retried. Before, each retry debited again, which was the bug.\n- It retries only on `Transient` failures, up to `attempts` tries in total, sending the same receipt object each time.\n- If every try fails, the last error is thrown unchanged. Any other kind of error is thrown immediately without a retry.\n\n**What the new check covers**\n- Temporary acknowledgement failures after the debit (one debit, the same receipt each try) and repeat calls that return the original receipt.\n- A reused key with a different amount, and tenant/key scoping.\n- Running out of retries (the final error comes through), and other errors not being retried.\n- Concurrent calls with the same key producing one debit.\n- Every kind of invalid input, with no ledger or acknowledgement call made.\n\nThe public method signatures haven't changed, and `attempts` still defaults to 3. A repeated call with the same amount still sends the acknowledgement again (with the original receipt), so a retry can finish an acknowledgement that failed earlier."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0.022987,
+      "tokens": {
+        "input": 2,
+        "output": 781,
+        "reasoning": 0,
+        "cache": {
+          "read": 4120,
+          "write": 1307
+        }
+      }
+    },
+    {
+      "id": "msg_128ab69aa0016EYDKfoiP7u8Tj",
+      "time": {
+        "created": 1791683684778
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

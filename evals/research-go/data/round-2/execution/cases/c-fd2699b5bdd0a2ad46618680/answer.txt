@@ -1,0 +1,23 @@
+I have the two core pages. Now let me verify the version-gating evidence and the explicit-restart command behavior.
+
+**Decision (recommended configuration)**
+
+Switch the API to long-form `depends_on` (short form only orders startup):
+
+- `api → db`: `condition: service_healthy`, `restart: true`. Long syntax supports `restart: true` since Compose 2.17.0, so 2.18.0 is fine. It applies to "an explicit restart controlled by a Compose operation" and "excludes automated restart by the container runtime" ([services #long-syntax-1](https://docs.docker.com/reference/compose-file/services/#long-syntax-1)).
+- `api → migrate`: `condition: service_completed_successfully`, with `migrate → db: service_healthy`. Documented semantics: Compose waits for a dependency to "run to successful completion before starting a dependent service," and waits for healthchecks on `service_healthy` dependencies ([startup-order](https://docs.docker.com/compose/how-tos/startup-order/#example)).
+- telemetry: `condition: service_started`, and gate it behind a `profiles:` entry instead of `required: false`. Profiled services "only start/stop when their profile is active" ([profiles](https://docs.docker.com/compose/how-tos/profiles/#assigning-profiles-to-services)).
+
+**Lifecycle separation**
+
+- Container startup: Compose creates/starts in dependency order, but "does not wait until a container is ready, only until it's running" under short syntax ([startup-order](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)).
+- Health/readiness: `service_healthy` gates creation; healthcheck defines "healthy" ([services #healthcheck](https://docs.docker.com/reference/compose-file/services/#healthcheck)).
+- Migration completion: `service_completed_successfully` covers this.
+- Explicit operator restarts: covered by `restart: true` ([services #long-syntax-1](https://docs.docker.com/reference/compose-file/services/#long-syntax-1)).
+- Runtime restarts: not propagated. `restart: always` is only a per-container termination policy ([services #restart](https://docs.docker.com/reference/compose-file/services/#restart)).
+
+**Cannot be relied on at 2.18.0**
+
+1. `required: false` is documented as introduced in Compose 2.20.0 ([services #depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). Exact 2.18.0 behavior (validation error versus ignored field) is UNVERIFIED; resolve by running `docker compose config` on 2.18.0 or checking its release notes.
+2. Crash-then-runtime-restart propagation to the API: explicitly excluded.
+3. No: this configuration cannot justify promising the API "remains ready to serve throughout later database failures." `depends_on` plus healthchecks are creation-time gates, not continuous readiness enforcement. Pair it with application-level reconnect/retry and external readiness monitoring; only upgrade (`required: false`) or an orchestrator with runtime-level dependency management would add anything further.

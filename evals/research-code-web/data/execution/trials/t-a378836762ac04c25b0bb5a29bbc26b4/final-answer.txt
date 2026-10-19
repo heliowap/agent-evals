@@ -1,0 +1,21 @@
+## Answer (with explicit limits on what evidence supports)
+
+**Path and helper.** The request-preparation implementation is `SessionTools.resolve` in `packages/opencode/src/session/tools.ts`, defined at **tools.ts:41–497** as `Effect.fn("SessionTools.resolve")` and exported at **tools.ts:590** (`export * as SessionTools from "./tools"`). It builds the `tools` record prepared for the LLM call (returned at tools.ts:489–492).
+
+**Caller.** The prompt loop in `packages/opencode/src/session/prompt.ts` resolves the tools during request preparation: **prompt.ts:1226–1241** calls `SessionTools.resolve({ agent, session, model, processor: handle, bypassAgentCheck, messages, promptOps })` inside `runLoop`, providing the plugin, permission, tool-registry, MCP, truncate, and runtime-flag services. The result is passed onward as `tools` into `handle.process({ ... tools, ... })` at **prompt.ts:1283** (and in `llm.ts:317–318` as `activeTools`/`tools`, where only the sentinel `"invalid"` tool is filtered out of `activeTools`).
+
+**How per-message toggles become permission rules.** In `prompt.ts:1060–1067`, for each entry of the per-message `input.tools` record: `permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })`. So a **falsy toggle value (`false`, i.e. anything not truthy) maps to a `deny` rule with the wildcard pattern `"*"`, excluding the tool; a truthy value maps to `allow`**. When any such rules exist they are assigned to `session.permission` and persisted via `sessions.setPermission` (prompt.ts:1064–1067). The schema annotation at prompt.ts:1505–1507 marks this `tools` record as deprecated: *"tools and permissions have been merged, you can set permissions on the session itself now"* — confirming the toggles are rewritten into session permission rules for the filtering decision.
+
+**How permissions are merged in order.** At **tools.ts:87** the ruleset handed to `permission.ask` is `Permission.merge(input.agent.permission, input.session.permission ?? [])` — agent-level rules first, then session-level (which includes the toggle-derived deny rules) second, so the latter are appended later in the merged set. (The registry also receives `permission: input.session.permission` directly at tools.ts:92–97 when instantiated tools are produced.)
+
+**How MCP-resource-reading tool names are grouped.** The `MCP_RESOURCE_TOOLS` constant at **tools.ts:26–31** groups `list: "list_mcp_resources"`, `listTemplates: "list_mcp_resource_templates"`, and `read: "read_mcp_resource"`. These are added to the prepared tools only when an MCP client advertises resource capabilities (`hasMcpResourceServer`, tools.ts:136–139), at tools.ts:140, 222, and 305 respectively; the `read_mcp_resource` tool requests the `permission: "read"` at tools.ts:344.
+
+## Unresolved limitations (evidence not obtained)
+
+I could not, within the evidence gathered, confirm or cite:
+
+1. **The concrete filtering/disabling logic itself.** Tool_registry instantiation at tools.ts:92–97 passes `permission` in, strongly indicating the actual "filter already-available tools" decision lives in the `ToolRegistry.Service` implementation — which I never located or read. My searches for `tool.available`, `filterTools`, `disabledTools`, and `Permission.check` returned no matches, so I cannot name the function that drops disabled tools or quote a rule-matching/disabling line.
+2. **How a specific permission rule is chosen over others** (last-match vs first-match in the merged ruleset, and how a `deny` rule with pattern `*` is applied to a tool id) — this presumably resides in `packages/opencode/src/permission/evaluate.ts` and `packages/opencode/src/permission/index.ts`, which exist (glob result) but which I did not read; the `Permission.merge(...)` behavior is therefore inferred from call order, not read.
+3. **Grouping of editing tool names** (e.g., edit/patch/write-style tools) for the disable decision — no source lines evidencing such a group were obtained.
+
+Caveat: everything above is cited strictly from the read/grep excerpts of `tools.ts` and `prompt.ts` (plus the `llm.ts:317–318` line); no code was executed.

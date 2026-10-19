@@ -1,0 +1,76 @@
+### 1. Test Location and Structure
+
+In the assigned Click snapshot, the test is **`test_invoked_subcommand`**, located in **`tests/test_commands.py:279–300`**.
+
+The test defines a non-chained group configured with `invoke_without_command=True` (`tests/test_commands.py:280–288`) and a child command `sync` (`tests/test_commands.py:289–291`):
+```python
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx):
+    if ctx.invoked_subcommand is None:
+        click.echo("no subcommand, use default")
+        ctx.invoke(sync)
+    else:
+        click.echo("invoke subcommand")
+
+@cli.command()
+def sync():
+    click.echo("in subcommand")
+```
+
+---
+
+### 2. Assertions: Explicit Child Selection vs. No Selection
+
+The test evaluates two invocation scenarios and makes specific assertions on each:
+
+1. **Explicit Child Selection** (`runner.invoke(cli, ["sync"])` at line 293):
+   - **`tests/test_commands.py:294`**: `assert not result.exception` asserts that no unhandled exception occurred during the run.
+   - **`tests/test_commands.py:295`**: `assert result.output == "invoke subcommand\nin subcommand\n"` asserts the exact standard output, verifying that the `else` branch in the group callback executed followed by the `sync` subcommand callback.
+
+2. **No Selection** (`runner.invoke(cli)` at line 297):
+   - **`tests/test_commands.py:298`**: `assert not result.exception` asserts that no unhandled exception occurred during the run.
+   - **`tests/test_commands.py:299`**: `assert result.output == "no subcommand, use default\nin subcommand\n"` asserts the exact standard output, verifying that `ctx.invoked_subcommand` evaluated to `None`, triggering the default child invocation via `ctx.invoke(sync)`.
+
+---
+
+### 3. Implementation Ordering and Child Context Creation for Explicit Selection
+
+The implementation is found in **`src/click/core.py:2076–2086`** inside `Group.invoke(self, ctx)` for non-chained mode (`if not self.chain:`):
+
+```python
+with ctx:
+    cmd_name, cmd, args = self.resolve_command(ctx, args)
+    assert cmd is not None
+    ctx.invoked_subcommand = cmd_name
+    super().invoke(ctx)
+    sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
+    with sub_ctx:
+        return _process_result(sub_ctx.command.invoke(sub_ctx))
+```
+
+- **Execution Order**:
+  1. **Resolve command**: `self.resolve_command(ctx, args)` parses the command name and command instance from `args` (line 2080).
+  2. **Set subcommand state**: `ctx.invoked_subcommand = cmd_name` records the selected subcommand on the group context (line 2082).
+  3. **Group callback executes first**: `super().invoke(ctx)` invokes `Command.invoke(self, ctx)`, executing the group's own callback (`cli`) before the child runs (line 2083).
+  4. **Create child context**: `sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)` is called **after** the group callback completes (line 2084).
+  5. **Child callback executes last**: Inside `with sub_ctx:`, `sub_ctx.command.invoke(sub_ctx)` invokes the subcommand's callback (line 2086).
+
+- **Child Context Creation**:
+  - The child context is created via `cmd.make_context(cmd_name, args, parent=ctx)` (line 2084).
+  - It receives the resolved command name `cmd_name`, the remaining command arguments `args`, and explicitly binds the current group context as its parent via `parent=ctx`.
+
+---
+
+### 4. Distinguishing Read Assertions from Untested Generalizations
+
+* **What the test strictly asserts**:
+  - Absence of exceptions (`assert not result.exception`) in both invocation branches (`lines 294, 298`).
+  - Exact string match of CLI output produced by `click.echo` statements in both branches (`lines 295, 299`).
+  - That `ctx.invoked_subcommand` evaluates to `None` when no command argument is passed and is truthy when `"sync"` is passed.
+
+* **Untested generalizations not asserted by this test**:
+  - **No return value or exit code checks**: The test does not assert `result.exit_code == 0` or check `result.return_value`.
+  - **No context inspection**: The test does not inspect `sub_ctx`, verify `sub_ctx.parent is ctx`, or test how context stack unwinding/teardown operates.
+  - **No arguments or options**: Both the group and the child command take zero arguments/options; passing CLI options or parameters into the default subcommand via `ctx.invoke(sync, ...)` is completely unexercised.
+  - **Pattern generalization**: The test demonstrates an application-level pattern using `invoke_without_command=True` and manual fallback with `ctx.invoke(sync)`; it does not assert or test any built-in Click declarative default command construct (such as a `default_subcommand` keyword argument on `click.group`).

@@ -1,0 +1,68 @@
+## The test
+
+The relevant test is `test_invoked_subcommand` in `tests/test_commands.py:279-299`. It defines a plain (non-chained) group:
+
+```python
+@click.group(invoke_without_command=True)      # line 280 — no chain=True
+@click.pass_context
+def cli(ctx):
+    if ctx.invoked_subcommand is None:          # lines 283-285
+        click.echo("no subcommand, use default")
+        ctx.invoke(sync)
+    else:                                        # lines 286-287
+        click.echo("invoke subcommand")
+
+@cli.command()                                   # 289-291
+def sync():
+    click.echo("in subcommand")
+```
+
+### What it asserts
+
+**Explicit child selection** (`tests/test_commands.py:293-295`):
+```python
+result = runner.invoke(cli, ["sync"])
+assert not result.exception
+assert result.output == "invoke subcommand\nin subcommand\n"
+```
+So with `"sync"` supplied, the group callback sees `ctx.invoked_subcommand` as non-`None` (it takes the `else` branch and echoes `"invoke subcommand"`), and the child then echoes `"in subcommand"`.
+
+**No selection** (`tests/test_commands.py:297-299`):
+```python
+result = runner.invoke(cli)
+assert not result.exception
+assert result.output == "no subcommand, use default\nin subcommand\n"
+```
+With no argv, the group callback still runs, sees `ctx.invoked_subcommand is None`, and manually invokes the child via `ctx.invoke(sync)` — hence the second line is produced by the test's own callback, not by group dispatch.
+
+Note the assertions are only `not result.exception` plus exact `result.output`. The test does **not** directly assert the value of `ctx.invoked_subcommand`; that value's being `"sync"` vs `None` is inferred from which branch (and therefore which echoed line) is taken.
+
+## Implementation behavior
+
+In `src/click/core.py`, `Context.__init__` initializes `self.invoked_subcommand = None` (line 436). `Group.invoke` is at lines 2052-2118.
+
+**No subcommand chosen** — `if not ctx._protected_args:` (line 2058): if `invoke_without_command` is true, the code enters `with ctx:` and runs `super().invoke(ctx)` (lines 2063-2064), then returns `_process_result([] if self.chain else rv)` (line 2065). The group callback therefore runs first with `invoked_subcommand` still `None`. If `invoke_without_command` were false, it would instead `ctx.fail(_("Missing command."))` (line 2066).
+
+**Explicit selection, non-chained** — after the `not self.chain` check (line 2076):
+```python
+with ctx:                                     # 2079
+    cmd_name, cmd, args = self.resolve_command(ctx, args)   # 2080
+    assert cmd is not None                    # 2081
+    ctx.invoked_subcommand = cmd_name         # 2082
+    super().invoke(ctx)                       # 2083 — group callback runs HERE
+    sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)  # 2084
+    with sub_ctx:                             # 2085
+        return _process_result(sub_ctx.command.invoke(sub_ctx))  # 2086
+```
+So the ordering is: resolve the command → set `ctx.invoked_subcommand = cmd_name` → invoke the **group** callback (`super().invoke(ctx)`, which per `Command.invoke` at line 1445 runs `ctx.invoke(self.callback, **ctx.params)`) → **then** create the child context with `cmd.make_context(cmd_name, args, parent=ctx)` → then invoke the child inside `with sub_ctx`. The child context is created *after* the group callback, and the result callback wraps the child's return (line 2053-2056 define `_process_result`).
+
+`make_context` is at `src/click/core.py:1359-1394`: it merges `self.context_settings` into `extra` (1386-1388), constructs `self.context_class(self, info_name=info_name, parent=parent, **extra)` (1390), then parses args inside `ctx.scope(cleanup=False)` (1392-1393).
+
+## Untested generalizations / limitations
+
+- The test only covers a single valid child name and the empty-argv case. It does not test unknown-command handling in `resolve_command`, options passed to the child, or `result_callback` on a non-chained group.
+- The chain-mode branch (`ctx.invoked_subcommand = "*" if args else None`, line 2094; contexts built at 2100-2117) is **not** exercised by this test — it uses a non-chained group. `tests/test_chain.py:88-104` covers chained `invoke_without_command` output but asserts only the result-callback value (`"1"` vs `"[]"`), not `invoked_subcommand`.
+- `make_context`'s `context_settings` merging (lines 1386-1388) is documented in code but not asserted by this test.
+- The no-selection path's second output line depends on the test's own `ctx.invoke(sync)` call, so the test does not demonstrate that Click dispatches a default child when no subcommand is given; `invoke_without_command` merely lets the group callback run.
+
+I did not run any code or tests; all statements above are read from the cited source spans.

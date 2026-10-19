@@ -1,0 +1,25 @@
+## The test
+
+`tests/test_commands.py:279-299`, `test_invoked_subcommand`, is the match. The group is non-chained because it is declared `@click.group(invoke_without_command=True)` (line 280) with no `chain=` argument, and `Group.__init__` defaults `chain: bool = False` (`src/click/core.py:1771`). The group callback (`tests/test_commands.py:281-287`) branches on `ctx.invoked_subcommand is None`: in that branch it echoes `"no subcommand, use default"` and manually invokes the default child with `ctx.invoke(sync)` (lines 284–285); otherwise it echoes `"invoke subcommand"`. The child `sync` (lines 289–291) echoes `"in subcommand"`.
+
+**What it asserts — explicit selection (`tests/test_commands.py:293-295`):** `runner.invoke(cli, ["sync"])` must produce no exception and exactly `"invoke subcommand\nin subcommand\n"`. So the group callback takes the else-branch (it must *not* call `ctx.invoke(sync)` itself), and `sync`'s callback runs once through normal dispatch.
+
+**What it asserts — no selection (`tests/test_commands.py:297-299`):** `runner.invoke(cli)` with no args must produce no exception and exactly `"no subcommand, use default\nin subcommand\n"`. The echoed strings are the only behavioral evidence: the test never inspects return values, contexts, or call ordering beyond the interleaved output.
+
+## Implementation for explicit selection (non-chained path)
+
+`Group.invoke` spans `src/click/core.py:2052-2118` (class `Group` starts at 1703; the next class, `_MultiCommand`, starts at 2166). After `Group.parse_args` splits the remainder into `ctx._protected_args` and `ctx.args` for non-chained groups (`core.py:2044-2048`), the non-chained invoke path at `core.py:2076-2086` does, in order:
+
+1. `core.py:2079` — `with ctx:` ("Make sure the context is entered so we do not clean up resources until the result processor has worked", comment at 2077–2078).
+2. `core.py:2080-2081` — `self.resolve_command(ctx, args)` yields `cmd_name, cmd, args` (with `assert cmd is not None`).
+3. `core.py:2082` — `ctx.invoked_subcommand = cmd_name` is set **before** the callback, which is what makes the test's `is None` check meaningful.
+4. `core.py:2083` — `super().invoke(ctx)` runs the **group callback first**, inside the parent context.
+5. `core.py:2084` — only after the callback returns is the **child context created**: `sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)`.
+6. `core.py:2085-2086` — `with sub_ctx:` then `return _process_result(sub_ctx.command.invoke(sub_ctx))`.
+
+For the no-selection run, the test instead exercises the earlier branch at `core.py:2058-2066`: with no `_protected_args` and `invoke_without_command=True`, the framework runs the group callback in `with ctx:` and returns `_process_result([] if self.chain else rv)` — no framework-created child context. The "default child" invocation seen in the test is the test author's own `ctx.invoke(sync)`; per `Context.invoke` (`core.py:907-917`), passing a `Command` extracts `other_cmd.callback` and builds a sub-context via `self._make_sub_context` (line 917), filling parameter defaults (919–931).
+
+## Read vs. inferred
+
+- **Read directly (evidence-backed):** both output strings and the `not result.exception` assertions (293–299); the group/child definitions (280–291); the exact statement order in `Group.invoke` for the non-chained path (2076–2086); the no-subcommand branch (2058–2066); `chain=False` default (1771); `Context.invoke`'s Command handling (907–917).
+- **Inferred generalizations, not asserted by this test:** that `invoked_subcommand` must be assigned before the callback for the branch to work (the test only observes the echo outcome); that `make_context(..., parent=ctx)` links the child context to the group (not observable via echoed output); that the default path returns the callback's `rv` through `_process_result` (2065); and that `ctx.invoke` fills parameter defaults for the manually invoked child (919–931). Nothing here was executed: I performed static reads only, so all of the above is snapshot reading, not test-run confirmation. The default-child behavior is also a pattern the test author implements, not a Click-level "default subcommand" feature.

@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "src/api.py": "from .money import _cents, _from_cents, MAX_CENTS, format_amount\n\n\ndef make_invoice(amounts):\n    if type(amounts) is not list:\n        raise ValueError(\"amounts must be a list\")\n    items = list(amounts)\n    total = 0\n    for item in items:\n        total += _cents(item)\n        if total > MAX_CENTS:\n            raise ValueError(\"total too large\")\n    return {\"total\": format_amount(_from_cents(total)), \"count\": len(items)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\n_PATTERN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\", re.ASCII)\nMAX_CENTS = 100000000  # 1000000.00\n\n\ndef _cents(value):\n    \"\"\"Validate value and return its exact integer number of cents.\"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"invalid amount\")\n    if isinstance(value, str):\n        if not _PATTERN.fullmatch(value):\n            raise ValueError(\"invalid amount\")\n        value = Decimal(value)  # construction is exact regardless of context\n    elif isinstance(value, int):\n        value = Decimal(value)\n    elif not isinstance(value, Decimal):\n        raise ValueError(\"invalid amount\")\n    if not value.is_finite():\n        raise ValueError(\"invalid amount\")\n    sign, digits, exp = value.as_tuple()\n    coef = int(\"\".join(map(str, digits)))\n    if sign or coef == 0:\n        raise ValueError(\"amount must be positive\")\n    # Bound magnitude before any big arithmetic.\n    if exp + len(digits) > 9:\n        raise ValueError(\"amount too large\")\n    if exp >= -2:\n        cents = coef * 10 ** (exp + 2)\n    else:\n        drop = -2 - exp\n        if drop > len(digits):\n            raise ValueError(\"amount not representable in cents\")\n        cents, rem = divmod(coef, 10 ** drop)\n        if rem:\n            raise ValueError(\"amount not representable in cents\")\n    if cents == 0:\n        raise ValueError(\"amount must be positive\")\n    if cents > MAX_CENTS:\n        raise ValueError(\"amount too large\")\n    return cents\n\n\ndef _from_cents(cents):\n    return Decimal((0, tuple(int(c) for c in str(cents)), -2))\n\n\ndef parse_amount(value):\n    return _from_cents(_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 67,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04349575002561323
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04339299999992363,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04525241701048799,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

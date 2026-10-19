@@ -1,0 +1,17 @@
+`get_document` and `list_documents` now only return rows that match the given tenant and owner and have `deleted_at IS NULL`. Both checks pass: `python3 checks/public.py` and a new `checks/test_access.py`.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner` and filter in SQL on `tenant=?`, `owner=?` and `deleted_at IS NULL`. Values go through `?` placeholders, so quotes and injection-shaped names are passed as data. `find` also keeps `id=?`. `listing` orders by `id`. `decode` still returns only `id`, `title` and `body`, so the result shape is unchanged.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` and `owner` through to the repository. Previously they ignored `tenant` and used only `id` or `owner`.
+
+**Verification**
+
+- `checks/public.py` passes.
+- `checks/test_access.py` (new) covers:
+  - a visible record is returned;
+  - cross-tenant, cross-owner, deleted and missing IDs all return `None`;
+  - owner names containing `'` and an `OR '1'='1` payload match only their own rows, and payloads in tenant or owner values match nothing;
+  - lists are scoped, exclude deleted rows, are ordered by `id`, and have only the `id`, `title` and `body` keys.
+
+The original files are saved at `/tmp/service.py.orig` and `/tmp/repository.py.orig`. Nothing else in the project was changed.

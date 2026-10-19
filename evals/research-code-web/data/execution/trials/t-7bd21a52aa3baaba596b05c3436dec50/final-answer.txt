@@ -1,0 +1,53 @@
+## Bounded answer
+
+Yes — when you pass a custom `transport` and leave `proxy=None`, the synchronous `Client` builds **no** environment-proxy mounts, even with `trust_env=True`. The decisive gate is the ternary at `httpx/_client.py:685`:
+
+```
+allow_env_proxies = trust_env and transport is None
+```
+
+With a supplied transport, `transport is None` is `False`, so `allow_env_proxies` is `False` regardless of the `trust_env` value. That flag is then passed to `_get_proxy_map` (line 686), whose `proxy is None` branch (lines 242–248) reads:
+
+```
+if proxy is None:
+    if allow_env_proxies:
+        return {key: None if url is None else Proxy(url=url)
+                for key, url in get_environment_proxies().items()}
+    return {}
+```
+
+So the env lookup at line 246 (`get_environment_proxies()`, defined at `httpx/_utils.py:30`) is never reached; the closed branch at line 248 returns `{}`. Consequently the mount comprehension at lines 697–710 iterates over an empty `proxy_map`, so `self._mounts` stays empty and the `_init_proxy_transport` call at lines 700–708 never fires. No environment-proxy `HTTPTransport` objects are constructed.
+
+## Is the supplied default transport retained?
+
+Yes. `self._transport` is set at lines 688–696 via `_init_transport`, whose first branch is:
+
+```
+if transport is not None:
+    return transport
+```
+
+(lines 728–729). The supplied object is returned unchanged and stored as the default. Because `self._mounts` is empty, `_transport_for_url` (lines 760–769) falls through its loop and returns `self._transport` at line 769 for every URL. (The async class mirrors this exactly: gate at line 1399, `_get_proxy_map` at 1400, mounts at 1412–1430.)
+
+## Contrast an explicit proxy argument
+
+An explicit `proxy` bypasses the gate entirely. `_get_proxy_map` takes its `else` branch (lines 249–251), returning `{"all://": proxy}` after coercing a `str`/`URL` through `Proxy(url=proxy)`. This happens irrespective of `allow_env_proxies`. At the mount comprehension, `proxy is None` is `False` (line 699), so the `else` arm runs `_init_proxy_transport(proxy, ...)` (lines 700–708), producing a mounted `HTTPTransport` with `proxy=` set (lines 750–757). Thus an explicit proxy still yields a proxy mount even when a custom transport is supplied; only the *environment*-derived path is suppressed. The distinct `_init_proxy_transport` helper is the only place `proxy=` is forwarded to `HTTPTransport`.
+
+## Explicit mounts, including a matching `None` mount
+
+User `mounts` are applied after the proxy map (lines 711–714), with `URLPattern(key)` keys; `None` values are legal per the parameter type at line 652. Selection is in `_transport_for_url`:
+
+```
+for pattern, transport in self._mounts.items():
+    if pattern.matches(url):
+        return self._transport if transport is None else transport
+return self._transport
+```
+
+(lines 765–769). The dict is sorted by pattern at line 716, and the first matching pattern wins. A matching **`None` mount therefore selects `self._transport`** — the supplied custom transport — i.e., it is an explicit bypass/no-proxy entry, not a missing transport. Within the environment path, the same convention appears at line 245, where a `None` URL (from `NO_PROXY` handling in `_utils.py:47–74`) becomes a `None` mount; but as shown, that path is not entered when a transport is supplied.
+
+Note the interaction: because the env path returns `{}` under a supplied transport, the client also creates no `NO_PROXY`-derived `None` mounts; only mounts you pass explicitly are present. Explicit mounts override both the proxy-derived mount and the default, subject to sort order.
+
+## Limitations
+
+This reading is from static source only; I did not run code or tests, and `get_environment_proxies()` delegates to `urllib.request.getproxies()` (`_utils.py:37`) plus a `NO_PROXY` scan (`_utils.py:40–74`), so the exact environment contents are out of scope. I also do not characterize behavior *inside* an arbitrary custom transport — e.g., whether a custom `HTTPTransport` subclass independently consults environment variables; the answer concerns only which transports the `Client` constructor itself constructs and mounts.

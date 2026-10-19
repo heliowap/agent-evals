@@ -1,0 +1,20 @@
+I implemented `import_contacts` and wired it through `handle_import`. The public check and my new check script both pass.
+
+**Changes**
+
+- **`src/repository.py`**: added `contact_exists(connection, email)`. `put_contact`, `initialize` and `list_contacts` are unchanged.
+- **`src/service.py`**:
+  - `_normalize_row` rejects non-object rows, unknown or missing fields, non-string values, and emails that don't have exactly one `@` with nonempty sides, contain whitespace, or have an empty name after trimming. Email is trimmed and lowercased.
+  - `import_contacts` rejects non-list batches. It normalizes and validates every row and checks for duplicate emails before touching the database.
+  - Writes run inside `with connection:`. For each row it checks whether the email exists, counts it as updated or inserted, then upserts. Any exception rolls back the whole batch.
+  - Empty batches return `{'inserted': 0, 'updated': 0}`.
+  - `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the key `contacts`, raises `ValueError` otherwise, and returns the summary from `import_contacts`. `handle_add` is unchanged.
+- **`checks/import_checks.py`** (new): plain-Python checks, since pytest isn't installed here. They cover counts, case and whitespace normalization, a range of invalid rows with no partial writes, in-batch duplicates, a forced database failure mid-batch that rolls back, and the API envelope.
+
+**Verification**
+
+- `python3 checks/public.py`: passes.
+- `python3 checks/import_checks.py`: all 7 checks pass.
+
+I did not modify `README.md`.

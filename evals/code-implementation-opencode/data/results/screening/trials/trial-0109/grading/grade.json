@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { ProfileService } = require('../.build/service');\n        const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n        assert.deepEqual(service.patch({ displayName: 'after' }), { displayName: 'after', tags: ['old'] });\n        assert.deepEqual(service.patch({ tags: ['new'] }), { displayName: 'after', tags: ['new'] });\n        assert.throws(() => service.patch(null), /invalid profile/);\n\nconst s2 = new ProfileService({ displayName: 'a', tags: ['x'] });\nconst bad = [[], 'x', 1, { other: 1 }, { displayName: 5 }, { displayName: '  ' }, { displayName: 'x'.repeat(41) },\n  { tags: [1] }, { tags: ['a', ' a '] }, { tags: ['', 'b'] }, { tags: ['a','b','c','d','e','f'] },\n  { tags: ['x'.repeat(13)] }, { tags: 'a' }, { displayName: 'ok', tags: [1] }, { displayName: undefined }];\nfor (const b of bad) assert.throws(() => s2.patch(b), /invalid profile/);\nassert.deepEqual(s2.profile, { displayName: 'a', tags: ['x'] });\nassert.deepEqual(s2.patch({}), { displayName: 'a', tags: ['x'] });\nconst tags = [' p ', 'q'];\nassert.deepEqual(s2.patch({ displayName: ' hi ', tags }), { displayName: 'hi', tags: ['p', 'q'] });\nassert.notEqual(s2.profile.tags, tags);\nassert.deepEqual(tags, [' p ', 'q']);\nassert.deepEqual(s2.patch({ displayName: null, tags: null }), { displayName: null, tags: [] });\nassert.deepEqual(s2.patch(Object.assign(Object.create(null), { tags: ['z'] })).tags, ['z']);\nassert.throws(() => s2.patch(new (class A {})()), /invalid profile/);\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst invalid = () => new Error('invalid profile');\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw invalid();\n  const proto = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) throw invalid();\n\n  const data: Record<string, unknown> = {};\n  for (const key of Reflect.ownKeys(input)) {\n    if (key !== 'displayName' && key !== 'tags') throw invalid();\n    const desc = Object.getOwnPropertyDescriptor(input, key)!;\n    if (!('value' in desc)) throw invalid();\n    data[key] = desc.value;\n  }\n\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n\n  if ('displayName' in data) {\n    const v = data.displayName;\n    if (v === null) displayName = { kind: 'set', value: null };\n    else if (typeof v === 'string') {\n      const t = v.trim();\n      if (t.length < 1 || t.length > 40) throw invalid();\n      displayName = { kind: 'set', value: t };\n    } else throw invalid();\n  }\n\n  if ('tags' in data) {\n    const v = data.tags;\n    if (v === null) tags = { kind: 'set', value: [] };\n    else if (Array.isArray(v)) {\n      if (v.length > 5) throw invalid();\n      const out: string[] = [];\n      for (let i = 0; i < v.length; i++) {\n        if (!(i in v)) throw invalid();\n        const item = v[i];\n        if (typeof item !== 'string') throw invalid();\n        const t = item.trim();\n        if (t.length < 1 || t.length > 12 || out.includes(t)) throw invalid();\n        out.push(t);\n      }\n      tags = { kind: 'set', value: out };\n    } else throw invalid();\n  }\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    const parsed = parseProfile(input); // throws before any mutation\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = [...parsed.tags.value];\n    return this.profile;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 82,
+    "removed_lines": 33
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5387643330032006
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06524558298406191,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06380850001005456,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

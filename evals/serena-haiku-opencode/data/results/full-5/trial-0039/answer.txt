@@ -1,0 +1,10 @@
+`import_contacts` is implemented in `src/service.py`, with `handle_import` in `src/api.py` exposing it. The public check and the 8 new unit tests all pass.
+
+- **`src/service.py`**: `import_contacts` validates every row before touching the database. Rows must be objects with exactly `email` and `name` as strings. Both are trimmed, the email is lowercased, and it must have one `@`, nonempty sides, and no whitespace. The name must be nonempty. Duplicate normalized emails in the batch raise `ValueError`. The writes then run in one `with connection:` block, so any database error rolls back the whole batch. Each email is classified as inserted or updated, and the result is `{'inserted': N, 'updated': N}`. `add_contact` is unchanged.
+- **`src/repository.py`**: added `contact_exists(connection, email)`. Other functions are unchanged.
+- **`src/api.py`**: `handle_import` requires the payload to be an object whose only key is `contacts`, otherwise it raises `ValueError`. It then returns the service summary. `handle_add` is unchanged.
+- **`checks/test_import_contacts.py`** (new): covers counts, normalization, empty batches, each rejection case with no writes, rollback when a trigger fails mid-batch, envelope validation, and `handle_add` still working.
+
+Run with `python3 checks/public.py` and `python3 -m unittest checks/test_import_contacts.py`.
+
+Two decisions go beyond the spec. The envelope check is strict, so extra top-level keys are rejected. Lookups match the normalized email against stored emails as they are. `add_contact` does not lowercase, so a row previously stored in mixed case will not match a lowercase import and will be inserted as a new contact.

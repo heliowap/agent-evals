@@ -1,0 +1,23 @@
+Both functions now enforce tenant, owner and `deleted_at IS NULL`, and `python3 checks/public.py` passes.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` take `tenant` and `owner` as well.
+  - `find` runs `WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL`, so a missing, cross-tenant, cross-owner or deleted record all return `None`.
+  - `listing` runs `WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id`.
+  - All values are passed as bound parameters.
+  - `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` now pass `tenant` and `owner` through to the repository.
+- **`checks/access_checks.py`** (new): covers the following.
+  - Visible documents are returned.
+  - Deleted, cross-tenant, cross-owner and unknown IDs return `None`.
+  - Tenant and owner names containing quotes match correctly.
+  - SQL-like input is treated as a literal value.
+  - Lists are scoped, exclude deleted rows, are ordered by id, and contain only `id`, `title` and `body`.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/access_checks.py` passes.
+
+The repository function signatures changed, but `service.py` is the only caller. I did not run a broader test suite beyond these two checks.

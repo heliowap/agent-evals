@@ -1,0 +1,24 @@
+## Decision
+
+| Service | Dependency/lifecycle settings |
+|---|---|
+| `db` | Keep `healthcheck` + `restart: always` |
+| `migrate` (one-shot) | `depends_on: db: {condition: service_healthy}`; no restart policy; must exit 0 |
+| `api` | Long syntax: `migrate: {condition: service_completed_successfully}`; `db: {condition: service_healthy, restart: true}` |
+| `telemetry` | `profiles: [telemetry]`, **not** `required: false` |
+
+Short-form `depends_on` only guarantees the dependency is "started"; health gating requires the long syntax ([services#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). Compose "does not wait until a container is 'ready'"; conditions are evaluated once when the dependent service starts ([startup-order](https://docs.docker.com/compose/how-tos/startup-order/)). So: container startup ≠ readiness ≠ migration success; only the three documented conditions separate them.
+
+## What 2.18.0 cannot do
+
+- **Runtime/crash restarts:** `restart: true` covers explicit Compose operations (`docker compose restart db`) but "excludes automated restart by the container runtime after the container dies" ([services#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). So the team's crash-restart propagation assumption is false; `restart: always` resurrects `db` alone ([services#restart](https://docs.docker.com/reference/compose-file/services/#restart)).
+- **`required: false`:** introduced in 2.20.0 ([services#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)); unavailable on 2.18.0. Whether 2.18.0 rejects or ignores it is UNVERIFIED — check the [v2.20.0 release notes](https://github.com/docker/compose/releases/tag/v2.20.0).
+- **Lifecycle hooks:** `post_start`/`pre_stop` need 2.30.0+ ([lifecycle how-to](https://docs.docker.com/compose/how-tos/lifecycle/)); hook timing is anyway "not guaranteed."
+
+## Telemetry
+
+Profiles make services conditional and are version-safe ([profiles reference](https://docs.docker.com/reference/compose-file/profiles/)), but a profile-gated dependency referenced by an always-enabled service makes Compose "return an error." Put the `api → telemetry` edge in an override file enabled with `--profile telemetry`.
+
+## Readiness promise
+
+No. Nothing documented monitors the database after startup or restarts `api` on later database failure, so this configuration cannot justify promising the API stays ready to serve. Add in-app reconnection/retry and external health-based orchestration (recommendation, outside Compose's documented guarantees).

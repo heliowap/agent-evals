@@ -1,0 +1,42 @@
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+ROOT = Path('~/VSCode/Lab/evals/research-eval-design-20261007T184125Z')
+WORK = ROOT / 'controller-work/agent-grading'
+p = argparse.ArgumentParser()
+p.add_argument('command', choices=['record', 'audit'])
+p.add_argument('--stage', choices=['base', 'review', 'adjudication'])
+p.add_argument('--job', type=int)
+p.add_argument('--session-id')
+a = p.parse_args()
+if a.command == 'record':
+    assert a.stage and a.job and a.session_id.startswith('ses_')
+    directory = WORK / a.stage
+    directory.mkdir(parents=True, exist_ok=True)
+    receipt = {'stage': a.stage, 'job': a.job, 'actual_session_id': a.session_id,
+               'requested_model': 'openai/gpt-6.1-sol-fast#high', 'status': 'launched',
+               'raw_path': f'controller-work/agent-grading/{a.stage}/raw/job-{a.job:03d}.json'}
+    with (directory / f'job-{a.job:03d}-launch.json').open('x') as f:
+        json.dump(receipt, f, sort_keys=True)
+        f.write('\n')
+    print(json.dumps(receipt))
+else:
+    completed = []
+    preserved = []
+    for path in sorted(WORK.glob('*/*-launch.json')):
+        launch = json.loads(path.read_text())
+        proofpath = path.with_name(path.name.replace('-launch.json', '-provenance.json'))
+        if not proofpath.exists():
+            preserved.append({'stage': launch['stage'], 'job': launch['job'],
+                              'actual_session_id': launch['actual_session_id']})
+            continue
+        proof = json.loads(proofpath.read_text())
+        assert proof['actual_session_id'] == launch['actual_session_id']
+        assert proof['requested_model'] == launch['requested_model']
+        assert proof['raw_path'] == launch['raw_path']
+        assert hashlib.sha256((ROOT / proof['raw_path']).read_bytes()).hexdigest() == proof['raw_sha256']
+        completed.append({'stage': launch['stage'], 'job': launch['job']})
+    print(json.dumps({'status':'PASS', 'accepted_jobs_verified': completed,
+                      'preserved_assignments_without_accepted_provenance': preserved}))

@@ -1,0 +1,21 @@
+## Decision: expected behavior per runner
+
+**Runner A** (GOTOOLCHAIN=auto, bundled 1.21.3, main module `go 1.21.0` + `toolchain go1.21.9`, no go1.21.9 on PATH): under auto, the go command consults the main module's `toolchain` line; since go1.21.9 is newer than the default (bundled 1.21.3), it runs go1.21.9. Not found in PATH, it **downloads** the `golang.org/toolchain` module, verifying checksums against the Go checksum database. With GOSUMDB=off, "toolchain downloads fail for lack of verification" — so it would fail. (https://go.dev/doc/toolchain#select, https://go.dev/doc/toolchain#download)
+
+**Runner B** (GOTOOLCHAIN=local, module `go 1.21.9`, bundled 1.21.3): with `local` the go command always runs the bundled toolchain. Since Go 1.21, the go line is a mandatory minimum: a toolchain refuses to load a module declaring a newer go line, so this build **refuses with an error**. (https://go.dev/doc/toolchain#select, https://go.dev/doc/toolchain#config)
+
+**Runner C** (GOTOOLCHAIN=go1.21.3+path, Runner A's module): the default is go1.21.3, but the `toolchain go1.21.9` line is newer, so selection switches to go1.21.9. With `+path`, the download fallback is disabled: the command searches PATH only, finds no go1.21.9, and **fails** — not silently. Note: the `+path` form also disables the network fetch of the toolchain list, but selection itself can still require a newer toolchain. (https://go.dev/doc/toolchain#select)
+
+## go vs toolchain directives
+
+- **go line**: mandatory minimum Go version to use the module; lets the compiler enforce language features up to that version per module; from Go 1.21 it must be ≥ every dependency's go line. (https://go.dev/doc/modules/gomod-ref#go)
+- **toolchain line**: a *suggestion* only; effective only when the module is the main module and the default toolchain is older. Dependency modules' toolchain lines are ignored by consumers. (https://go.dev/doc/modules/gomod-ref#toolchain, https://go.dev/doc/toolchain#config)
+- **Dependency suggestion on consumers**: a dependency's `go` line does propagate — `go get`/`go mod tidy` raise the main module's go line to satisfy it, and commands incorporating new module versions may switch toolchains (and write a `toolchain` line into *your* go.mod). The dependency's own `toolchain` line does not affect downstream consumers. If you set a `toolchain` line in a published module, it only acts as a suggestion when someone works *in* your module directly. (https://go.dev/doc/toolchain#switch, https://go.dev/doc/toolchain#get)
+
+## Recommended policy
+
+- Do **not** set `GOSUMDB=off`. It does not "make downloads work": with the download form, toolchain downloads explicitly fail when GOSUMDB=off (GOPRIVATE/GONOSUMDB don't apply to them). Correct proposals instead: pin a preinstalled toolchain, or keep GOSUMDB and rely on GONOSUMDB=off being *not* set; the documented verification path is the default (https://go.dev/doc/toolchain#download).
+- Toolchain switching is *not* network-free under auto — switching triggers downloads. `+path` avoids downloads but only succeeds if the requested toolchain is genuinely in PATH (or plus a local toolchain if you preinstall one). (https://go.dev/doc/toolchain#select)
+- Correct any mispremise: no guarantee of fully network-off builds exists via GOSUMDB or `+path` alone if your module or any newly incorporated dependency requires a newer toolchain; `+path` only removes the *fallback download*, not the need to fetch the toolchain list from the network for `auto` form (which is a documented behavior — the `path` form lists toolchains by scanning PATH instead of downloading the list). (https://go.dev/doc/toolchain#select)
+
+Mark unsupported claim UNVERIFIED: whether "restricted CI" in a particular config would succeed without some network or pre-provisioned toolchain — that depends on your actual PATH/GOFLAGS/GOPROXY, not documented behavior; verify by checking `go env GOTOOLCHAIN` and `go version` on each runner.

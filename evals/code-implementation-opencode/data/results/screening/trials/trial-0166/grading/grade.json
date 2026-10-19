@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/authz.cjs": "const assert = require('node:assert/strict');\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\nconst mk = () => new DocumentRepository([\n  { id: 'own', tenant: 'a', owner: 'e', deleted: false, archived: false },\n  { id: 'other', tenant: 'a', owner: 'x', deleted: false, archived: false },\n  { id: 'del', tenant: 'a', owner: 'e', deleted: true, archived: false },\n  { id: 'foreign', tenant: 'b', owner: 'e', deleted: false, archived: false },\n  { id: 'done', tenant: 'a', owner: 'x', deleted: false, archived: true },\n]);\nconst repo = mk(); const s = new DocumentService(repo);\nconst A = r => ({ tenant: 'a', user: r + '1', role: r }); const E = { tenant: 'a', user: 'e', role: 'editor' };\nfor (const id of ['missing', 'del', 'foreign']) assert.throws(() => s.archive(A('admin'), id), /not found/);\nassert.throws(() => s.archive(A('viewer'), 'own'), /forbidden/);\nassert.throws(() => s.archive(E, 'other'), /forbidden/);\nassert.throws(() => s.archive(E, 'done'), /forbidden/);\nassert.throws(() => s.archive(A('viewer'), 'done'), /forbidden/);\nassert.equal(repo.audit.length, 0);\nassert.ok(repo.documents.filter(d => d.id !== 'done').every(d => !d.archived));\ns.archive(E, 'own'); s.archive(A('admin'), 'other'); s.archive(A('admin'), 'done');\nassert.deepEqual(repo.audit, [{ actor: 'e', document: 'own' }, { actor: 'admin1', document: 'other' }]);\n",
+      "src/service.ts": "import { Actor } from './types';\nimport { DocumentRepository } from './repository';\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    if (!document || document.deleted || document.tenant !== actor.tenant) throw new Error('not found');\n    const allowed = actor.role === 'admin' || (actor.role === 'editor' && document.owner === actor.user);\n    if (!allowed) throw new Error('forbidden');\n    if (!document.archived) this.repository.archive(document, actor.user);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/authz.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 33,
+    "removed_lines": 10
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5036117080016993
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06957887500175275,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06205779200536199,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

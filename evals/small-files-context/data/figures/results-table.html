@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Small files A/B: results</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 1200px; background: #fff; color: #1d2433; font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 44px 52px 40px; }
+  h1 { font-size: 31px; font-weight: 700; letter-spacing: -0.3px; }
+  .sub { margin-top: 10px; font-size: 17px; color: #4a5468; line-height: 1.45; }
+  .arms { display: flex; gap: 14px; margin-top: 20px; }
+  .arm { flex: 1; border: 1px solid #dde2ea; border-radius: 10px; padding: 12px 16px; font-size: 16px; line-height: 1.4; }
+  .arm b { font-size: 17px; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 7px; vertical-align: -1px; }
+  .a { background: #5b7fa6; } .b { background: #d98c4a; }
+  table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 16px; }
+  th { text-align: left; font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: #6b7487; font-weight: 600; padding: 0 10px 10px; border-bottom: 2px solid #1d2433; }
+  td { padding: 13px 10px; border-bottom: 1px solid #e6e9ef; vertical-align: middle; }
+  td.task b { font-size: 16px; } td.task span { display: block; color: #6b7487; font-size: 14px; margin-top: 2px; }
+  .bars { width: 400px; }
+  .bar { height: 15px; border-radius: 3px; margin: 3px 0; position: relative; }
+  .barrow { display: flex; align-items: center; gap: 9px; font-size: 14px; font-variant-numeric: tabular-nums; color: #3a4356; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ratio { font-weight: 700; font-size: 18px; }
+  .pass { color: #2e7d4f; font-weight: 600; }
+  .total td { border-bottom: 2px solid #1d2433; background: #f6f7f9; }
+  .verdict { margin-top: 24px; padding: 18px 22px; border-radius: 10px; background: #f3f5f8; border-left: 5px solid #1d2433; font-size: 18px; line-height: 1.5; }
+  .cols { display: flex; gap: 18px; margin-top: 18px; }
+  .box { flex: 1; font-size: 15px; line-height: 1.5; color: #333b4d; }
+  .box h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: #6b7487; margin-bottom: 6px; }
+  .box ul { padding-left: 18px; }
+  .foot { margin-top: 22px; font-size: 13px; color: #7a8294; line-height: 1.5; border-top: 1px solid #e6e9ef; padding-top: 12px; }
+</style>
+</head>
+<body>
+  <h1>Did a 5,000-token file limit make a coding agent use less context?</h1>
+  <p class="sub">Small A/B pilot · Claude Code 2.1.296 + Claude Haiku 5.5 · 4 tasks on bottle.py (Python web framework) · 3 runs per task per arm, 24 runs total.<br>
+  Measure: <b>peak context</b>, the most tokens the agent's context window held during a run. <b>Lower is better.</b></p>
+
+  <div class="arms">
+    <div class="arm"><span class="sw a"></span><b>A · one big file</b><br>original <code>bottle.py</code>: 4,566 lines, ~44k tokens</div>
+    <div class="arm"><span class="sw b"></span><b>B · small files</b><br>the same code cut into 18 files of ≤ 5k tokens each (checked to be equivalent)</div>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>Task</th><th>Median peak context (lower is better)</th><th class="num">B vs A</th><th class="num">Tests passed<br>A · B</th>
+    </tr></thead>
+    <tbody>
+      <tr><td class="task"><b>t1 · bug fix</b><span>one function (control)</span></td>
+        <td class="bars"><div class="barrow"><div class="bar a" style="width:50px"></div>10.7k</div><div class="barrow"><div class="bar b" style="width:54px"></div>11.4k</div></td>
+        <td class="num ratio">+7%</td><td class="num pass">3/3 · 3/3</td></tr>
+      <tr><td class="task"><b>t2 · bug fix</b><span>across components</span></td>
+        <td class="bars"><div class="barrow"><div class="bar a" style="width:99px"></div>21.1k</div><div class="barrow"><div class="bar b" style="width:113px"></div>24.1k</div></td>
+        <td class="num ratio">+14%</td><td class="num pass">3/3 · 3/3</td></tr>
+      <tr><td class="task"><b>t3 · small feature</b><span>new route filter</span></td>
+        <td class="bars"><div class="barrow"><div class="bar a" style="width:143px"></div>30.6k</div><div class="barrow"><div class="bar b" style="width:170px"></div>36.2k</div></td>
+        <td class="num ratio">+18%</td><td class="num pass">3/3 · 3/3</td></tr>
+      <tr><td class="task"><b>t4 · cross-cutting feature</b><span>touches many code paths</span></td>
+        <td class="bars"><div class="barrow"><div class="bar a" style="width:281px"></div>59.9k</div><div class="barrow"><div class="bar b" style="width:340px"></div>72.5k</div></td>
+        <td class="num ratio">+21%</td><td class="num pass">3/3 · 3/3</td></tr>
+      <tr class="total"><td class="task"><b>Overall</b><span>geometric mean of the 4 ratios</span></td>
+        <td style="font-size:15px;color:#3a4356">95% bootstrap interval: −1.5% to +29%<br>(includes "no difference")</td>
+        <td class="num ratio">+15%</td><td class="num pass">12/12 · 12/12</td></tr>
+    </tbody>
+  </table>
+
+  <div class="verdict"><b>Result:</b> in this setup, splitting the code into small files <b>did not reduce</b> context use. The estimate points the other way (+15%), but the sample is too small to say small files are worse. Every run passed in both arms, so quality didn't separate them.</div>
+
+  <div class="cols">
+    <div class="box"><h3>Likely why (post hoc, from the transcripts)</h3>
+      <ul>
+        <li>With the big file, the agent never read it whole: it used <code>grep</code> and read slices (largest single read ≈ 3.5k tokens).</li>
+        <li>With small files, reading a whole file became cheap, and the agent did it 23 times in 5 of 12 runs, mostly on the cross-cutting task.</li>
+      </ul></div>
+    <div class="box"><h3>What this does not show</h3>
+      <ul>
+        <li>Only 3 runs per cell, one model, one codebase the model likely knows, short tasks (≤ 20 model calls).</li>
+        <li>Only context use was measured, not readability, code review, or merge conflicts. The pre-commit hook itself was not tested.</li>
+      </ul></div>
+  </div>
+
+  <p class="foot">Bars share one scale. Methods, every transcript, deviations and limitations: github.com/heliowap/small-files-agent-context</p>
+</body>
+</html>

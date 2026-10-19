@@ -1,0 +1,29 @@
+## Assessment for Requests 2.31.0
+
+**Does CVE-2024-35195 apply to your scenario? Yes, directly.**
+
+Requests 2.31.0 is below the advisory's affected range (`< 2.32.0`). The maintainer advisory describes exactly your sequence: "When making requests through a Requests `Session`, if the first request is made with `verify=False` to disable cert verification, all subsequent requests to the same origin will continue to ignore cert verification regardless of changes to the value of `verify`" (GHSA-9wx4-h78v-vm56). So contacting the origin first with `verify=False` in a `Session`, then setting `verify=True`, is the vulnerable pattern.
+
+**Does the second `verify=True` reliably restore verification? No — not for the reused connection.**
+
+`verify` is consumed by the HTTPAdapter when a new connection is established against the origin. In 2.31.0, the `Session`'s connection pool already holds a TLS connection to that origin that was negotiated with verification disabled. On the second request, the pooled connection is reused, so the request goes out over the existing, unverified TLS channel; the new `verify=True` value is never applied to that connection. The advisory notes "all subsequent requests to the same origin will continue to ignore cert verification regardless of changes to the value of `verify`." The 2.32.0 changelog frames the fix as reworking this so that verification state is tied to the connection/TLS context (the fix also renamed `_get_connection` to `get_connection_with_tls_context` for custom adapters).
+
+One nuance: the effect is per-origin and tied to *that pooled connection*. If the connection is torn down and a fresh one is created, `verify=True` is honored again. Also, if the pool must open additional connections (e.g., concurrency, pool exhaustion), those new connections would use the current setting — but the already-open unverified connection remains in rotation.
+
+**How long can the problematic behavior persist?**
+
+The advisory's stated bound is connection-lifetime, not a fixed duration: it "will continue for the lifecycle of the connection in the connection pool." Concretely, it persists for as long as that pooled TLS connection remains open and reusable — potentially the entire lifetime of the `Session`, across arbitrarily many subsequent `verify=True` requests. It ends only when the connection is closed/discarded (e.g., by `Session.close()`, server keep-alive timeout / `Connection: close`, or pool eviction). The advisory gives no wall-clock limit; in practice HTTP keep-alive and urllib3's pool can keep it alive for a long time. The evidence does not establish an exact maximum; that depends on server and pool behavior.
+
+**Minimum patched release stated by the maintainer advisory**
+
+The advisory lists "Patched versions: **2.32.0**" and recommends "Upgrade to `requests>=2.32.0`." So the minimum patched release per the maintainer advisory is **2.32.0** (released 2024-05-20), not a later "latest recommended" version. Practical caveat worth stating: 2.32.0 was yanked, so the next installable fixed release was 2.32.2 (Snyk notes "the next available fixed version is 2.32.2"); the maintainer advisory itself still states 2.32.0.
+
+**Advisory-documented mitigation if you cannot upgrade**
+
+The advisory gives two, both explicitly labeled for `requests<2.32.0`:
+- Avoid setting `verify=False` for the *first* request to a host while using a `Session`; or
+- Call `close()` on `Session` objects to clear existing connections if `verify=False` is used.
+
+For your exact scenario, the cleanest mitigation is to never send `verify=False` through the same `Session`/origin that will later need verification — use a separate `Session` (and close it) for the unverified request, or avoid `verify=False` entirely.
+
+**Unresolved limitations:** The advisory does not quantify a time bound or describe pool internals; "lifecycle of the connection" is the only documented bound. The 2.32.0 yank/2.32.2 detail comes from Snyk (third-party), not the maintainer advisory.

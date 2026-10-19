@@ -1,0 +1,278 @@
+diff --git a/bottle/02_helpers.py b/bottle/02_helpers.py
+index 75bfbc9..c567fd5 100644
+--- a/bottle/02_helpers.py
++++ b/bottle/02_helpers.py
+@@ -4,7 +4,7 @@
+ ###############################################################################
+ 
+ import base64, calendar, email.utils, functools, hmac, itertools, \
+-    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib
++    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib, secrets
+ 
+ from types import FunctionType
+ from datetime import date as datedate, datetime, timedelta
+diff --git a/bottle/05_app_bottle.py b/bottle/05_app_bottle.py
+index 457a180..b5b6241 100644
+--- a/bottle/05_app_bottle.py
++++ b/bottle/05_app_bottle.py
+@@ -18,6 +18,9 @@ class Bottle:
+         cfg = ConfigDict()
+         cfg._define('catchall', default=True, filter=bool,
+             help="Catch all unhandled exceptions and display an error page.")
++        cfg._define('request_id.header',
++            help="Name of a header that carries the request ID, e.g. 'X-Request-ID'. "
++                 "If set, every response carries the request ID in this header.")
+         return cfg
+ 
+     def __init__(self, **kwargs):
+@@ -402,6 +405,12 @@ class Bottle:
+ 
+         return out
+ 
++    def _request_id_header(self, environ):
++        """ Return the ``(name, value)`` header pair that carries the request ID,
++            or None if the ``request_id.header`` setting is not set. """
++        name = self.config.get('request_id.header')
++        return (name, _request_id(environ, name)) if name else None
++
+     def wsgi(self, environ, start_response):
+         """ The bottle WSGI-interface. """
+         out = None
+@@ -415,6 +424,8 @@ class Bottle:
+             exc_info = environ.get('bottle.exc_info')
+             if exc_info is not None:
+                 del environ['bottle.exc_info']
++            request_id_header = self._request_id_header(environ)
++            if request_id_header: response.set_header(*request_id_header)
+             start_response(response.status_line, response.headerlist, exc_info)
+             return out
+         except (KeyboardInterrupt, SystemExit, MemoryError):
+@@ -431,6 +442,8 @@ class Bottle:
+             environ['wsgi.errors'].write(err)
+             environ['wsgi.errors'].flush()
+             headers = [('Content-Type', 'text/html; charset=UTF-8')]
++            request_id_header = self._request_id_header(environ)
++            if request_id_header: headers.append(request_id_header)
+             start_response('500 INTERNAL SERVER ERROR', headers, sys.exc_info())
+             return [tob(err)]
+ 
+diff --git a/bottle/07_http_base_request.py b/bottle/07_http_base_request.py
+index bb4f116..072a3a6 100644
+--- a/bottle/07_http_base_request.py
++++ b/bottle/07_http_base_request.py
+@@ -61,6 +61,16 @@ class BaseRequest:
+         """ Return the value of a request header, or a given default value. """
+         return self.headers.get(name, default)
+ 
++    @property
++    def request_id(self):
++        """ An ID for this request. It is the value of the header named by the
++            ``request_id.header`` app setting if the request has that header.
++            Otherwise it is a new random ID of 32 lowercase hex characters.
++            Every read during the same request returns the same value. """
++        app = self.environ.get('bottle.app')
++        header = app.config.get('request_id.header') if app else None
++        return _request_id(self.environ, header)
++
+     @DictProperty('environ', 'bottle.request.cookies', read_only=True)
+     def cookies(self):
+         """ Cookies parsed into a :class:`FormsDict`. Signed cookies are NOT
+@@ -454,6 +464,17 @@ class BaseRequest:
+             raise AttributeError("Attribute not defined: %s" % name)
+ 
+ 
++def _request_id(environ, header=None):
++    """ Return the request ID stored in a WSGI environ. The first call picks the
++        value: the given request header if the request has it, or else a new
++        random ID. Later calls return the stored value. """
++    key = 'bottle.request.id'
++    if key not in environ:
++        value = WSGIHeaderDict(environ).get(header) if header else None
++        environ[key] = value or secrets.token_hex(16)
++    return environ[key]
++
++
+ @functools.lru_cache(1024)
+ def _hkey(key):
+     key = touni(key)
+diff --git a/test/test_request_id.py b/test/test_request_id.py
+new file mode 100644
+index 0000000..8a8345a
+--- /dev/null
++++ b/test/test_request_id.py
+@@ -0,0 +1,175 @@
++# -*- coding: utf-8 -*-
++''' Tests for the opt-in request ID (``request_id.header`` app setting). '''
++
++import re
++import unittest
++import wsgiref.util
++
++from bottle import Bottle, BaseRequest, HTTPResponse, abort, redirect, request
++
++HEADER = 'X-Request-ID'
++HEX32 = re.compile(r'^[0-9a-f]{32}$')
++
++
++def call(app, path='/', method='GET', headers=None):
++    environ = {'PATH_INFO': path, 'REQUEST_METHOD': method}
++    wsgiref.util.setup_testing_defaults(environ)
++    for name, value in (headers or {}).items():
++        environ['HTTP_' + name.upper().replace('-', '_')] = value
++    seen = {}
++
++    def start_response(status, headerlist, exc_info=None):
++        seen['status'], seen['headers'] = status, headerlist
++
++    body = b''.join(app(environ, start_response))
++    return seen['status'], seen['headers'], body.decode('utf8')
++
++
++def values(headers, name=HEADER):
++    return [v for k, v in headers if k.lower() == name.lower()]
++
++
++def make_app():
++    app = Bottle()
++
++    @app.route('/ok')
++    def ok():
++        return request.request_id
++
++    @app.route('/twice')
++    def twice():
++        return '%s %s' % (request.request_id, request.request_id)
++
++    @app.route('/boom')
++    def boom():
++        raise ValueError('boom')
++
++    @app.route('/abort')
++    def abort_route():
++        abort(418, 'teapot')
++
++    @app.route('/redirect')
++    def redirect_route():
++        redirect('/ok')
++
++    @app.route('/raise')
++    def raise_route():
++        raise HTTPResponse('raised', 201)
++
++    @app.route('/return')
++    def return_route():
++        return HTTPResponse('returned', 202)
++
++    return app
++
++
++class TestRequestIdDisabled(unittest.TestCase):
++
++    def setUp(self):
++        self.app = make_app()
++
++    def test_no_header_sent(self):
++        for path in ('/ok', '/missing', '/boom', '/abort', '/redirect', '/raise', '/return'):
++            status, headers, _ = call(self.app, path, headers={HEADER: 'abc'})
++            self.assertEqual([], values(headers), path)
++
++    def test_request_id_is_still_generated(self):
++        request_id = BaseRequest({}).request_id
++        self.assertRegex(request_id, HEX32)
++        self.assertNotEqual(request_id, BaseRequest({}).request_id)
++
++    def test_request_id_is_stable_within_a_request(self):
++        environ = {}
++        req = BaseRequest(environ)
++        self.assertEqual(req.request_id, req.request_id)
++        self.assertEqual(req.request_id, BaseRequest(environ).request_id)
++
++
++class TestRequestIdEnabled(unittest.TestCase):
++
++    def setUp(self):
++        self.app = make_app()
++        self.app.config['request_id.header'] = HEADER
++
++    def test_generated_id_when_request_has_no_header(self):
++        status, headers, body = call(self.app, '/ok')
++        self.assertEqual('200 OK', status)
++        request_id, = values(headers)
++        self.assertRegex(request_id, HEX32)
++        self.assertEqual(request_id, body)
++
++    def test_same_id_on_every_read(self):
++        _, headers, body = call(self.app, '/twice')
++        first, second = body.split(' ')
++        self.assertEqual(first, second)
++        self.assertEqual([first], values(headers))
++
++    def test_incoming_header_is_used(self):
++        status, headers, body = call(self.app, '/ok', headers={HEADER: 'abc-123'})
++        self.assertEqual(['abc-123'], values(headers))
++        self.assertEqual('abc-123', body)
++
++    def test_empty_incoming_header_generates_id(self):
++        _, headers, body = call(self.app, '/ok', headers={HEADER: ''})
++        request_id, = values(headers)
++        self.assertRegex(request_id, HEX32)
++        self.assertEqual(request_id, body)
++
++    def test_header_name_is_case_insensitive(self):
++        self.app.config['request_id.header'] = 'x-request-id'
++        _, headers, _ = call(self.app, '/ok', headers={HEADER: 'abc'})
++        self.assertEqual(['abc'], values(headers))
++
++    def test_404(self):
++        status, headers, _ = call(self.app, '/missing')
++        self.assertEqual('404 Not Found', status)
++        self.assertRegex(values(headers)[0], HEX32)
++        status, headers, _ = call(self.app, '/missing', headers={HEADER: 'nf'})
++        self.assertEqual(['nf'], values(headers))
++
++    def test_500_from_uncaught_exception(self):
++        status, headers, _ = call(self.app, '/boom', headers={HEADER: 'err'})
++        self.assertTrue(status.startswith('500'))
++        self.assertEqual(['err'], values(headers))
++
++    def test_500_from_failure_outside_the_handler(self):
++        def broken_cast(out, peek=None):
++            raise RuntimeError('broken')
++        self.app._cast = broken_cast
++        status, headers, _ = call(self.app, '/ok', headers={HEADER: 'crit'})
++        self.assertEqual('500 INTERNAL SERVER ERROR', status)
++        self.assertEqual(['crit'], values(headers))
++
++    def test_abort(self):
++        status, headers, _ = call(self.app, '/abort', headers={HEADER: 'ab'})
++        self.assertTrue(status.startswith('418'))
++        self.assertEqual(['ab'], values(headers))
++
++    def test_redirect(self):
++        status, headers, _ = call(self.app, '/redirect', headers={HEADER: 'rd'})
++        self.assertTrue(status.startswith('30'))
++        self.assertEqual(['rd'], values(headers))
++
++    def test_raised_httpresponse(self):
++        status, headers, _ = call(self.app, '/raise', headers={HEADER: 'hr'})
++        self.assertEqual('201 Created', status)
++        self.assertEqual(['hr'], values(headers))
++
++    def test_returned_httpresponse(self):
++        status, headers, _ = call(self.app, '/return', headers={HEADER: 'rr'})
++        self.assertEqual('202 Accepted', status)
++        self.assertEqual(['rr'], values(headers))
++
++    def test_head_request(self):
++        status, headers, body = call(self.app, '/ok', method='HEAD', headers={HEADER: 'hd'})
++        self.assertEqual(['hd'], values(headers))
++        self.assertEqual('', body)
++
++    def test_setting_is_per_app(self):
++        other = make_app()
++        _, headers, _ = call(other, '/ok', headers={HEADER: 'x'})
++        self.assertEqual([], values(headers))
++
++
++if __name__ == '__main__':
++    unittest.main()

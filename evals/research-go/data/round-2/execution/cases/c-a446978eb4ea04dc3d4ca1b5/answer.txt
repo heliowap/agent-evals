@@ -1,0 +1,19 @@
+## Decision
+
+**Fix the receiver (all required, documented reasons):**
+
+1. **Verify the signature on the raw body, before any JSON re-serialization.** GitHub computes `X-Hub-Signature-256` as an HMAC-SHA256 hex digest over the payload contents as GitHub sent them, prefixed `sha256=`. Re-serializing JSON can change key order/whitespace/unicode encoding and break verification (or, worse, let you verify text that then differs from what you process). Use the raw request body, treat it as UTF-8, and use `X-Hub-Signature-256` (HMAC-SHA256), not the legacy `X-Hub-Signature`. Sources: [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries) and its [Troubleshooting](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#troubleshooting) section (proxy must not modify payload; wrong algorithm is a listed failure cause).
+
+2. **Replace plain string equality with a constant-time comparison** (`secure_compare`, `crypto.timingSafeEqual`, `hmac.compare_digest`). GitHub explicitly says: "Never use a plain == operator" to mitigate timing attacks ([same page, bullets under Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries)).
+
+3. **Respond 2XX within 10 seconds; queue the 25-second job asynchronously.** Documented: after 10 seconds GitHub terminates the connection and counts the delivery as failed ([Best practices → Respond within 10 seconds](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds)). So success must be returned promptly, not after the job.
+
+**Correct the ops plan and dedup store:**
+
+- **Do not assume automatic retries.** GitHub **does not automatically redeliver** failed deliveries; recovery means an admin (repo admin / org owner / app owner) manually redelivers deliveries **from the past 3 days** via UI or REST API. Rehearse that out-of-band recovery process ([Redelivering webhooks](https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks#about-redelivering-webhooks)).
+
+- **Redeliveries reuse the identifier.** On redelivery, `X-GitHub-Delivery` is **the same as the original delivery**; use this header to ensure each delivery is unique per event and detect replay ([Best practices → Use the X-GitHub-Delivery header](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header)). Deduplication must key on `X-GitHub-Delivery` as a stable ID; treating a redelivery as new causes duplicate processing of one logical event.
+
+**Authenticity evidence:** a valid HMAC-SHA256 in `X-Hub-Signature-256` over the untampered raw body with your high-entropy secret, ideally on HTTPS with GitHub IP allow-listing ([best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-https-and-ssl-verification)). Headers `X-GitHub-Event`/`action` are inputs to processing, not to authentication.
+
+**Exactly-once across crash: No — UNVERIFIED by GitHub docs.** Signature, delivery GUID, and the 10-second limit do not make business-side effects atomic with dedup persistence. If the receiver crashes after booth effect-commit, replay gives either duplicate or missed effect. Achieving exactly-once requires a you-implemented mechanism (durable dedup + idempotent effect keyed by `X-GitHub-Delivery` in one transaction), which GitHub's documentation does not guarantee; it only supports de-duplication. What would resolve this: your own transactional store design, reviewed against the documented behaviors above, plus crash/replay testing — not a GitHub claim.

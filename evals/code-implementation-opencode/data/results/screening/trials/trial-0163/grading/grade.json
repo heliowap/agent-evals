@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\nconst doc = (id, tenant, owner, extra = {}) => ({ id, tenant, owner, deleted: false, archived: false, ...extra });\nconst actor = (role, user = 'u', tenant = 'a') => ({ tenant, user, role });\nconst setup = () => {\n  const repo = new DocumentRepository([\n    doc('one', 'a', 'u'), doc('other', 'a', 'x'), doc('gone', 'a', 'u', { deleted: true }),\n    doc('foreign', 'b', 'u'), doc('done', 'a', 'x', { archived: true }),\n  ]);\n  return { repo, service: new DocumentService(repo) };\n};\nconst snap = repo => JSON.stringify([repo.documents, repo.audit]);\n\n{\n  const repo = new DocumentRepository([doc('one', 'a', 'u')]);\n  const service = new DocumentService(repo); const admin = actor('admin');\n  service.archive(admin, 'one'); assert.equal(repo.documents[0].archived, true);\n  service.archive(admin, 'one'); assert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\n  assert.throws(() => service.archive(admin, 'missing'), /not found/);\n}\n{\n  const { repo, service } = setup();\n  const before = snap(repo);\n  for (const role of ['admin', 'editor', 'viewer'])\n    for (const id of ['missing', 'gone', 'foreign'])\n      assert.throws(() => service.archive(actor(role), id), { message: 'not found' });\n  assert.throws(() => service.archive(actor('editor'), 'other'), { message: 'forbidden' });\n  assert.throws(() => service.archive(actor('viewer'), 'one'), { message: 'forbidden' });\n  assert.throws(() => service.archive(actor('viewer'), 'done'), { message: 'forbidden' });\n  assert.throws(() => service.archive(actor('editor'), 'done'), { message: 'forbidden' });\n  assert.equal(snap(repo), before);\n}\n{\n  const { repo, service } = setup();\n  service.archive(actor('editor'), 'one');\n  service.archive(actor('admin', 'boss'), 'other');\n  service.archive(actor('admin', 'boss'), 'done');\n  assert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }, { actor: 'boss', document: 'other' }]);\n  assert.equal(repo.documents.find(d => d.id === 'other').archived, true);\n}\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    // Only active (not deleted) documents in the actor's tenant are visible.\n    const document = this.repository.documents.find(\n      row => row.id === id && row.tenant === actor.tenant && !row.deleted,\n    );\n    if (!document) throw new Error('not found');\n    // Permission is enforced before the already-archived no-op.\n    if (!this.canArchive(actor, document)) throw new Error('forbidden');\n    if (document.archived) return;\n    this.repository.archive(document, actor.user);\n  }\n  private canArchive(actor: Actor, document: Document): boolean {\n    switch (actor.role) {\n      case 'admin': return true;\n      case 'editor': return document.owner === actor.user;\n      default: return false; // viewers and unknown roles are denied\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 65,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5724725829786621
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06257437501335517,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06259383299038745,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

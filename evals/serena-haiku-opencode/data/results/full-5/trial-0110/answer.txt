@@ -1,0 +1,16 @@
+`import_contacts` is implemented in `src/service.py`, and `handle_import` in `src/api.py` now calls it. The existing check and the new tests all pass.
+
+**What changed**
+- **`src/repository.py`**: added `find_existing_emails(connection, emails)`, which looks up which emails already exist, in chunks of 500 to stay under SQLite's parameter limit. The existing functions are unchanged.
+- **`src/service.py`**: `import_contacts` validates every row first, then writes. Validation covers object type, exact `email`/`name` keys, string types, trimming, lowercasing, the single-`@` rule, nonempty sides, no whitespace in the email, nonempty name, and duplicate normalized emails. Only after the whole batch passes does it write, inside `with connection:`, so any database error rolls back the whole batch. Empty batches return zero counts. `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` checks the envelope, then delegates to `import_contacts`. `handle_add` is unchanged.
+- **`checks/test_import_contacts.py`** (new): `unittest` tests for normalization, insert and update counts, the unchanged-name-counts-as-updated rule, each rejection case with the database confirmed unchanged, a forced mid-batch database failure that rolls back, envelope validation, and `add_contact` still working.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 -m unittest checks/test_import_contacts.py`: 8 tests, all OK.
+
+**Decisions to review**
+- The envelope check rejects extra top-level keys besides `contacts`, since the spec calls malformed envelopes invalid. If you want extra keys tolerated, remove the `set(payload) != {"contacts"}` check.
+- `rows` must be a list or tuple. Other iterables are rejected.
+- Whitespace is detected with `str.isspace()` across the whole trimmed email, so Unicode whitespace is also rejected.

@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "files": {
+      "checks/import_contacts.py": "import os\nimport sqlite3\nimport sys\nimport unittest\n\nsys.path.insert(0, os.getcwd())\nfrom src.api import handle_add, handle_import\nfrom src.repository import initialize, list_contacts\nfrom src.service import import_contacts\n\n\nclass ImportContactsTests(unittest.TestCase):\n    def setUp(self):\n        self.connection = sqlite3.connect(\":memory:\")\n        initialize(self.connection)\n        handle_add(self.connection, {\"email\": \"a@b\", \"name\": \"Alice\"})\n        self.addCleanup(self.connection.close)\n\n    def test_counts_and_normalization(self):\n        self.assertEqual(handle_import(self.connection, {\"contacts\": [\n            {\"email\": \" A@B \", \"name\": \" Alice \"},\n            {\"email\": \" C@D \", \"name\": \" Carol \"},\n        ]}), {\"inserted\": 1, \"updated\": 1})\n        self.assertEqual(list_contacts(self.connection), [\n            (\"a@b\", \"Alice\"), (\"c@d\", \"Carol\")])\n        self.assertEqual(import_contacts(self.connection, [\n            {\"email\": \"a@b\", \"name\": \" New name \"},\n        ]), {\"inserted\": 0, \"updated\": 1})\n        self.assertEqual(list_contacts(self.connection)[0], (\"a@b\", \"New name\"))\n        self.assertEqual(handle_import(self.connection, {\"contacts\": []}),\n                         {\"inserted\": 0, \"updated\": 0})\n\n    def test_invalid_rows_do_not_write(self):\n        invalid_rows = [None, [], \"row\", {}, {\"email\": \"a@b\"},\n                        {\"email\": \"a@b\", \"name\": \"A\", \"extra\": True}]\n        invalid_rows += [{\"email\": email, \"name\": \"A\"} for email in\n                         [None, 42, \"\", \"a\", \"@b\", \"a@\", \"a@@b\", \"a @b\", \"a@b\\tc\"]]\n        invalid_rows += [{\"email\": \"a@b\", \"name\": name} for name in\n                         [None, 42, \"\", \" \\t\\n\"]]\n        for row in invalid_rows:\n            with self.subTest(row=row):\n                statements = []\n                self.connection.set_trace_callback(statements.append)\n                with self.assertRaises(ValueError):\n                    import_contacts(self.connection, [\n                        {\"email\": \"new@b\", \"name\": \"New\"}, row])\n                self.connection.set_trace_callback(None)\n                self.assertEqual(statements, [])\n                self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n\n    def test_duplicates(self):\n        with self.assertRaises(ValueError):\n            import_contacts(self.connection, [\n                {\"email\": \" A@B \", \"name\": \"Changed\"},\n                {\"email\": \"a@b\", \"name\": \"Duplicate\"},\n            ])\n        self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n\n    def test_malformed_envelopes(self):\n        for payload in [None, [], \"contacts\", {}, {\"contacts\": None},\n                        {\"contacts\": ()}, {\"contacts\": {}},\n                        {\"contacts\": [], \"extra\": 1}]:\n            with self.subTest(payload=payload), self.assertRaises(ValueError):\n                handle_import(self.connection, payload)\n        self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n\n    def test_database_failure_rolls_back(self):\n        for isolation_level in [\"\", None]:\n            with self.subTest(isolation_level=isolation_level):\n                self.connection.isolation_level = isolation_level\n                self.connection.execute(\"\"\"\n                    CREATE TRIGGER reject_contact BEFORE INSERT ON contacts\n                    WHEN NEW.email = 'fail@b'\n                    BEGIN SELECT RAISE(ABORT, 'rejected'); END\n                \"\"\")\n                self.connection.commit()\n                with self.assertRaises(sqlite3.DatabaseError):\n                    import_contacts(self.connection, [\n                        {\"email\": \"a@b\", \"name\": \"Changed\"},\n                        {\"email\": \"new@b\", \"name\": \"New\"},\n                        {\"email\": \"fail@b\", \"name\": \"Fail\"},\n                    ])\n                self.assertEqual(list_contacts(self.connection), [(\"a@b\", \"Alice\")])\n                self.assertFalse(self.connection.in_transaction)\n                self.connection.execute(\"DROP TRIGGER reject_contact\")\n                self.connection.commit()\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if (not isinstance(payload, dict) or set(payload) != {\"contacts\"}\n            or not isinstance(payload[\"contacts\"], list)):\n        raise ValueError(\"Payload must contain exactly a contacts list\")\n    return import_contacts(connection, payload[\"contacts\"])\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\n\ndef has_contact(connection, email):\n    return connection.execute(\n        \"SELECT 1 FROM contacts WHERE email = ?\", (email,)\n    ).fetchone() is not None\n",
+      "src/service.py": "from .repository import has_contact, put_contact\n\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, list):\n        raise ValueError(\"Contacts must be a list\")\n\n    contacts = []\n    emails = set()\n    for row in rows:\n        if not isinstance(row, dict) or set(row) != {\"email\", \"name\"}:\n            raise ValueError(\"Each contact must contain exactly email and name\")\n        email, name = row[\"email\"], row[\"name\"]\n        if not isinstance(email, str) or not isinstance(name, str):\n            raise ValueError(\"Email and name must be strings\")\n        email, name = email.strip().lower(), name.strip()\n        if (email.count(\"@\") != 1 or email.startswith(\"@\")\n                or email.endswith(\"@\") or any(char.isspace() for char in email)):\n            raise ValueError(\"Invalid email\")\n        if not name:\n            raise ValueError(\"Name must not be empty\")\n        if email in emails:\n            raise ValueError(\"Duplicate email in batch\")\n        emails.add(email)\n        contacts.append((email, name))\n\n    summary = {\"inserted\": 0, \"updated\": 0}\n    if not contacts:\n        return summary\n\n    with connection:\n        # Explicitly begin so the batch is atomic even in autocommit mode.\n        connection.execute(\"BEGIN\")\n        for email, name in contacts:\n            key = \"updated\" if has_contact(connection, email) else \"inserted\"\n            put_contact(connection, email, name)\n            summary[key] += 1\n    return summary\n"
+    },
+    "changed_files": [
+      "checks/import_contacts.py",
+      "src/api.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 159,
+    "removed_lines": 25
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.044882208021590486
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04742441698908806,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.058907790982630104,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

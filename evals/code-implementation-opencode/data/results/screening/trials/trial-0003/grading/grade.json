@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/payment.cjs": "const assert = require('node:assert/strict');\nconst { Ledger } = require('../.build/ledger');\nconst { PaymentService } = require('../.build/service');\nconst { Transient } = require('../.build/transport');\n\nasync function main() {\n  const ledger = new Ledger();\n  const acknowledged = [];\n  const service = new PaymentService(ledger, {\n    acknowledge: async receipt => { acknowledged.push(receipt); },\n  });\n  const receipts = await Promise.all(Array.from({ length: 10 }, () => service.pay('shop', 'sale', 123)));\n  receipts.forEach(receipt => assert.equal(receipt, receipts[0]));\n  assert.equal(ledger.entries.length, 1);\n  assert.equal(await ledger.apply('shop', 'sale', 123), receipts[0]);\n  await assert.rejects(service.pay('shop', 'sale', 124), { message: 'key conflict' });\n  assert.equal(ledger.entries.length, 1);\n  assert.equal(acknowledged.length, 10);\n  assert.notEqual(await service.pay('other', 'sale', 123), receipts[0]);\n  assert.notEqual(await service.pay('shop', 'other', 123), receipts[0]);\n  // Keys must not collide when tenant/key contain delimiter-like characters.\n  assert.notEqual(await ledger.apply('a:b', 'c', 1), await ledger.apply('a', 'b:c', 1));\n\n  const concurrentLedger = new Ledger();\n  const outcomes = await Promise.allSettled([\n    concurrentLedger.apply('shop', 'sale', 1), concurrentLedger.apply('shop', 'sale', 2),\n  ]);\n  assert.equal(outcomes[0].status, 'fulfilled');\n  assert.equal(outcomes[1].status, 'rejected');\n  assert.equal(outcomes[1].reason.message, 'key conflict');\n  assert.equal(concurrentLedger.entries.length, 1);\n\n  for (const attempts of [1, 3, 5]) {\n    const retryLedger = new Ledger();\n    let applies = 0;\n    const apply = retryLedger.apply.bind(retryLedger);\n    retryLedger.apply = (...args) => { applies++; return apply(...args); };\n    const sent = [];\n    const errors = Array.from({ length: attempts }, () => new Transient('ack failed'));\n    const retryService = new PaymentService(retryLedger, {\n      acknowledge: async receipt => { sent.push(receipt); throw errors[sent.length - 1]; },\n    });\n    await assert.rejects(retryService.pay('shop', 'sale', 123, attempts), error => error === errors.at(-1));\n    assert.equal(sent.length, attempts);\n    assert.equal(applies, 1);\n    assert.equal(retryLedger.entries.length, 1);\n    sent.forEach(receipt => assert.equal(receipt, retryLedger.entries[0]));\n    const recovered = new PaymentService(retryLedger, { acknowledge: async () => {} });\n    assert.equal(await recovered.pay('shop', 'sale', 123), sent[0]);\n    assert.equal(retryLedger.entries.length, 1);\n  }\n\n  let calls = 0;\n  const successLedger = new Ledger();\n  const successService = new PaymentService(successLedger, {\n    acknowledge: async receipt => {\n      assert.equal(receipt, successLedger.entries[0]);\n      if (++calls < 3) throw new Transient('retry');\n    },\n  });\n  assert.equal(await successService.pay('shop', 'sale', 1), successLedger.entries[0]);\n  assert.equal(calls, 3);\n  const fatal = new Error('fatal');\n  calls = 0;\n  const fatalService = new PaymentService(new Ledger(), {\n    acknowledge: async () => { calls++; throw fatal; },\n  });\n  await assert.rejects(fatalService.pay('shop', 'sale', 1), error => error === fatal);\n  assert.equal(calls, 1);\n\n  const invalidService = new PaymentService({ apply: async () => assert.fail('ledger called') }, {\n    acknowledge: async () => assert.fail('transport called'),\n  });\n  for (const args of [\n    ['', 'key', 1], ['tenant', '', 1], [null, 'key', 1], ['tenant', 1, 1],\n    ['tenant', 'key', 0], ['tenant', 'key', -1], ['tenant', 'key', 1.5],\n    ['tenant', 'key', NaN], ['tenant', 'key', Infinity],\n    ...[0, -1, 6, 1.5, NaN, Infinity, '3', null].map(n => ['tenant', 'key', 1, n]),\n  ]) {\n    await assert.rejects(invalidService.pay(...args), { message: 'invalid payment' });\n  }\n  const invalidLedger = new Ledger();\n  await assert.rejects(invalidLedger.apply('', 'key', 1), { message: 'invalid payment' });\n  assert.equal(invalidLedger.entries.length, 0);\n}\n\nmodule.exports = main();\n",
+      "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  private readonly receipts = new Map<string, Map<string, Receipt>>();\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0) {\n      throw new Error('invalid payment');\n    }\n    const tenantReceipts = this.receipts.get(tenant);\n    const existing = tenantReceipts?.get(key);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return existing;\n    }\n    // No await between lookup and commit: concurrent calls share this receipt.\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    if (tenantReceipts) {\n      tenantReceipts.set(key, receipt);\n    } else {\n      this.receipts.set(tenant, new Map([[key, receipt]]));\n    }\n    return receipt;\n  }\n}\n",
+      "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0 ||\n        !Number.isInteger(attempts) || attempts < 1 || attempts > 5) {\n      throw new Error('invalid payment');\n    }\n    let receipt: Receipt | undefined;\n    for (let n = 0; n < attempts; n++) {\n      try {\n        receipt ??= await this.ledger.apply(tenant, key, cents);\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n === attempts - 1) throw error;\n      }\n    }\n    throw new Error('invalid payment');\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/payment.cjs",
+      "src/ledger.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 136,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.576330332987709
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06391958400490694,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05912645798525773,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

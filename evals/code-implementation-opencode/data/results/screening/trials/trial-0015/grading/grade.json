@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/extra_checks.py": "\"\"\"Extended checks for stream_rows/take lifecycle and error semantics.\"\"\"\nimport os\nimport sys\n\nsys.path.insert(0, os.getcwd())\n\nfrom src.consumer import take\nfrom src.resource import Rows\nfrom src.service import stream_rows\n\n\nclass TransformError(Exception):\n    pass\n\n\nclass ReadError(Exception):\n    pass\n\n\nclass CloseError(Exception):\n    pass\n\n\nclass FailingRead(Rows):\n    \"\"\"Raises ReadError on the Nth read (1-based); EOF otherwise.\"\"\"\n\n    def __init__(self, rows, fail_on):\n        super().__init__(rows)\n        self.fail_on = fail_on\n\n    def read_next(self):\n        if self.reads + 1 == self.fail_on:\n            self.reads += 1\n            raise ReadError(\"read\")\n        return super().read_next()\n\n\nclass FailingClose(Rows):\n    def close(self):\n        super().close()\n        raise CloseError(\"close\")\n\n\nclass FailingReadClose(Rows):\n    \"\"\"Raises ReadError on every read and CloseError on close.\"\"\"\n\n    def read_next(self):\n        self.reads += 1\n        raise ReadError(\"read\")\n\n    def close(self):\n        super().close()\n        raise CloseError(\"close\")\n\n\ndef boom_always(v):\n    raise TransformError(\"transform\")\n\n\ndef expect(exc_type, fn):\n    try:\n        fn()\n    except exc_type:\n        return\n    raise AssertionError(\"expected %s\" % exc_type.__name__)\n\n\n# --- stream_rows: exhaustion -------------------------------------------------\nr = Rows([1, 2, 3])\nassert list(stream_rows(r, lambda v: v * 2)) == [2, 4, 6]\nassert (r.reads, r.closes) == (4, 1)\n# closing again after exhaustion is a no-op, no extra close/read\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v * 2)\nassert list(g) == [2, 4, 6]\ng.close()\ng.close()\nassert (r.reads, r.closes) == (4, 1)\n\n# --- stream_rows: construction/unstarted close -------------------------------\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v * 2)\nassert (r.reads, r.closes) == (0, 0)\ng.close()\nassert (r.reads, r.closes) == (0, 0)\nassert list(g) == []\n\n# --- stream_rows: laziness and order ----------------------------------------\ncalls = []\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: calls.append(v) or v * 10)\nassert (r.reads, calls, r.closes) == (0, [], 0)\nassert next(g) == 10\nassert (r.reads, calls) == (1, [1])\nassert next(g) == 20\nassert (r.reads, calls) == (2, [1, 2])\nassert list(g) == [30]\nassert (calls, r.closes) == ([1, 2, 3], 1)\n\n# --- stream_rows: explicit close after partial consumption ------------------\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v * 2)\nassert next(g) == 2\ng.close()\nassert (r.reads, r.closes) == (1, 1)\ng.close()\nassert (r.reads, r.closes) == (1, 1)\n\n# --- stream_rows: transform failure, no further read -------------------------\ndef boom_on_two(v):\n    if v == 2:\n        raise TransformError(\"transform\")\n    return v * 2\n\n\nr = Rows([1, 2, 3])\ng = stream_rows(r, boom_on_two)\nassert next(g) == 2\nexpect(TransformError, lambda: next(g))\nassert (r.reads, r.closes) == (2, 1)\nexpect(StopIteration, lambda: next(g))\nassert (r.reads, r.closes) == (2, 1)\n\n# --- stream_rows: iteration failure -----------------------------------------\nr = FailingRead([1, 2, 3], fail_on=2)\ng = stream_rows(r, lambda v: v)\nassert next(g) == 1\nexpect(ReadError, lambda: next(g))\nassert (r.reads, r.closes) == (2, 1)\n\n# --- stream_rows: cleanup failure on normal exhaustion propagates ------------\nr = FailingClose([1])\nexpect(CloseError, lambda: list(stream_rows(r, lambda v: v)))\nassert r.closes == 1\n\n# --- stream_rows: cleanup failure while transform error active --------------\nr = FailingClose([1])\ng = stream_rows(r, boom_always)\nexpect(TransformError, lambda: next(g))\nassert r.closes == 1\n\n# --- stream_rows: cleanup failure while iteration error active ---------------\nr = FailingReadClose([1])\ng = stream_rows(r, lambda v: v)\nexpect(ReadError, lambda: next(g))\nassert (r.reads, r.closes) == (1, 1)\n\n# --- stream_rows: cleanup failure on explicit close propagates ---------------\nr = FailingClose([1, 2])\ng = stream_rows(r, lambda v: v)\nassert next(g) == 1\nexpect(CloseError, lambda: g.close())\nassert (r.reads, r.closes) == (1, 1)\ng.close()  # already terminated\n\n# --- take: positive limit stops and closes -----------------------------------\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v * 2, 2) == [2, 4]\nassert (r.reads, r.closes) == (2, 1)\n\n# --- take: zero limit never starts the stream --------------------------------\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v * 2, 0) == []\nassert (r.reads, r.closes) == (0, 0)\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v * 2, -5) == []\nassert (r.reads, r.closes) == (0, 0)\n\n# --- take: limit beyond available rows exhausts and closes -------------------\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v * 2, 10) == [2, 4, 6]\nassert (r.reads, r.closes) == (4, 1)\n\n# --- take: consuming failure propagates and closes ---------------------------\nr = Rows([1, 2, 3])\nexpect(TransformError, lambda: take(r, boom_on_two, 3))\nassert (r.reads, r.closes) == (2, 1)\n\nr = FailingRead([1, 2, 3], fail_on=2)\nexpect(ReadError, lambda: take(r, lambda v: v, 3))\nassert (r.reads, r.closes) == (2, 1)\n\n# --- take: transform error wins over cleanup error ---------------------------\nr = FailingClose([1])\nexpect(TransformError, lambda: take(r, boom_always, 2))\nassert r.closes == 1\n\n# --- take: cleanup error after limit reached propagates ----------------------\nr = FailingClose([1, 2])\nexpect(CloseError, lambda: take(r, lambda v: v, 1))\nassert (r.reads, r.closes) == (1, 1)\n\nprint(\"extra checks OK\")\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    \"\"\"Return at most ``limit`` transformed rows, closing the stream.\"\"\"\n    if limit <= 0:\n        return []\n\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    finally:\n        stream.close()\n    return result\n",
+      "src/service.py": "import sys\n\n\ndef stream_rows(resource, transform):\n    \"\"\"Lazily yield ``transform(row)`` for every row read from ``resource``.\n\n    The resource is closed exactly once when the stream is exhausted, when\n    the generator is explicitly closed, or when reading/transforming fails.\n    If cleanup fails while an iteration or transformation error is already\n    propagating, the original error is preserved; otherwise the cleanup\n    error propagates.\n    \"\"\"\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            yield transform(row)\n    finally:\n        active_error = sys.exc_info()[1]\n        try:\n            resource.close()\n        except BaseException:\n            if active_error is None or isinstance(active_error, GeneratorExit):\n                # No iteration/transformation error is active (normal\n                # exhaustion or explicit close): surface the cleanup error.\n                raise\n            # An iteration or transformation error is already propagating;\n            # keep it and drop the cleanup failure.\n"
+    },
+    "changed_files": [
+      "checks/extra_checks.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 240,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.0418131249898579
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04936070801340975,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.047799082996789366,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

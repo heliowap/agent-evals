@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "files": {
+      "checks/import_contacts.py": "import os\nimport sqlite3\nimport sys\n\nsys.path.insert(0, os.getcwd())\nfrom src.api import handle_import\nfrom src.repository import initialize, list_contacts\nfrom src.service import import_contacts\n\n\ndef rejects(call):\n    try:\n        call()\n    except ValueError:\n        return\n    raise AssertionError('expected ValueError')\n\n\nfor isolation_level in ('', None):\n    c = sqlite3.connect(':memory:', isolation_level=isolation_level)\n    initialize(c)\n    assert handle_import(c, {'contacts': [\n        {'email': ' A@B ', 'name': ' Alice '},\n        {'email': 'c@d', 'name': 'Carol'},\n    ]}) == {'inserted': 2, 'updated': 0}\n    assert import_contacts(c, [\n        {'email': 'a@b', 'name': 'Alice'},\n        {'email': 'C@D', 'name': 'New Carol'},\n    ]) == {'inserted': 0, 'updated': 2}\n    assert import_contacts(c, []) == {'inserted': 0, 'updated': 0}\n    before = list_contacts(c)\n    for row in (None, [], {}, {'email': 'x@y'},\n                {'email': 'x@y', 'name': 'X', 'extra': 1},\n                {'email': 1, 'name': 'X'}, {'email': 'x@y', 'name': None},\n                *({'email': email, 'name': 'X'} for email in\n                  ('@y', 'x@', 'x@@y', 'x y@z', 'x@\\ty', 'xy')),\n                {'email': 'x@y', 'name': '  '}):\n        rejects(lambda: import_contacts(c, [{'email': 'a@b', 'name': 'Changed'}, row]))\n        assert list_contacts(c) == before\n    rejects(lambda: import_contacts(c, [\n        {'email': 'x@y', 'name': 'X'}, {'email': ' X@Y ', 'name': 'Y'}]))\n    for payload in (None, [], {}, {'contacts': None}, {'contacts': (),},\n                    {'contacts': [], 'extra': True}):\n        rejects(lambda: handle_import(c, payload))\n    c.execute(\"CREATE TRIGGER fail_import BEFORE INSERT ON contacts \"\n              \"WHEN NEW.email = 'fail@test' BEGIN SELECT RAISE(ABORT, 'failed'); END\")\n    try:\n        import_contacts(c, [\n            {'email': 'a@b', 'name': 'Changed'},\n            {'email': 'new@test', 'name': 'New'},\n            {'email': 'fail@test', 'name': 'Fail'},\n        ])\n    except sqlite3.DatabaseError:\n        pass\n    else:\n        raise AssertionError('expected database failure')\n    assert list_contacts(c) == before\n    assert not c.in_transaction\n    c.close()\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if (not isinstance(payload, dict) or set(payload) != {\"contacts\"}\n            or not isinstance(payload[\"contacts\"], list)):\n        raise ValueError(\"payload must contain exactly a contacts list\")\n    return import_contacts(connection, payload[\"contacts\"])\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\n\ndef contact_exists(connection, email):\n    return connection.execute(\n        \"SELECT 1 FROM contacts WHERE email = ?\", (email,)\n    ).fetchone() is not None\n",
+      "src/service.py": "from .repository import contact_exists, put_contact\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, list):\n        raise ValueError(\"contacts must be a list\")\n\n    contacts = []\n    emails = set()\n    for row in rows:\n        if not isinstance(row, dict) or set(row) != {\"email\", \"name\"}:\n            raise ValueError(\"each contact must contain exactly email and name\")\n        if not isinstance(row[\"email\"], str) or not isinstance(row[\"name\"], str):\n            raise ValueError(\"email and name must be strings\")\n        email = row[\"email\"].strip().lower()\n        name = row[\"name\"].strip()\n        if email.count(\"@\") != 1 or any(char.isspace() for char in email):\n            raise ValueError(\"invalid email\")\n        local, domain = email.split(\"@\")\n        if not local or not domain or not name:\n            raise ValueError(\"email sides and name must be nonempty\")\n        if email in emails:\n            raise ValueError(\"duplicate email\")\n        emails.add(email)\n        contacts.append((email, name))\n\n    summary = {\"inserted\": 0, \"updated\": 0}\n    if not contacts:\n        return summary\n    with connection:\n        # Explicit BEGIN also makes imports atomic on autocommit connections.\n        connection.execute(\"BEGIN\")\n        for email, name in contacts:\n            key = \"updated\" if contact_exists(connection, email) else \"inserted\"\n            put_contact(connection, email, name)\n            summary[key] += 1\n    return summary\n"
+    },
+    "changed_files": [
+      "checks/import_contacts.py",
+      "src/api.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 125,
+    "removed_lines": 25
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.05276754099759273
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05257745800190605,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.051880500017432496,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

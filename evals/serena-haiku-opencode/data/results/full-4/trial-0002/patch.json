@@ -1,0 +1,17 @@
+{
+  "files": {
+    "checks/service_access.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"Title\", \"Body\", None),\n    (2, \"t\", \"o\", \"Second\", \"B2\", \"2026-01-01\"),   # deleted\n    (3, \"other\", \"o\", \"X\", \"X\", None),              # cross-tenant\n    (4, \"t\", \"someone\", \"Y\", \"Y\", None),            # cross-owner\n    (5, \"t\", \"o'x\", \"Quote's\", \"Q\", None),          # quote in owner name\n    (6, \"t\", \"o\", \"Third\", \"B3\", None),\n]\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\nc.commit()\n\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"}\nassert get_document(c, \"t\", \"o\", 2) is None\nassert get_document(c, \"t\", \"o\", 3) is None\nassert get_document(c, \"t\", \"o\", 4) is None\nassert get_document(c, \"t\", \"o\", 99) is None\nassert get_document(c, \"t\", \"o'x\", 5) == {\"id\": 5, \"title\": \"Quote's\", \"body\": \"Q\"}\nassert get_document(c, \"t\", \"o' OR '1'='1\", 1) is None\nassert get_document(c, \"t' OR '1'='1\", \"o\", 1) is None\n\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"},\n    {\"id\": 6, \"title\": \"Third\", \"body\": \"B3\"},\n]\nassert list_documents(c, \"t\", \"o'x\") == [{\"id\": 5, \"title\": \"Quote's\", \"body\": \"Q\"}]\nassert list_documents(c, \"t\", \"nobody\") == []\nassert all(set(d) == {\"id\", \"title\", \"body\"} for d in list_documents(c, \"t\", \"o\"))\nprint(\"ok\")\n",
+    "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+    "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+  },
+  "changed_files": [
+    "checks/service_access.py",
+    "src/repository.py",
+    "src/service.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 3,
+  "added_lines": 65,
+  "removed_lines": 20
+}

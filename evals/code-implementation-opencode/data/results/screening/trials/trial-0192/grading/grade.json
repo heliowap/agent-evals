@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst invalid = () => new Error('invalid profile');\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw invalid();\n  const proto = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) throw invalid();\n  const keys = Reflect.ownKeys(input);\n  for (const key of keys) if (key !== 'displayName' && key !== 'tags') throw invalid();\n  const has = (k: string) => keys.includes(k);\n  const record = input as Record<string, unknown>;\n\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n\n  if (has('displayName')) {\n    const raw = record.displayName;\n    if (raw === null) displayName = { kind: 'set', value: null };\n    else if (typeof raw === 'string') {\n      const value = raw.trim();\n      if (value.length < 1 || value.length > 40) throw invalid();\n      displayName = { kind: 'set', value };\n    } else throw invalid();\n  }\n\n  if (has('tags')) {\n    const raw = record.tags;\n    if (raw === null) tags = { kind: 'set', value: [] };\n    else if (Array.isArray(raw)) {\n      if (raw.length > 5) throw invalid();\n      const seen = new Set<string>();\n      const out: string[] = [];\n      for (let i = 0; i < raw.length; i++) {\n        if (!(i in raw)) throw invalid();\n        const item: unknown = raw[i];\n        if (typeof item !== 'string') throw invalid();\n        const t = item.trim();\n        if (t.length < 1 || t.length > 12 || seen.has(t)) throw invalid();\n        seen.add(t);\n        out.push(t);\n      }\n      tags = { kind: 'set', value: out };\n    } else throw invalid();\n  }\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    const parsed = parseProfile(input); // throws before any mutation\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = [...parsed.tags.value];\n    return this.profile;\n  }\n}\n"
+    },
+    "changed_files": [
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 58,
+    "removed_lines": 26
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5149907500017434
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05164437499479391,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0467462090018671,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

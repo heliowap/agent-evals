@@ -1,0 +1,38 @@
+## Answer
+
+**Path and helper.** The preparation-time filter lives in `packages/opencode/src/session/llm/request.ts`. The helper is `resolveTools` at lines 210–216, invoked by the preparation entry point `prepare` (Effect function named `LLMRequestPrep.prepare`, line 56) at line 148 (`const tools = resolveTools(input)`). `PrepareInput` declares the relevant inputs: `user` (line 21), `agent` (line 25), `permission?: PermissionV1.Ruleset` (line 26) and `tools: Record<string, Tool>` (line 30). The module re-exports itself as `LLMRequestPrep` (line 228).
+
+**Caller.** `packages/opencode/src/session/llm.ts` imports it at line 31 and calls `LLMRequestPrep.prepare({...})` at lines 106–113 inside `run`; `permission` flows in via `StreamInput` (line 41). A related but separate merge exists at lines 149–152 for workflow-model preapproval (`sessionPreapprovedTools`), which is not the preparation filter.
+
+**Helper body.**
+```ts
+function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">) {
+  const disabled = Permission.disabled(
+    Object.keys(input.tools),
+    Permission.merge(input.agent.permission, input.permission ?? []),
+  )
+  return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+}
+```
+(request.ts:210–216.)
+
+**Permission merge order.** `Permission.merge` (`packages/opencode/src/permission/index.ts:200–202`) is just `rulesets.flat()`, so the effective ruleset is the agent's rules first, then the request/session rules. Because rule selection uses `findLast`, later entries win for a given key. `LLMRequestPrep` passes `(input.agent.permission, input.permission ?? [])` in that order (request.ts:213); the parallel workflow merge in llm.ts:149 uses the same `(agent, session)` order.
+
+**Message-toggle values that exclude.** Only an explicit `false` excludes: the predicate is `input.user.tools?.[k] !== false` (request.ts:215), so `true` or an absent entry keeps the tool. The configuration schema for agent-level toggles is `Schema.optional(Schema.Record(Schema.String, Schema.Boolean))` (`packages/core/src/v1/config/agent.ts:21`); I did not read the MessageV2 user-schema for `input.user.tools`, so its exact typing is inferred only from this predicate.
+
+**Permission rule chosen, and how it disables.** `Permission.disabled` (`packages/opencode/src/permission/index.ts:204–214`):
+```ts
+const edits = ["edit", "write", "apply_patch"]
+const reads = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]
+...
+const permission = edits.includes(tool) ? "edit" : reads.includes(tool) ? "read" : tool
+const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+return rule?.pattern === "*" && rule.action === "deny"
+```
+So the last rule whose `permission` field wildcard-matches the derived permission key is chosen; the tool is hidden from the prepared request only when that rule has `pattern === "*"` and `action === "deny"`. Pattern-scoped denies (e.g. a glob) do not remove the tool at preparation time; they would only matter at execution-time `ask`/`evaluate`. `disabled` is also used by `visibleTools` (index.ts:216–219). Related: `evaluate` (index.ts:28–38) also uses `findLast` with a default `ask` rule.
+
+**Grouping of editing and MCP-resource-reading tool names.** Editing names `edit`, `write`, `apply_patch` all map to the permission key `edit`; MCP resource names `list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource` all map to the permission key `read` (index.ts:205–209). Any other tool uses its own literal name as the permission key.
+
+**Scope.** This is preparation only: it filters the `tools` record later returned sorted (request.ts:184) and sent onward; execution-time authorization is separate (`Permission.ask`, index.ts:67–107; `evaluate`, index.ts:28–38).
+
+**Unresolved limitations.** (1) Tool-materialization in the core v2 path (`packages/core/src/session/runner/llm.ts:203`, `tools.materialize(agent.info?.permissions)`) and its registry test were truncated/empty on read, so whether core v2 duplicates this filter is not established. (2) `Wildcard.match` (`@opencode-ai/core/util/wildcard`) was not read, so wildcard semantics are asserted only as used. (3) The MessageV2 `user.tools` schema was not inspected. (4) Two wildcard import paths appear (`@/util/wildcard` in llm.ts:22 vs `@opencode-ai/core/util/wildcard` in permission/index.ts:4); equivalence was not verified.

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_stream_rows.py": "import unittest\n\nfrom src.consumer import take\nfrom src.resource import Rows\nfrom src.service import stream_rows\n\n\nclass FailingRows(Rows):\n    def __init__(self, rows, read_error=None, close_error=None):\n        super().__init__(rows)\n        self.read_error = read_error\n        self.close_error = close_error\n\n    def read_next(self):\n        if self.read_error is not None:\n            self.reads += 1\n            raise self.read_error\n        return super().read_next()\n\n    def close(self):\n        super().close()\n        if self.close_error is not None:\n            raise self.close_error\n\n\nclass StreamRowsTests(unittest.TestCase):\n    def test_unstarted_stream_does_nothing(self):\n        resource = Rows([1])\n        stream = stream_rows(resource, lambda row: row)\n        self.assertEqual((resource.reads, resource.closes), (0, 0))\n        stream.close()\n        stream.close()\n        self.assertEqual((resource.reads, resource.closes), (0, 0))\n\n    def test_lazy_ordered_transform_and_explicit_close(self):\n        resource = Rows([3, 1, 2])\n        transformed = []\n\n        def transform(row):\n            transformed.append(row)\n            return row * 2\n\n        stream = stream_rows(resource, transform)\n        self.assertEqual(next(stream), 6)\n        self.assertEqual(next(stream), 2)\n        self.assertEqual(transformed, [3, 1])\n        self.assertEqual((resource.reads, resource.closes), (2, 0))\n        stream.close()\n        stream.close()\n        self.assertEqual((resource.reads, resource.closes), (2, 1))\n\n    def test_exhaustion_closes_once(self):\n        for rows in ([], [3, 1, 2]):\n            with self.subTest(rows=rows):\n                resource = Rows(rows)\n                stream = stream_rows(resource, lambda row: row * 2)\n                self.assertEqual(list(stream), [row * 2 for row in rows])\n                stream.close()\n                self.assertEqual((resource.reads, resource.closes), (len(rows) + 1, 1))\n\n    def test_read_and_transform_errors_survive_cleanup(self):\n        for source in ('read', 'transform'):\n            for error in (ValueError('original'), KeyboardInterrupt(), GeneratorExit()):\n                for cleanup_error in (None, RuntimeError('cleanup')):\n                    with self.subTest(source=source, error=error, cleanup=cleanup_error):\n                        resource = FailingRows(\n                            [1, 2],\n                            read_error=error if source == 'read' else None,\n                            close_error=cleanup_error,\n                        )\n\n                        def transform(row):\n                            raise error\n\n                        stream = stream_rows(resource, transform)\n                        with self.assertRaises(type(error)) as caught:\n                            next(stream)\n                        self.assertIs(caught.exception, error)\n                        stream.close()\n                        self.assertEqual((resource.reads, resource.closes), (1, 1))\n                        self.assertEqual(list(stream), [])\n\n    def test_cleanup_error_propagates_without_active_failure(self):\n        for explicit_close in (False, True):\n            with self.subTest(explicit_close=explicit_close):\n                error = RuntimeError('cleanup')\n                resource = FailingRows([1], close_error=error)\n                stream = stream_rows(resource, lambda row: row)\n                self.assertEqual(next(stream), 1)\n                with self.assertRaises(RuntimeError) as caught:\n                    if explicit_close:\n                        stream.close()\n                    else:\n                        next(stream)\n                self.assertIs(caught.exception, error)\n                stream.close()\n                self.assertEqual(resource.closes, 1)\n\n    def test_take_stops_at_limit_and_closes(self):\n        resource = Rows([1, 2, 3])\n        self.assertEqual(take(resource, lambda row: row * 2, 2), [2, 4])\n        self.assertEqual((resource.reads, resource.closes), (2, 1))\n\n    def test_take_zero_does_not_start(self):\n        resource = FailingRows([1], read_error=AssertionError(), close_error=AssertionError())\n        self.assertEqual(take(resource, lambda row: row, 0), [])\n        self.assertEqual((resource.reads, resource.closes), (0, 0))\n\n    def test_take_exhaustion(self):\n        resource = Rows([1])\n        self.assertEqual(take(resource, lambda row: row, 3), [1])\n        self.assertEqual((resource.reads, resource.closes), (2, 1))\n\n    def test_take_failure_closes_and_preserves_error(self):\n        error = ValueError('transform')\n        resource = FailingRows([1, 2], close_error=RuntimeError('cleanup'))\n\n        def transform(row):\n            raise error\n\n        with self.assertRaises(ValueError) as caught:\n            take(resource, transform, 2)\n        self.assertIs(caught.exception, error)\n        self.assertEqual((resource.reads, resource.closes), (1, 1))\n\n    def test_take_propagates_cleanup_failure(self):\n        error = RuntimeError('cleanup')\n        resource = FailingRows([1, 2], close_error=error)\n        with self.assertRaises(RuntimeError) as caught:\n            take(resource, lambda row: row, 1)\n        self.assertIs(caught.exception, error)\n        self.assertEqual((resource.reads, resource.closes), (1, 1))\n\n\nif __name__ == '__main__':\n    unittest.main()\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    if limit == 0:\n        return []\n\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n        return result\n    finally:\n        stream.close()\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    failed = False\n    try:\n        while True:\n            try:\n                row = resource.read_next()\n                if row is None:\n                    return\n                value = transform(row)\n            except BaseException:\n                failed = True\n                raise\n            yield value\n    finally:\n        if failed:\n            # Cleanup must not replace an active read or transform error.\n            try:\n                resource.close()\n            except BaseException:\n                pass\n        else:\n            resource.close()\n"
+    },
+    "changed_files": [
+      "checks/test_stream_rows.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 175,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04410866598482244
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04413283398025669,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04415091601549648,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,57 @@
+Here's the migration, based on the official Pydantic migration guide (2.12 docs) and usage-errors page.
+
+## Replacement decorators
+
+- **Field validators:** `@validator` → **`@field_validator`**
+- **Whole-model/root validators:** `@root_validator` → **`@model_validator`**
+
+Note that `@model_validator` receives the field dict in `mode='before'`/`mode='wrap'`, but an instance of the model when `mode='after'` or with `validate_assignment=True` assignments — handle both cases if needed.
+
+## The `each_item=True` list-of-nonnegative-ints pattern
+
+**No — `@field_validator` has no `each_item` keyword argument.** The migration guide says: "The new `@field_validator` decorator does not have the `each_item` keyword argument; validators you want to apply to items within a generic container should be added by annotating the type argument." The recommended pattern is to put the constraint on the item type via `Annotated`:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+class MyModel(BaseModel):
+    values: list[Annotated[int, Field(ge=0)]]
+```
+
+(Alternatively, an `@field_validator` with `mode="after"` whose annotated value type is the item type, wrapped in `Annotated`, achieves the same per-item validation — but the annotated-annotation form is what the guide shows for replacing `each_item=True`.)
+
+## `TypeError` in a validator
+
+In Pydantic v1, a `TypeError` raised inside a validator was wrapped into a `ValidationError`. **In v2 this is no longer the case**: "when a `TypeError` is raised in a validator, it is no longer converted into a `ValidationError`." The exception propagates out unchanged, e.g.:
+
+```python
+from pydantic import BaseModel, field_validator
+
+class Model(BaseModel):
+    x: int
+
+    @field_validator('x')
+    def val_x(cls, v: int) -> int:
+        return str.lower(v)  # raises TypeError
+
+with pytest.raises(TypeError):
+    Model(x=1)
+```
+
+The guide notes this change "applies to all validation decorators" — so any legacy code relying on `TypeError` becoming a `ValidationError` (e.g., surfaced by FastAPI) must be rewritten to raise `ValueError` or `AssertionError` instead.
+
+## Legacy `@root_validator` with `skip_on_failure=False`
+
+**Not permitted.** The migration guide states: "Even if you keep using the deprecated `@root_validator` decorator, due to refactors in validation logic, you can no longer run with `skip_on_failure=False` (which is the default value of this keyword argument, so must be set explicitly to `True`)." The usage-errors page confirms: "If you use `@root_validator` with `pre=False` (the default) you MUST specify `skip_on_failure=True`. The `skip_on_failure=False` option is no longer available."
+
+So a temporarily retained post-validation root validator must be written as:
+
+```python
+@root_validator(skip_on_failure=True)   # must be explicit; False raises an error
+def check(cls, values): ...
+```
+
+Note the behavioral side effect: with `skip_on_failure=True`, the root validator is no longer invoked if any field validation failed (whereas v1's `skip_on_failure=False` ran it anyway with partial values). The `@root_validator`-related missing-setting usage error is `root-validator-pre-skip-on-failure` in Pydantic's usage-errors docs.
+
+**Limitation:** evidence was taken from the live 2.12-era migration and usage-error pages of the official docs (fetched 2026-10-07 as page snapshots); no other primary sources were needed.

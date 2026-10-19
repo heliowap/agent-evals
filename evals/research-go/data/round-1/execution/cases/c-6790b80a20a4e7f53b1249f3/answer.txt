@@ -1,0 +1,23 @@
+I'll fetch the two starting official pages.
+
+Let me verify checksum-database verification semantics on a second official page.
+
+## Runner-by-runner selection
+
+**A** — `auto` = `local+auto`; the default is the bundled toolchain, then the go command consults `toolchain` before `go` in the main module ([toolchain#select](https://go.dev/doc/toolchain#select)). `toolchain go1.21.9` is newer than bundled 1.21.3, so it selects `go1.21.9`; absent from PATH, `auto` downloads and caches it ([toolchain#intro](https://go.dev/doc/toolchain#intro)).
+
+**B** — `GOTOOLCHAIN=local` always runs the bundled toolchain ([toolchain#GOTOOLCHAIN](https://go.dev/doc/toolchain#GOTOOLCHAIN)). Since Go 1.21 the `go` line is mandatory: a toolchain refuses to load a module whose minimum version exceeds its own, so 1.21.3 **refuses** `go 1.21.9` ([toolchain#config](https://go.dev/doc/toolchain#config)).
+
+**C** — `go1.21.3+path` sets default `go1.21.3`, still honouring newer `toolchain`/`go` lines, but `+path` disables the download fallback ([toolchain#select](https://go.dev/doc/toolchain#select)). The `toolchain go1.21.9` line wins over `go 1.21.0`, so it searches PATH for `go1.21.9`, finds none, and **refuses**. A fails, not because of `go 1.21.0`, but because of the `toolchain` line.
+
+## Directives
+
+`go` = minimum required version, must be ≥ every dependency's `go` line; `toolchain` = a *suggestion*, effective only in the main module and only when the default toolchain is older ([gomod-ref#toolchain-notes](https://go.dev/doc/modules/gomod-ref#toolchain-notes), [gomod-ref#go-notes](https://go.dev/doc/modules/gomod-ref#go-notes)). A dependency's `toolchain` line is therefore **ignored downstream**, but its `go` line propagates: `go get`/`go mod tidy` raise your `go` line and may trigger a switch ([toolchain#switch](https://go.dev/doc/toolchain#switch)).
+
+## Proposal corrections
+
+`GOSUMDB=off` is backwards: toolchain downloads "fail for lack of verification if GOSUMDB=off," and `GOPRIVATE`/`GONOSUMDB` don't apply to them ([toolchain#download](https://go.dev/doc/toolchain#download)). `+path` makes the *toolchain* step network-free, not the build: modules still come from GOPROXY ([managing-dependencies#proxy_server](https://go.dev/doc/modules/managing-dependencies#proxy_server)).
+
+**Recommendation:** keep the checksum database; pre-place verified toolchains (or `go install golang.org/toolchain`-style cached modules) rather than disabling verification; pin `GOTOOLCHAIN` per runner deliberately.
+
+**Not established:** verifying the checksum DB does not prove toolchain provenance for PATH-resolved binaries; `+path` and `local` give no such verification, and no setting here guarantees reproducible or fully offline builds. Resolve via the go command reference's module-download/verification section. UNVERIFIED.

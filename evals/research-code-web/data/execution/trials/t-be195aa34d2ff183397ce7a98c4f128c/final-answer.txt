@@ -1,0 +1,21 @@
+## Findings
+
+### 1. The three assertions (v4 classic transform tests — `packages/zod/src/v4/classic/tests/transform.test.ts`)
+
+- **Sync number→string in an object ("coercion", lines 93–102):** builds `z.number().transform((n) => String(n))` (L94), wraps it as the `id` field of `z.object` (L95–99), calls `.parse({ id: 5 })`, and asserts `expect(data).toEqual({ id: "5" })` (L101). Exact deep-equality outcome: `{ id: "5" }`.
+- **Async transformation via async parsing ("async coercion", lines 104–113):** the field schema uses an `async` callback: `z.number().transform(async (n) => String(n))` (L105); object `id` field (L106–110); `await ...parseAsync({ id: 5 })` (L110); asserts the identical result `expect(data).toEqual({ id: "5" })` (L112).
+- **Async transformation via sync parsing ("sync coercion async error", lines 115–125):** reuses the same async transform (L116), wrapped in an object `id` field (L117–122), invoked with sync `.parse({ id: 5 })`; asserts only that the call **throws** — `expect(...).toThrow()` (L123). A commented-out line (L124) shows the "successful" value assertion was disabled.
+
+### 2. Core runtime check explaining the synchronous rejection
+
+Static inference (from runtime source, not from the test itself): in `packages/zod/src/v4/core/schemas.ts` `$ZodTransform`'s parse implementation (constructor at L3837–3839, parse fn starting L3844), the result of `def.transform(payload.value, payload)` (L3849) is checked. In async-parse mode (L3850–3855) it wraps the value in `Promise.resolve`. In sync mode, it checks `if (_out instanceof Promise)` and throws `new core.$ZodAsyncError()` (L3858–3859). This is what makes `.parse()` on an async transform reject: an `async` callback always fulfills as a `Promise`, so the sync path trips the `instanceof Promise` check. `$ZodAsyncError` is defined in `packages/zod/src/v4/core/core.ts` L166.
+
+### 3. Does the rejection test assert exact class/message?
+
+No. `transform.test.ts` L123 uses bare `.toThrow()`, so the test **does not** constrain the error class (`$ZodAsyncError` vs. anything else) or any message. The class-level identification of `$ZodAsyncError` rests on the runtime source above, which is inference from implementation — the test file itself asserts only "throws something."
+
+### Separation of evidence
+
+- **Test-file facts (validated):** the three test outcomes above and their exact line spans.
+- **Implementation inference (static reading, not executed):** the `instanceof Promise` guard and `$ZodAsyncError` throw, plus the class definition at `core.ts:166`.
+- **Unresolved:** what an *arbitrary* user transform callback would do with a non-Promise return (e.g., plain value in sync mode) is not exercised here; the sync payload-mutation path after L3858 and backward (`$ZodEncodeError`) behavior (L3845–3847) are only touched in other tests not read for this question. No code or tests were executed; all conclusions are from static file reads.

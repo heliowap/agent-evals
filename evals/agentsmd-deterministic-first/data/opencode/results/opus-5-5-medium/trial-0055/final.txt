@@ -1,0 +1,42 @@
+The bug is in `parse_enabled` in `parser.py`. It returns the wrong result for `"false"`, and it never raises `ValueError` for bad input. I didn't change any files.
+
+## The defect
+
+```python
+def parse_enabled(value):
+    return bool(value)
+```
+
+`bool()` on a string only checks whether the string is empty. It doesn't read what the string says. I ran it to confirm:
+
+| Input | Result | Expected |
+|---|---|---|
+| `"true"` | `True` | `True` |
+| `"false"` | **`True`** | `False` |
+| `"False"` | `True` | `ValueError` |
+| `"yes"` | `True` | `ValueError` |
+| `""` | `False` | `ValueError` |
+
+That causes two problems:
+1. **Wrong value:** `"false"` turns into `True`, so a setting that was explicitly turned off ends up on. This is the most serious part.
+2. **No validation:** typos, different capitalisation (`"False"`) and empty strings are accepted silently instead of raising `ValueError`.
+
+## Recommended fix (not applied)
+
+```python
+def parse_enabled(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected 'true' or 'false', got {value!r}")
+```
+
+Comparing against the exact strings keeps the rule strict. It also means non-string inputs like `1`, `None` or `True` are rejected rather than converted.
+
+## Preventing recurrence
+
+- **Add tests for the contract.** There are no tests in the repo now. A parametrized test should check that `"true"` gives `True` and `"false"` gives `False`, and that inputs like `"False"`, `"TRUE"`, `" true"`, `""`, `"yes"`, `"1"`, `None`, `1` and `True` raise `ValueError`. A test for the `"false"` case alone would have caught this bug.
+- **Don't use `bool()` to parse text.** Add this to code review guidance, and consider a lint rule or a grep check in CI that flags `bool(` on values that come from config files, environment variables or user input.
+- **Use one shared parser.** Send every boolean config value through this one function so the strict rule lives in one place instead of being rewritten in each place a value is read.
+- **Document the behaviour.** A docstring stating "accepts exactly `'true'`/`'false'`; otherwise raises `ValueError`" makes the rule clear to future editors.

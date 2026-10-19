@@ -1,0 +1,22 @@
+## Decision
+
+Do not deploy this as designed. Node.js v24.21.0 documents the Permission Model as a "seat belt" that "does not protect against malicious code," which "can bypass the permission model" ([permissions.html#permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions)). The version-matched policy is explicit: it reduces blast radius of mistakes in trusted application code, and is "**not**" a boundary against intentional misuse or a compromised process ([SECURITY.md#permission-model-boundaries](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md)). Customer-uploaded JS is code Node.js trusts ([SECURITY.md#the-nodejs-threat-model](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md#the-nodejs-threat-model)).
+
+## Premises requiring change
+
+- **Wildcard grants more than intended.** `--allow-fs-read=/srv/jobs/*.js` behaves like `/srv/jobs/*`: after `*`, "all subsequent characters will be ignored," so every tenant could read other jobs' files ([#file-system-permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions)).
+- **Relative symlinks break the boundary.** Symlinks "will be followed even to locations outside" granted paths; relative symlinks may reach arbitrary files, so granted paths must contain none ([#limitations-and-known-issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues)).
+- **The env file and pre-opened FD are outside the model.** `--env-file` reads "before environment initialization" and is "not subject to the rules"; existing descriptors accessed via `node:fs` "bypass the Permission Model" ([#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)). The FD is unconstrained; the env file's secrets enter `process.env`.
+- **`--permission-audit` does not enforce**, and `--permission` overrides it ([cli.html#--permission-audit](https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#--permission-audit)); staging thus never validates denial behavior.
+
+## Worker inheritance: unresolved
+
+Sources conflict. The constraints list says "The model does not inherit to a worker thread" ([#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)), while SECURITY.md says workers "inherit the permission restrictions of their parent" and modified `execArgv` adds nothing. `worker_threads` documents only general option inheritance ([#new-workerfilename-options](https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html#new-workerfilename-options)). **UNVERIFIED** — do not enable `--allow-worker`; resolve via nodejs/node source/tests or the Security Team before relying on either claim.
+
+## Appropriate use
+
+Enforce mode as defense-in-depth for **trusted first-party code**, plus audit mode to discover required grants and irreversible `process.permission.drop()` for narrowing. Tenant isolation needs OS-level controls (separate users/containers, seccomp/AppArmor), as the docs themselves recommend ([#process_debugprocess-and-cross-process-inspector-activation](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#process_debugprocess-and-cross-process-inspector-activation)).
+
+## Certification
+
+No. These documents explicitly disclaim the guarantee; none certifies tenant isolation.

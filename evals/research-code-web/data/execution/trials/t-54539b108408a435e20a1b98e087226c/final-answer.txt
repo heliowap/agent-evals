@@ -1,0 +1,85 @@
+Based on the inspected implementation in the Zod v4 codebase, here is the trace of a string schema's synchronous transformation from the public builder through core execution:
+
+---
+
+### 1. Representation of the Transformation
+
+- **Public Builder / Composition Representation:**
+  - Calling `.transform(tx)` on a schema instance (such as a string schema) invokes the builder method on `ZodType` prototype:
+    ```ts
+    transform(tx) {
+      return pipe(this, transform(tx));
+    }
+    ```
+    - **Path & Lines:** `packages/zod/src/v4/classic/schemas.ts:245-247`
+  - The standalone builder helper `transform(fn)` creates a `ZodTransform` instance whose definition is `{ type: "transform", transform: fn }`:
+    - **Path & Lines:** `packages/zod/src/v4/classic/schemas.ts:2291-2298`
+  - The `pipe(this, transform(tx))` builder constructs a `ZodPipe` instance with `{ type: "pipe", in: in_, out: out }`:
+    - **Path & Lines:** `packages/zod/src/v4/classic/schemas.ts:2559-2566`
+  - Thus, the operation is structurally represented as a **`ZodPipe`** containing the original input schema (`in`) and a **`ZodTransform`** target schema (`out`).
+
+---
+
+### 2. Execution Order of Input Parsing and Transformation
+
+- **Core Pipe Execution (`$ZodPipe`):**
+  - In forward parsing (`ctx.direction !== "backward"`), `$ZodPipe` runs the input side first and feeds the result to the output side:
+    ```ts
+    const left = def.in._zod.run(payload, ctx);
+    if (left instanceof Promise) {
+      return left.then((left) => handlePipeResult(left, def.out, ctx));
+    }
+    return handlePipeResult(left, def.out, ctx);
+    ```
+    - **Path & Lines:** `packages/zod/src/v4/core/schemas.ts:4441-4446`
+  - **Order:**
+    1. The input string schema (`def.in`) parses and validates the data synchronously.
+    2. Once input parsing completes without disqualifying issues, `handlePipeResult` passes the output to `def.out._zod.run(...)` (`def.out` is the `ZodTransform`).
+    3. The transform function `def.transform(payload.value, payload)` is executed inside `ZodTransform`'s parse runner (`packages/zod/src/v4/classic/schemas.ts:2278`).
+
+---
+
+### 3. Input Issues That Stop the Pipe & The Issue-Code Exception
+
+- **Condition in `handlePipeResult`:**
+  - When evaluating the result of `def.in`:
+    ```ts
+    function handlePipeResult(left: ParsePayload, next: $ZodType, ctx: ParseContextInternal) {
+      // Any issue stops the pipe, so a failing refinement never feeds its transform. An unrecognized key is the exception: it describes the input's extra properties, not the value being piped, and an enclosing intersection may yet reconcile it.
+      if (left.issues.some((iss) => iss.code !== "unrecognized_keys")) {
+        // prevent further checks
+        left.aborted = true;
+        return left;
+      }
+      return next._zod.run({ value: left.value, issues: left.issues }, ctx);
+    }
+    ```
+    - **Path & Lines:** `packages/zod/src/v4/core/schemas.ts:4449-4457`
+  - **Issues that stop the pipe:** Any issue recorded during input parsing whose issue code is **not** `"unrecognized_keys"` stops the pipe (marking `left.aborted = true` and returning immediately without invoking the transform).
+  - **Exception:** The issue code **`"unrecognized_keys"`** is the exception; if the only issues present are unrecognized key issues, the pipe is not stopped, allowing downstream execution to proceed.
+
+---
+
+### 4. How the Returned Transformed Value Is Carried Onward
+
+- Inside `ZodTransform`'s parser:
+  ```ts
+  const output = def.transform(payload.value, payload);
+  if (output instanceof Promise) {
+    return output.then((output) => {
+      payload.value = output;
+      return payload;
+    });
+  }
+  payload.value = output;
+  return payload;
+  ```
+  - **Path & Lines:** `packages/zod/src/v4/classic/schemas.ts:2278-2286`
+- **Mechanism:**
+  - Synchronously, the return value of `def.transform(...)` is assigned directly to the parse payload's `value` field (`payload.value = output`).
+  - The updated `payload` object is returned onward from `inst._zod.parse`, propagating the transformed value through the rest of the parsing lifecycle.
+
+---
+
+### Unresolved Limitations
+- The exact internal implementation of `def.in._zod.run` (e.g. how primitive string checks dispatch issue reporting) was not read in full, as tracing focused directly on the pipe and transform boundary execution.

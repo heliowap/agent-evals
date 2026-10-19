@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { ProfileService } = require('../.build/service');\n        const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n        assert.deepEqual(service.patch({ displayName: 'after' }), { displayName: 'after', tags: ['old'] });\n        assert.deepEqual(service.patch({ tags: ['new'] }), { displayName: 'after', tags: ['new'] });\n        assert.throws(() => service.patch(null), /invalid profile/);\n\n{\n  const { ProfileService } = require('../.build/service');\n  const snap = (s) => JSON.stringify(s.profile);\n  const fresh = () => new ProfileService({ displayName: 'before', tags: ['old'] });\n\n  // empty object is a no-op\n  let s = fresh();\n  assert.deepEqual(s.patch({}), { displayName: 'before', tags: ['old'] });\n\n  // null clears displayName; [] and null clear tags\n  s = fresh();\n  assert.deepEqual(s.patch({ displayName: null, tags: [] }), { displayName: null, tags: [] });\n  s = fresh();\n  assert.deepEqual(s.patch({ tags: null }), { displayName: 'before', tags: [] });\n\n  // trimming and tag dedupe after trim\n  s = fresh();\n  assert.deepEqual(s.patch({ displayName: '  Ann  ', tags: [' a ', 'b'] }), { displayName: 'Ann', tags: ['a', 'b'] });\n\n  // caller's array is not reused for storage\n  const mine = ['x'];\n  s = fresh();\n  s.patch({ tags: mine });\n  assert.notEqual(s.profile.tags, mine);\n  mine.push('y');\n  assert.deepEqual(s.profile.tags, ['x']);\n\n  // invalid inputs throw and leave storage unchanged\n  const bad = [\n    null, 1, 'str', [], ['a'], Object.create({ displayName: 'x' }),\n    { displayName: 5 }, { displayName: '   ' }, { displayName: 'a'.repeat(41) },\n    { displayName: undefined }, { tags: 'a' }, { tags: [1] }, { tags: [''] },\n    { tags: [' ', 'a'] }, { tags: ['a', ' a '] }, { tags: ['a', 'b', 'c', 'd', 'e', 'f'] },\n    { tags: ['a'.repeat(13)] }, { tags: [undefined] }, { tags: {} }, { extra: 1 },\n    { displayName: 'ok', tags: [1] }, { tags: [ 'a', , 'b'] },\n  ];\n  for (const input of bad) {\n    s = fresh();\n    const before = snap(s);\n    assert.throws(() => s.patch(input), /invalid profile/);\n    assert.equal(snap(s), before);\n  }\n\n  // boundary values accepted\n  s = fresh();\n  assert.deepEqual(s.patch({ displayName: 'a'.repeat(40), tags: ['t'.repeat(12), 'a', 'b', 'c', 'd'] }).tags.length, 5);\n\n  // accessor-based key rejected\n  s = fresh();\n  assert.throws(() => s.patch(Object.defineProperty({}, 'tags', { get: () => [], enumerable: true })), /invalid profile/);\n}\nconsole.log('public checks passed');\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst INVALID = 'invalid profile';\nconst FIELDS = new Set(['displayName', 'tags']);\nconst MAX_NAME = 40;\nconst MAX_TAGS = 5;\nconst MAX_TAG = 12;\n\nfunction dataValue(obj: object, key: string): unknown {\n  const desc = Object.getOwnPropertyDescriptor(obj, key);\n  if (!desc || !('value' in desc)) throw new Error(INVALID); // accessors are rejected\n  return desc.value;\n}\n\nfunction parseDisplayName(value: unknown): string | null {\n  if (value === null) return null;\n  if (typeof value !== 'string') throw new Error(INVALID);\n  const trimmed = value.trim();\n  if (trimmed.length < 1 || trimmed.length > MAX_NAME) throw new Error(INVALID);\n  return trimmed;\n}\n\nfunction parseTags(value: unknown): string[] {\n  if (value === null) return [];\n  if (!Array.isArray(value)) throw new Error(INVALID);\n  if (value.length > MAX_TAGS) throw new Error(INVALID);\n  const seen = new Set<string>();\n  const out: string[] = [];\n  for (let i = 0; i < value.length; i++) {\n    if (!Object.prototype.hasOwnProperty.call(value, i)) throw new Error(INVALID); // sparse\n    const item = value[i];\n    if (typeof item !== 'string') throw new Error(INVALID);\n    const trimmed = item.trim();\n    if (trimmed.length < 1 || trimmed.length > MAX_TAG) throw new Error(INVALID);\n    if (seen.has(trimmed)) throw new Error(INVALID);\n    seen.add(trimmed);\n    out.push(trimmed); // fresh string array; caller's array is never stored\n  }\n  return out;\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) throw new Error(INVALID);\n  const proto = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) throw new Error(INVALID);\n  for (const key of Reflect.ownKeys(input)) {\n    if (typeof key !== 'string' || !FIELDS.has(key)) throw new Error(INVALID);\n  }\n\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n  if (Object.prototype.hasOwnProperty.call(input, 'displayName')) {\n    displayName = { kind: 'set', value: parseDisplayName(dataValue(input, 'displayName')) };\n  }\n  if (Object.prototype.hasOwnProperty.call(input, 'tags')) {\n    tags = { kind: 'set', value: parseTags(dataValue(input, 'tags')) };\n  }\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    // Parse and validate everything before touching storage so invalid input leaves it unchanged.\n    const parsed = parseProfile(input);\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = parsed.tags.value;\n    return this.profile;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 131,
+    "removed_lines": 33
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5595173750189133
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06502120901132002,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.060313082998618484,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

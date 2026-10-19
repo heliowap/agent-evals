@@ -1,0 +1,18 @@
+I implemented `import_contacts` and `handle_import`. The public check and the new check both pass.
+
+**Changes**
+
+- **`src/repository.py`**: added `contact_exists`, `insert_contact` and `update_contact_name`. `initialize`, `list_contacts` and `put_contact` are unchanged.
+- **`src/service.py`**: `import_contacts` validates every row before opening a transaction. Each row must be a dict with exactly `email` and `name`, both strings. Both are trimmed. The email must have one `@`, nonempty sides, and no whitespace. It is lowercased. The name must be nonempty. Duplicate normalized emails raise `ValueError`. The writes then run inside `BEGIN IMMEDIATE`. Each email is inserted if new, or updated (and counted as updated) if it exists. The batch commits once, and any exception rolls it back. `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the key `contacts`, raises `ValueError` otherwise, and returns the summary. `handle_add` is unchanged.
+- **`checks/test_import_contacts.py`** (new): covers counts, normalization, unchanged-name updates, empty batches, the rejected-input cases, and the envelope checks. It also injects a database failure with a trigger and confirms that earlier writes in the batch are rolled back. It runs under both the default and `isolation_level=None` connection modes.
+
+**Verification**
+
+- `python3 checks/public.py`: passes.
+- `python3 checks/test_import_contacts.py`: passes.
+
+**Decisions to review**
+
+- **Mixed-case legacy rows:** `add_contact` stores emails as given, so a row like `Bob@X.com` won't match an imported `bob@x.com`. The import inserts a second row instead of updating the first. I left `add_contact` alone because the request said to preserve it.
+- **Database errors:** these propagate as the original `sqlite3.Error` rather than being wrapped in `ValueError`.

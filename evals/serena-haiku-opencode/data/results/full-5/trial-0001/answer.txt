@@ -1,0 +1,12 @@
+`get_document` and `list_documents` now enforce tenant, owner and `deleted_at IS NULL`. The public check and a new scoping check both pass.
+
+**Changes**
+- **`src/repository.py`**: `find` and `listing` take `tenant` and `owner` and filter on them in SQL, along with `deleted_at IS NULL`. All values are bound parameters, so names with quotes or injection-style strings are treated as data. `listing` orders by `id`. `decode` still returns only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass tenant and owner through to the repository. Both were previously ignoring tenant, and `get_document` ignored owner too.
+- **`checks/test_service_scoping.py`** (new): covers a deleted record, a cross-tenant record, a cross-owner record, a missing ID, an injection-style ID, ordering, the exact result keys, and quoted tenant and owner values.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 checks/test_service_scoping.py` passes all three tests.
+
+I did not make a git commit, and the repository is not a git repo, so there is no diff to show.

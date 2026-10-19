@@ -1,0 +1,17 @@
+## Decision
+
+**Receiver (minimum changes).** Verify `X-Hub-Signature-256` against the **raw request body bytes** *before* JSON parsing or re-serialization: GitHub generates an HMAC-SHA256 digest (`sha256=` prefix) using your secret token and the payload contents, and the docs' examples read the original body, verify, then `JSON.parse` — re-serializing changes the bytes the signature covers [1]. Replace plain `==` with a constant-time comparison (`hmac.compare_digest`, `Rack::Utils.secure_compare`), since the docs explicitly warn that plain `==` is vulnerable to timing attacks [1]. The docs also require that payload/headers not be modified (e.g., by proxies) before verification [1]. Keep this before trusting any payload, and check `X-GitHub-Event`/`action` before processing [2].
+
+**Timing.** Respond 2XX **within 10 seconds** or GitHub terminates the connection and marks the delivery failed [2]. A 25-second in-handler job guarantees failures — enqueue and ack immediately (the docs recommend a queue with background processing) [2].
+
+**Retry premise — incorrect.** "GitHub does not automatically redeliver failed deliveries," and redelivery is only possible for deliveries from the **past 3 days**, via UI/REST by admins [3]. Your recovery plan must therefore run its own redelivery job — the documented pattern is a scheduled script that lists failed deliveries and POSTs `/hooks/{hook_id}/deliveries/{delivery_id}/attempts` [4]. Operations can't assume automatic post-outage retries.
+
+**Deduplication premise — incorrect.** `X-GitHub-Delivery` is unique per event (replay-attack protection), and "if you request a redelivery, the X-GitHub-Delivery header will be the same as in the original delivery"; the redelivery docs likewise state "the GUID is constant across redeliveries" [2][4]. Dedup **on the delivery GUID**, not on a per-delivery-attempt ID — redeliveries are not new events.
+
+**Recovery plan.** After an outage, redeliver via your own scheduled job within the 3-day window [3][4], and redeliver only GUIDs with no successful delivery to avoid duplicate recovery [4].
+
+## Exactly-once across a crash
+
+**No — not from documented mechanisms alone.** What they establish: authenticity (valid HMAC over untampered body [1]), replay protection/dedup key (stable GUID [2][4]), and at-least-once recovery (manual/scripted redelivery [3]). Nothing documented guarantees exactly-once business side effects; if the dedup record and the side effect aren't committed atomically, a crash between them yields duplication or loss. **Recommendation (not GitHub documentation):** make effect application idempotent and commit the GUID dedup key transactionally with the effect. UNVERIFIED whether some event payloads contain event-level IDs usable as secondary keys; next evidence target: the per-event payload reference (https://docs.github.com/en/webhooks/webhook-events-and-payloads).
+
+**Sources:** [1] https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries · [2] https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header (also #respond-within-10-seconds, #redeliver-missed-deliveries) · [3] https://docs.github.com/en/webhooks/testing-and-troubleshooting-webhooks/redelivering-webhooks#about-redelivering-webhooks · [4] https://docs.github.com/en/webhooks/using-webhooks/automatically-redelivering-failed-deliveries-for-a-repository-webhook#adding-the-script

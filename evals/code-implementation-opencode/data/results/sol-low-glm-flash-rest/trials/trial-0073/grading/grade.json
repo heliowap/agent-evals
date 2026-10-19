@@ -1,0 +1,64 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\nconst fs = require('node:fs');\nconst path = require('node:path');\n\n        const { renderInvoice } = require('../.build/invoice'); const { renderReport } = require('../.build/report');\n        assert.equal(renderInvoice('inv', 123), 'inv: $1.23');\n        assert.equal(renderReport([{ id: 'a', cents: 0 }, { id: 'b', cents: -1 }]), 'a,0.00\\nb,-0.01');\n\n// Shared money module: sign + whole units + exactly two fraction digits, no currency symbol.\nconst { formatAmount } = require('../.build/money');\nassert.equal(formatAmount(123), '1.23');    // positive\nassert.equal(formatAmount(0), '0.00');      // zero\nassert.equal(formatAmount(-1), '-0.01');    // negative\nassert.equal(formatAmount(100), '1.00');    // exact whole unit\nassert.equal(formatAmount(-5), '-0.05');    // negative single fraction digit is zero-padded\nassert.equal(formatAmount(100500), '1005.00'); // multi-unit whole part\n\n// Renderers keep their interfaces and exact output for positive, zero and negative cents.\nassert.equal(renderInvoice('inv', 0), 'inv: $0.00');\nassert.equal(renderInvoice('inv', -1), 'inv: $-0.01');\nassert.equal(renderInvoice('inv', 1234567), 'inv: $12345.67');\nassert.equal(renderReport([\n  { id: 'a', cents: 250 },\n  { id: 'b', cents: 0 },\n  { id: 'c', cents: -1 },\n]), 'a,2.50\\nb,0.00\\nc,-0.01');\n\n// Old exported API names are removed from all src/ code.\nconst srcDir = path.join(__dirname, '..', 'src');\nfor (const name of ['invoiceAmount', 'reportAmount']) {\n  for (const file of fs.readdirSync(srcDir)) {\n    assert.ok(!fs.readFileSync(path.join(srcDir, file), 'utf8').includes(name),\n      `old API name \"${name}\" still present in src/${file}`);\n  }\n}\n",
+      "src/invoice.ts": "import { formatAmount } from './money';\nexport function renderInvoice(id: string, cents: number): string { return id + ': $' + formatAmount(cents); }\n",
+      "src/invoiceAmount.ts": null,
+      "src/money.ts": "export function formatAmount(cents: number): string {\n  const sign = cents < 0 ? '-' : '';\n  const absolute = Math.abs(cents);\n  return sign + Math.floor(absolute / 100) + '.' + String(absolute % 100).padStart(2, '0');\n}\n",
+      "src/report.ts": "import { formatAmount } from './money';\nexport function renderReport(rows: { id: string; cents: number }[]): string {\n  return rows.map(row => row.id + ',' + formatAmount(row.cents)).join('\\n');\n}\n",
+      "src/reportAmount.ts": null
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/invoice.ts",
+      "src/invoiceAmount.ts",
+      "src/money.ts",
+      "src/report.ts",
+      "src/reportAmount.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 6,
+    "added_lines": 46,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.4907328329863958
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.061700416990788653,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06218554198858328,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05187095800647512,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

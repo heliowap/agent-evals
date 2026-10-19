@@ -1,0 +1,14 @@
+I've secured `get_document` and `list_documents` so they only return documents that match the tenant and owner and have `deleted_at IS NULL`. Both public and new checks pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Their SQL adds `tenant=? AND owner=? AND deleted_at IS NULL`, and all values are bound parameters. `find` also still matches on `id`. `listing` keeps `ORDER BY id`. `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass tenant and owner through to the repository. The signatures are unchanged.
+- **`checks/secure_access.py`** (new): covers a visible document, a deleted document, a cross-tenant ID, a cross-owner ID, a missing ID, ordering, a name containing quotes and SQL-like text, and empty lists for unknown owners.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/secure_access.py` passes.
+
+Unavailable IDs all return `None`, so the caller cannot tell cross-tenant, cross-owner and deleted records apart.

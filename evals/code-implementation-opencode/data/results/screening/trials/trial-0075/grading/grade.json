@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_stream.py": "import os\nimport sys\nimport unittest\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))\n\nfrom src.consumer import take\nfrom src.resource import Rows\nfrom src.service import stream_rows\n\n\nclass FailingRows(Rows):\n    def __init__(self, rows, read_error=None, close_error=None):\n        super().__init__(rows)\n        self.read_error = read_error\n        self.close_error = close_error\n\n    def read_next(self):\n        if self.read_error is not None:\n            self.reads += 1\n            raise self.read_error\n        return super().read_next()\n\n    def close(self):\n        super().close()\n        if self.close_error is not None:\n            raise self.close_error\n\n\nclass StreamTests(unittest.TestCase):\n    def test_unstarted(self):\n        resource = Rows([1])\n        stream = stream_rows(resource, lambda row: row)\n        self.assertEqual((resource.reads, resource.closes), (0, 0))\n        stream.close()\n        self.assertEqual((resource.reads, resource.closes), (0, 0))\n\n    def test_lazy_order_and_exhaustion(self):\n        resource = Rows([3, 1, 2])\n        calls = []\n\n        def transform(row):\n            calls.append(row)\n            return row * 2\n\n        stream = stream_rows(resource, transform)\n        self.assertEqual(next(stream), 6)\n        self.assertEqual(calls, [3])\n        self.assertEqual(resource.reads, 1)\n        self.assertEqual(list(stream), [2, 4])\n        stream.close()\n        self.assertEqual((resource.reads, resource.closes), (4, 1))\n\n    def test_explicit_close(self):\n        resource = Rows([1, 2])\n        stream = stream_rows(resource, lambda row: row)\n        next(stream)\n        stream.close()\n        stream.close()\n        self.assertEqual((resource.reads, resource.closes), (1, 1))\n\n    def test_primary_errors_survive_cleanup(self):\n        for stage in ('read', 'transform'):\n            for cleanup_error in (None, RuntimeError('cleanup')):\n                with self.subTest(stage=stage, cleanup_error=cleanup_error):\n                    error = ValueError(stage)\n                    resource = FailingRows([1, 2],\n                                           error if stage == 'read' else None,\n                                           cleanup_error)\n\n                    def transform(row):\n                        raise error\n\n                    stream = stream_rows(resource, transform)\n                    with self.assertRaises(ValueError) as caught:\n                        next(stream)\n                    self.assertIs(caught.exception, error)\n                    stream.close()\n                    self.assertEqual((resource.reads, resource.closes), (1, 1))\n\n    def test_cleanup_errors_propagate(self):\n        for explicit in (False, True):\n            with self.subTest(explicit=explicit):\n                error = RuntimeError('cleanup')\n                resource = FailingRows([1], close_error=error)\n                stream = stream_rows(resource, lambda row: row)\n                next(stream)\n                with self.assertRaises(RuntimeError) as caught:\n                    if explicit:\n                        stream.close()\n                    else:\n                        next(stream)\n                self.assertIs(caught.exception, error)\n                stream.close()\n                self.assertEqual(resource.closes, 1)\n\n    def test_take(self):\n        for limit, expected, reads, closes in (\n            (0, [], 0, 0), (2, [2, 4], 2, 1), (5, [2, 4, 6], 4, 1)\n        ):\n            with self.subTest(limit=limit):\n                resource = Rows([1, 2, 3])\n                self.assertEqual(take(resource, lambda row: row * 2, limit), expected)\n                self.assertEqual((resource.reads, resource.closes), (reads, closes))\n\n    def test_take_failure(self):\n        resource = Rows([1, 2])\n\n        def transform(row):\n            raise ValueError('transform')\n\n        with self.assertRaises(ValueError):\n            take(resource, transform, 2)\n        self.assertEqual((resource.reads, resource.closes), (1, 1))\n\n\nif __name__ == '__main__':\n    unittest.main()\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    if limit == 0:\n        return []\n\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    finally:\n        stream.close()\n    return result\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    failed = False\n    try:\n        while True:\n            try:\n                row = resource.read_next()\n                if row is None:\n                    break\n                value = transform(row)\n            except BaseException:\n                failed = True\n                raise\n            yield value\n    finally:\n        try:\n            resource.close()\n        except BaseException:\n            # Cleanup must not replace a read or transformation failure.\n            if not failed:\n                raise\n"
+    },
+    "changed_files": [
+      "checks/test_stream.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 155,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04799604101572186
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04660216698539443,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04524929201579653,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

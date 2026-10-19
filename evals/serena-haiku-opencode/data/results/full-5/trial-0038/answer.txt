@@ -1,0 +1,25 @@
+`import_contacts` is implemented in `src/service.py` and exposed through `handle_import` in `src/api.py`. The public check and the 13 new tests all pass.
+
+**What changed**
+
+- **`src/repository.py`**: added `existing_emails(connection, emails)`, which returns which of the given emails already exist. It queries in chunks of 500 to stay under SQLite's parameter limit. `put_contact`, `list_contacts` and `initialize` are unchanged.
+- **`src/service.py`**:
+  - Each row must be a dict with exactly the keys `email` and `name`, both strings. Otherwise it raises `ValueError`.
+  - Both fields are trimmed. The email must have exactly one `@`, nonempty sides, and no whitespace. It is lowercased. The name must be nonempty.
+  - Duplicate normalized emails in a batch raise `ValueError`.
+  - The whole batch is validated before any database call. An empty batch returns `{'inserted': 0, 'updated': 0}` without touching the database.
+  - Writes run in one transaction (`with connection:` plus `BEGIN IMMEDIATE`). Any failure rolls back the whole batch.
+  - Counts come from the pre-write existence check. An existing email counts as `updated` even when its name is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the key `contacts`, and that value must be a list. Otherwise it raises `ValueError`. It returns the summary from `import_contacts`. `handle_add` is unchanged.
+- **`checks/test_import_contacts.py`** (new): covers normalization, insert/update counting, unchanged-name updates, empty batches, a 1,200-row batch, each validation rule, a simulated database failure mid-batch with rollback, the API envelope checks, and that `add_contact` and `list_contacts` still behave the same.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/test_import_contacts.py` runs 13 tests, all passing.
+
+**Decisions to review**
+
+- **Existing-email matching is exact.** `add_contact` stores emails as given and does not lowercase them. If the table already holds `Alice@x.com`, importing `alice@x.com` inserts a second row instead of updating the first. I kept `add_contact` unchanged, as requested. Fixing this would mean normalizing in `add_contact` or changing the schema, which I did not do.
+- **The envelope is strict.** `handle_import` also rejects extra top-level keys, not just missing `contacts`. This matches how rows are treated.
+- **`BEGIN IMMEDIATE` is used.** It takes the write lock before the existence check, so the counts stay correct if another connection writes concurrently.

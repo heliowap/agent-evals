@@ -1,0 +1,201 @@
+[
+  {
+    "id": "T1",
+    "slug": "github-webhook-recovery",
+    "title": "Secure webhook ingestion and outage recovery / GitHub repository webhooks.",
+    "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe are reviewing a GitHub repository-webhook receiver before launch. Our framework parses JSON and re-serializes it before signature checking, compares the signature with ordinary string equality, and returns success only after a job that may take 25 seconds. The operations plan assumes GitHub will retry failed deliveries after an outage. The deduplication store treats a requested redelivery as a new event because the team expects a new delivery identifier. We want to preserve legitimate recovery while avoiding unauthorized or duplicate processing.\n\nRecommend the minimum changes to the receiver and recovery plan, using GitHub's documentation rather than generic webhook advice. Explain which incoming evidence establishes authenticity, which identifier behavior matters during redelivery, and which timing/retry assumptions are safe to rely on. Can those documented mechanisms alone justify an exactly-once business-side-effect guarantee across a receiver crash?\n\nStarting URLs\n- https://docs.github.com/en/webhooks",
+    "starting_urls": [
+      "https://docs.github.com/en/webhooks"
+    ],
+    "allowed_url_patterns": [
+      "https://docs\\.github\\.com/[^?#]*"
+    ],
+    "required_source_urls": [
+      "https://docs.github.com/en/webhooks",
+      "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+      "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+      "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries"
+    ],
+    "discovery_chain": {
+      "description": "webhook index → validation page and best-practices page; index → failed-deliveries page. The index fetched this session links all three by title. Combine validation with recovery/identity rather than cite only the start page. **Minimum distinct content sources: 4 including index; 3 answer-bearing.**",
+      "edges": [
+        {
+          "from": "https://docs.github.com/en/webhooks",
+          "to": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+          "relation": "documentation_link"
+        },
+        {
+          "from": "https://docs.github.com/en/webhooks",
+          "to": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+          "relation": "documentation_link"
+        },
+        {
+          "from": "https://docs.github.com/en/webhooks",
+          "to": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries",
+          "relation": "documentation_link"
+        }
+      ],
+      "minimum_distinct_sources": 4
+    }
+  },
+  {
+    "id": "T2",
+    "slug": "node-permission-boundary",
+    "title": "Can the permission model contain uploaded code? / Node.js v24.21.0.",
+    "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe plan to run customer-uploaded JavaScript on Node.js v24.21.0 and use its Permission Model as the sole tenant-isolation boundary. Staging uses --permission-audit; production would use --permission. The launcher grants reads with the literal argument --allow-fs-read=/srv/jobs/*.js, loads an environment file outside that read list using --env-file, and passes the job an already-open file descriptor. Job directories may contain relative symbolic links. We also enable --allow-worker and assume workers inherit exactly the parent's restrictions.\n\nReview this proposal against version-matched official documentation and the Node.js security policy. Which assumptions require changing before deployment, and which mechanisms are useful for trusted application code instead? If the sources do not establish one consistent worker-inheritance answer, state the limitation rather than silently choosing a convenient claim. Do these documents let you certify this deployment's tenant isolation?\n\nStarting URLs\n- https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html\n- https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+    "starting_urls": [
+      "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+      "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md"
+    ],
+    "allowed_url_patterns": [
+      "https://nodejs\\.org/download/release/v24\\.21\\.0/docs/api/[^?#]*",
+      "https://raw\\.githubusercontent\\.com/nodejs/node/v24\\.21\\.0/SECURITY\\.md",
+      "https://github\\.com/nodejs/node/(?:blob|tree)/v24\\.21\\.0(?:/[^?#]*)?"
+    ],
+    "required_source_urls": [
+      "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+      "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md"
+    ],
+    "discovery_chain": {
+      "description": "fixed-version permissions reference → constraints/limitations plus its security-policy link; use the supplied fixed-tag security policy rather than the reference's floating `main` link. Combine permissions behavior with the threat model and both worker statements. **Minimum distinct content sources: 2, both answer-bearing.**",
+      "edges": [
+        {
+          "from": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+          "to": "https://github.com/nodejs/node/blob/main/SECURITY.md",
+          "relation": "documentation_link",
+          "note": "Floating policy link is discovery evidence only; fetch the supplied v24.21.0 tag instead."
+        }
+      ],
+      "minimum_distinct_sources": 2
+    }
+  },
+  {
+    "id": "T3",
+    "slug": "postgres-isolation-retry",
+    "title": "Cross-row invariants and retry ownership / PostgreSQL 18.",
+    "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nOur PostgreSQL 18 service has concurrent workers that read a cross-row business invariant and then update different rows. The team proposes Repeatable Read because a stable snapshot and absence of phantom rows should make the combined decisions equivalent to serial execution. If a transaction fails for a serialization reason, the proposed recovery retries only the failed SQL statement, expecting PostgreSQL to replay the earlier decision logic automatically. A generic retry wrapper would also retry every unique-key violation without inspecting its cause.\n\nDecide whether this isolation/recovery design is sufficient and recommend the narrow changes that matter for correctness. Separate PostgreSQL's implementation from the SQL standard's minimum guarantees. Explain who owns retrying, the appropriate retry unit, and whether unique violations belong in an unconditional retry bucket. Product also wants a documented promise that every operation will commit within at most three attempts under contention; can we make it?\n\nStarting URLs\n- https://www.postgresql.org/docs/18/mvcc.html",
+    "starting_urls": [
+      "https://www.postgresql.org/docs/18/mvcc.html"
+    ],
+    "allowed_url_patterns": [
+      "https://www\\.postgresql\\.org/docs/18/[^?#]*"
+    ],
+    "required_source_urls": [
+      "https://www.postgresql.org/docs/18/mvcc.html",
+      "https://www.postgresql.org/docs/18/transaction-iso.html",
+      "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html"
+    ],
+    "discovery_chain": {
+      "description": "Chapter 13 index → Transaction Isolation and Serialization Failure Handling. The fetched index links both. Combine the implementation's anomaly guarantee with retry responsibility; do not cite just the anomaly table. **Minimum distinct content sources: 3 including index; 2 answer-bearing.**",
+      "edges": [
+        {
+          "from": "https://www.postgresql.org/docs/18/mvcc.html",
+          "to": "https://www.postgresql.org/docs/18/transaction-iso.html",
+          "relation": "documentation_link"
+        },
+        {
+          "from": "https://www.postgresql.org/docs/18/mvcc.html",
+          "to": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "relation": "documentation_link"
+        }
+      ],
+      "minimum_distinct_sources": 3
+    }
+  },
+  {
+    "id": "T4",
+    "slug": "d1-replica-session-contract",
+    "title": "Low-latency reads without losing post-write context / Cloudflare D1 Workers Binding.",
+    "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe enabled read replication for a Cloudflare D1 database used by a Worker. The current code still calls env.DB.prepare(...).run() directly. For checkout, a write is followed by a read in a later HTTP request, which currently carries no session context. The proposal is to use withSession(\"first-primary\") for every request and describe the entire session as pinned to the primary; a teammate instead suggests withSession() always begins with the latest data. Checkout also batches a header insert and line-item inserts, and the team expects earlier statements to remain committed if a later statement fails.\n\nRecommend a routing/session and failure-handling contract that supports useful replica reads without losing the checkout's prior write context. Explain the important differences between the proposed session options. Product wants to advertise globally latest reads and a maximum 100 ms replica-lag guarantee after commit. Decide which claims the official documentation actually supports.\n\nStarting URLs\n- https://developers.cloudflare.com/d1/",
+    "starting_urls": [
+      "https://developers.cloudflare.com/d1/"
+    ],
+    "allowed_url_patterns": [
+      "https://developers\\.cloudflare\\.com/d1(?:/[^?#]*)?"
+    ],
+    "required_source_urls": [
+      "https://developers.cloudflare.com/d1/",
+      "https://developers.cloudflare.com/d1/llms.txt",
+      "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+      "https://developers.cloudflare.com/d1/worker-api/d1-database/"
+    ],
+    "discovery_chain": {
+      "description": "product page → product-scoped `llms.txt` index (the fetched page explicitly directs this); index → Global read replication and D1 Database binding reference. Reconcile routing/consistency overview with `withSession`, `getBookmark` and `batch` details. **Minimum distinct content sources: 4 including two discovery pages; 2 answer-bearing.**",
+      "edges": [
+        {
+          "from": "https://developers.cloudflare.com/d1/",
+          "to": "https://developers.cloudflare.com/d1/llms.txt",
+          "relation": "documentation_link"
+        },
+        {
+          "from": "https://developers.cloudflare.com/d1/llms.txt",
+          "to": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+          "relation": "documentation_link"
+        },
+        {
+          "from": "https://developers.cloudflare.com/d1/llms.txt",
+          "to": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+          "relation": "documentation_link"
+        }
+      ],
+      "minimum_distinct_sources": 4
+    }
+  },
+  {
+    "id": "T5",
+    "slug": "compose-startup-restart",
+    "title": "Startup readiness versus dependency restart propagation / Docker Compose.",
+    "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nOur team is standardizing a Docker Compose development stack on plugin version 2.18.0. The API currently has short-form depends_on for a database that defines a healthcheck and restart: always. A one-shot migration service must finish successfully before the API starts. Developers also want the API to restart after an explicit Compose restart of the database and assume the same propagation will happen whenever the database crashes and the container runtime restarts it. An optional telemetry dependency is proposed with required: false, without upgrading the plugin.\n\nRecommend the dependency conditions and lifecycle settings we should use, and identify which parts of the proposal cannot be relied on with this version. Separate container startup, health/readiness, successful migration completion, explicit operator restarts and runtime restarts. Can this configuration alone justify promising that the API remains ready to serve throughout later database failures?\n\nStarting URLs\n- https://docs.docker.com/compose/how-tos/startup-order/",
+    "starting_urls": [
+      "https://docs.docker.com/compose/how-tos/startup-order/"
+    ],
+    "allowed_url_patterns": [
+      "https://docs\\.docker\\.com/[^?#]*",
+      "https://github\\.com/docker/compose/releases(?:/[^?#]*)?"
+    ],
+    "required_source_urls": [
+      "https://docs.docker.com/compose/how-tos/startup-order/",
+      "https://docs.docker.com/reference/compose-file/services/"
+    ],
+    "discovery_chain": {
+      "description": "startup-order guide → its `depends_on` reference link → the short/long syntax and version-specific `required` paragraph. Synthesize the tutorial with the reference's runtime-restart exclusion and version gate. **Minimum distinct content sources: 2, both answer-bearing.**",
+      "edges": [
+        {
+          "from": "https://docs.docker.com/compose/how-tos/startup-order/",
+          "to": "https://docs.docker.com/reference/compose-file/services/",
+          "relation": "documentation_link"
+        }
+      ],
+      "minimum_distinct_sources": 2
+    }
+  },
+  {
+    "id": "T6",
+    "slug": "go-toolchain-ci-policy",
+    "title": "Toolchain suggestions, strict requirements and controlled CI acquisition / Go 1.21+.",
+    "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe publish a Go module and are revising CI after adopting Go 1.21's toolchain behavior. There is no workspace. Runner A bundles Go 1.21.3, uses the standard auto setting, and builds a main module with go 1.21.0 plus toolchain go1.21.9; no go1.21.9 executable is on PATH. Runner B bundles the same version, sets GOTOOLCHAIN=local, and builds a module whose go line is 1.21.9. Runner C uses GOTOOLCHAIN=go1.21.3+path for Runner A's module with the same PATH.\n\nExplain each runner's expected selection or refusal and distinguish the go and toolchain directives, including what a dependency's suggestion does to downstream consumers. Someone proposes GOSUMDB=off to make automatic toolchain downloads work in restricted CI, and claims +path makes the entire build network-free. Recommend a policy without weakening documented verification, and identify any guarantee these settings do not establish.\n\nStarting URLs\n- https://go.dev/doc/toolchain\n- https://go.dev/doc/modules/gomod-ref",
+    "starting_urls": [
+      "https://go.dev/doc/toolchain",
+      "https://go.dev/doc/modules/gomod-ref"
+    ],
+    "allowed_url_patterns": [
+      "https://go\\.dev/[^?#]*"
+    ],
+    "required_source_urls": [
+      "https://go.dev/doc/toolchain",
+      "https://go.dev/doc/modules/gomod-ref",
+      "https://go.dev/doc/modules/managing-dependencies"
+    ],
+    "discovery_chain": {
+      "description": "supplied toolchain guide → configuration, selection and downloading sections; supplied concise gomod reference → go/toolchain distinction; gomod reference's Managing dependencies link → ordinary dependency acquisition for U. **Minimum distinct content sources: 3, all answer-bearing.** The Go 1.21 release notes were checked during exploration but are unnecessary for candidate gold and not a required fourth source.",
+      "edges": [
+        {
+          "from": "https://go.dev/doc/modules/gomod-ref",
+          "to": "https://go.dev/doc/modules/managing-dependencies",
+          "relation": "documentation_link"
+        }
+      ],
+      "minimum_distinct_sources": 3
+    }
+  }
+]

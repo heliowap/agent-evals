@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/secure_access.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"Title\", \"Body\", None),\n    (2, \"t\", \"o\", \"Deleted\", \"Gone\", \"2026-01-01\"),\n    (3, \"other\", \"o\", \"Cross tenant\", \"X\", None),\n    (4, \"t\", \"someone\", \"Cross owner\", \"Y\", None),\n    (5, \"t\", \"o\", \"O'Brien's \\\"doc\\\"\", \"Quote ' body\", None),\n    (6, \"t\", \"o\", \"Second\", \"B2\", None),\n]\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\nc.commit()\n\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"}\nassert get_document(c, \"t\", \"o\", 2) is None\nassert get_document(c, \"t\", \"o\", 3) is None\nassert get_document(c, \"t\", \"o\", 4) is None\nassert get_document(c, \"t\", \"o\", 99) is None\nassert get_document(c, \"t\", \"o\", \"1 OR 1=1\") is None\nassert get_document(c, \"t'; --\", \"o\", 1) is None\n\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"Title\", \"body\": \"Body\"},\n    {\"id\": 5, \"title\": \"O'Brien's \\\"doc\\\"\", \"body\": \"Quote ' body\"},\n    {\"id\": 6, \"title\": \"Second\", \"body\": \"B2\"},\n]\nassert list_documents(c, \"t\", \"someone\") == [{\"id\": 4, \"title\": \"Cross owner\", \"body\": \"Y\"}]\nassert list_documents(c, \"other\", \"o\") == [{\"id\": 3, \"title\": \"Cross tenant\", \"body\": \"X\"}]\nassert list_documents(c, \"t\", \"o'x\") == []\nassert list_documents(c, \"t'; --\", \"o\") == []\nfor item in list_documents(c, \"t\", \"o\"):\n    assert set(item) == {\"id\", \"title\", \"body\"}\nprint(\"secure access checks passed\")\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/secure_access.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 68,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04914770898176357
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.046281374990940094,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04644304094836116,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

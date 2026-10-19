@@ -1,0 +1,45 @@
+## Answer (all based on the maintainer's primary advisory, GHSA-9wx4-h78v-vm56, published May 20, 2024, plus the official 2.32.0 release notes)
+
+### Does CVE-2024-35195 affect this scenario?
+
+**Yes.** The scenario matches the vulnerability exactly. The advisory describes the affected condition as:
+
+> "When making requests through a Requests Session, if the first request is made with `verify=False` to disable cert verification, all subsequent requests to the same origin will continue to ignore cert verification regardless of changes to the value of `verify`."
+
+Your scenario — an HTTPS origin first contacted with `verify=False`, then recontacted on the *same* origin with `verify=True` — is precisely the pattern the advisory identifies. Requests 2.31.0 is within the affected range (`< 2.32.0`); in fact, the fix commit (a58d7f2) and PR #6655 landed only in 2.32.0, released 2024-05-20.
+
+### Does the second flag (`verify=True`) reliably restore verification?
+
+**No — it does not.** The advisory states verification is ignored *"regardless of changes to the value of `verify`."* The verification state is baked into the pooled connection at handshake time, so setting `verify=True` afterwards does not re-negotiate the TLS session. The official 2.32.0 changelog confirms the bug's reach: setting `verify=False` on the first request causes *"subsequent requests to the same origin to also ignore cert verification, regardless of the value of `verify`."*
+
+### How long can the problematic behavior persist?
+
+The advisory states this explicitly:
+
+> "This behavior will continue for **the lifecycle of the connection in the connection pool**."
+
+So the insecure state lasts as long as the pooled connection remains alive — which can be arbitrarily long, since it depends on keep-alive timeouts, server behavior, and pool eviction, not on any fixed duration. The advisory's remediation to **call `close()` on the Session** to "clear existing connections" confirms that the insecure state is tied to pooled connections and persists until they are discarded.
+
+### Minimum patched release stated by the maintainer advisory
+
+The advisory's "Patched versions" field states **`2.32.0`** (not a later release like 2.32.2 or 2.32.4 — those are follow-up fixes to other issues, not the minimum for this CVE). This matches OSV/CVE data, which record "Fixed: 2.32.0" for this advisory.
+
+### One advisory-documented mitigation when you cannot upgrade
+
+The advisory lists three options; any one qualifies for "cannot upgrade." A clean pick:
+
+> "**For `requests<2.32.0`, call `close()` on Session objects to clear existing connections if `verify=False` is used.**"
+
+The other documented non-upgrade mitigation is: *"For `requests<2.32.0`, avoid setting `verify=False` for the first request to a host while using a Requests Session."* Either is acceptable per the advisory; the upgrade to `requests>=2.32.0` is stated as the *preferred* mitigation, but only if you can upgrade.
+
+### Summary
+
+| Aspect | Verdict |
+|---|---|
+| Affects Sessions where first request to an origin uses `verify=False` | Yes (2.31.0 is in affected range) |
+| Does `verify=True` later restore verification? | No — ignored, verification stays off |
+| Duration of insecure behavior | Lifecycle of the pooled connection (indefinite; persists until connection is closed) |
+| Minimum patched release (per advisory) | **2.32.0** |
+| Mitigation when unable to upgrade | Call `Session.close()` to clear pooled connections, or avoid `verify=False` on the first request to a host |
+
+**Limitation:** I have not executed the scenario live; the assessment is based entirely on the maintainer's advisory text and correlated CVE/release-note data, not empirical testing of Requests 2.31.0.

@@ -1,0 +1,14 @@
+I scoped `get_document` and `list_documents` to the tenant and owner, and excluded soft-deleted rows. Both the public check and a new security check pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`, and every query filters on `tenant=? AND owner=? AND deleted_at IS NULL`. `find` also matches on `id`. All values are bound parameters. `listing` keeps `ORDER BY id`. `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` and `owner` through to the repository. Previously `get_document` ignored both.
+- **`checks/security.py`** (new): covers accessible documents, and checks that deleted, cross-tenant, cross-owner and missing IDs all return `None`. It also covers owner and tenant names containing quotes, injection-style inputs, list scoping and ordering, and that list entries have only the three result fields.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/security.py` passes.
+
+My first version of the security check had wrong expectations for two rows, and the assertion failure was in the test, not the code. I fixed the expectations and reran both checks.

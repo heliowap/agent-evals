@@ -1,0 +1,129 @@
+{
+  "id": "trial-0046",
+  "configuration": "haiku-medium-native",
+  "effort": "medium",
+  "arm": "native",
+  "case": "py-document-scope",
+  "role": "implementation",
+  "rep": 4,
+  "position": 2,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/test_access.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"Title 1\", \"Body 1\", None),\n    (2, \"t\", \"o\", \"Title 2\", \"Body 2\", \"2026-01-01\"),   # deleted\n    (3, \"t2\", \"o\", \"Other tenant\", \"X\", None),          # cross-tenant\n    (4, \"t\", \"o2\", \"Other owner\", \"Y\", None),           # cross-owner\n    (5, \"t\", \"o\", \"O'Brien \\\"q\\\"\", \"Quote; DROP TABLE documents--\", None),\n    (6, \"t\", \"o\", \"Last\", \"Z\", None),\n]\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\nc.commit()\n\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"Title 1\", \"body\": \"Body 1\"}\nassert get_document(c, \"t\", \"o\", 2) is None      # deleted\nassert get_document(c, \"t\", \"o\", 3) is None      # cross-tenant\nassert get_document(c, \"t\", \"o\", 4) is None      # cross-owner\nassert get_document(c, \"t2\", \"o\", 1) is None     # wrong tenant for owned doc\nassert get_document(c, \"t\", \"o\", 5) == {\"id\": 5, \"title\": \"O'Brien \\\"q\\\"\", \"body\": \"Quote; DROP TABLE documents--\"}\nassert get_document(c, \"t\", \"o'\", 5) is None     # quote in owner is bound, not injected\n\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"Title 1\", \"body\": \"Body 1\"},\n    {\"id\": 5, \"title\": \"O'Brien \\\"q\\\"\", \"body\": \"Quote; DROP TABLE documents--\"},\n    {\"id\": 6, \"title\": \"Last\", \"body\": \"Z\"},\n]\nassert list_documents(c, \"t\", \"o2\") == [{\"id\": 4, \"title\": \"Other owner\", \"body\": \"Y\"}]\nassert list_documents(c, \"t2\", \"o\") == [{\"id\": 3, \"title\": \"Other tenant\", \"body\": \"X\"}]\nassert list_documents(c, \"t\", \"missing\") == []\nassert all(set(d) == {\"id\", \"title\", \"body\"} for d in list_documents(c, \"t\", \"o\"))\nprint(\"access checks passed\")\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, document_id, tenant, owner):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+        "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, document_id, tenant, owner)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+      },
+      "changed_files": [
+        "checks/test_access.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 66,
+      "removed_lines": 20
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.044578999979421496
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.04841670795576647,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.04549545800546184,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 17.09481883299304,
+  "preparation_s": 1.573601292038802,
+  "export_s": 0.3186372499912977,
+  "grading_s": 0.28990466601680964,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "used": false,
+    "tool_calls": 0,
+    "useful_successful_calls": 0,
+    "errors": 0,
+    "catalog_ready_s": null
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 4,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_e5b2d6bd85c6b0c31513",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "medium"
+  },
+  "usage": {
+    "input_tokens": 8,
+    "output_tokens": 2318,
+    "reasoning_tokens": 463,
+    "cached_input_tokens": 6959,
+    "cache_write_tokens": 4049
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 3,
+  "error_events": [],
+  "reported_cost_usd": 0.001967015,
+  "total_trial_s": 19.358028208022006
+}

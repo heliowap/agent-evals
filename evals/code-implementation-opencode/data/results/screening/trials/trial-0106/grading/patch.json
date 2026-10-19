@@ -1,0 +1,19 @@
+{
+  "files": {
+    "checks/test_exporter.py": "import copy\nimport os\nimport sys\nimport unittest\nfrom unittest.mock import patch\n\nsys.path.insert(0, os.getcwd())\n\nfrom src.csv_exporter import export_csv\nfrom src.dispatcher import export\nfrom src.exporter import export_rows\nfrom src.json_exporter import export_json\n\n\nclass ExporterTests(unittest.TestCase):\n    def test_exact_output_and_unchanged_inputs(self):\n        rows = [\n            {\"id\": 1, \"name\": 'Zoë, \"A\"\\nB', \"ignored\": \"unused\"},\n            {\"id\": None},\n            {\"name\": False},\n            {\"id\": 0, \"name\": \"\"},\n        ]\n        original = copy.deepcopy(rows)\n        expected = {\n            \"csv\": 'id,name\\n1,\"Zoë, \"\"A\"\"\\nB\"\\n,\\n,False\\n0,\\n',\n            \"json\": '[{\"id\":\"1\",\"name\":\"Zoë, \\\\\"A\\\\\"\\\\nB\"},'\n                    '{\"id\":\"\",\"name\":\"\"},{\"id\":\"\",\"name\":\"False\"},'\n                    '{\"id\":\"0\",\"name\":\"\"}]',\n        }\n        for format, wrapper in ((\"csv\", export_csv), (\"json\", export_json)):\n            for entry_point in (export_rows, export):\n                self.assertEqual(entry_point(iter(rows), format), expected[format])\n            self.assertEqual(wrapper(iter(rows)), expected[format])\n        self.assertEqual(rows, original)\n\n    def test_empty_output(self):\n        self.assertEqual(export_rows(iter([]), \"csv\"), \"id,name\\n\")\n        self.assertEqual(export_rows(iter([]), \"json\"), \"[]\")\n\n    def test_unsupported_format_does_not_consume_rows(self):\n        def rows():\n            self.fail(\"unsupported format consumed rows\")\n            yield {}\n\n        for entry_point in (export_rows, export):\n            with self.assertRaisesRegex(ValueError, \"unsupported format\"):\n                entry_point(rows(), \"xml\")\n\n    def test_wrappers_delegate(self):\n        for module, wrapper, format in (\n            (\"src.csv_exporter\", export_csv, \"csv\"),\n            (\"src.json_exporter\", export_json, \"json\"),\n        ):\n            rows = iter([{}])\n            with patch(module + \".export_rows\", return_value=\"result\") as shared:\n                self.assertEqual(wrapper(rows), \"result\")\n                shared.assert_called_once_with(rows, format)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/exporter.py": "import csv\nimport io\nimport json\n\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize_rows(rows):\n    for row in rows:\n        yield {\n            key: \"\" if row.get(key) is None else str(row[key])\n            for key in _FIELDS\n        }\n\n\ndef export_rows(rows, format):\n    if format not in (\"csv\", \"json\"):\n        raise ValueError(\"unsupported format\")\n\n    clean = _normalize_rows(rows)\n    if format == \"json\":\n        return json.dumps(list(clean), ensure_ascii=False, separators=(\",\", \":\"))\n\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(_FIELDS)\n    writer.writerows([row[key] for key in _FIELDS] for row in clean)\n    return buffer.getvalue()\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "checks/test_exporter.py",
+    "src/csv_exporter.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 4,
+  "added_lines": 100,
+  "removed_lines": 18
+}

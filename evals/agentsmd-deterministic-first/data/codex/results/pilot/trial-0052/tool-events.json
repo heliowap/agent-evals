@@ -1,0 +1,58 @@
+[
+  {
+    "id": "item_1",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"pwd; rg --files -g 'AGENTS.md' -g 'batch-a.csv' -g 'a-summary.json' -g 'package.json' -g 'pyproject.toml' -g 'Makefile' -g 'justfile'\"",
+    "aggregated_output": "/var/folders/<tmpdir-id>/T/detfirst-isolated-l18djt2f/trial-0052/work\nbatch-a.csv\n",
+    "exit_code": 0,
+    "status": "completed"
+  },
+  {
+    "id": "item_2",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"python3 - <<'PY'\nimport csv\nfrom collections import Counter\nfrom pathlib import Path\n\nsource = Path('batch-a.csv')\nwith source.open(newline='', encoding='utf-8-sig') as stream:\n    reader = csv.DictReader(stream)\n    if not {'state', 'region'}.issubset(reader.fieldnames or []):\n        raise ValueError('CSV must have state and region columns')\n    counts = Counter(row['region'] for row in reader if row['state'] == 'ready')\nprint(dict(sorted(counts.items())))\nPY\"",
+    "aggregated_output": "{'N': 12, 'NE': 18, 'S': 12, 'SE': 12}\n",
+    "exit_code": 0,
+    "status": "completed"
+  },
+  {
+    "id": "item_3",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"python3 - <<'PY'\nimport csv\nimport json\nfrom collections import Counter\nfrom pathlib import Path\n\nwith Path('batch-a.csv').open(newline='', encoding='utf-8-sig') as stream:\n    counts = Counter(row['region'] for row in csv.DictReader(stream) if row['state'] == 'ready')\noutput = Path('a-summary.json')\noutput.write_text(json.dumps(dict(sorted(counts.items())), indent=2) + '\\\\n', encoding='utf-8')\nassert json.loads(output.read_text(encoding='utf-8')) == {'N': 12, 'NE': 18, 'S': 12, 'SE': 12}\nprint(output.read_text(encoding='utf-8'), end='')\nPY\"",
+    "aggregated_output": "{\n  \"N\": 12,\n  \"NE\": 18,\n  \"S\": 12,\n  \"SE\": 12\n}\n",
+    "exit_code": 0,
+    "status": "completed"
+  },
+  {
+    "id": "item_1",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"rg --files -g 'AGENTS.md' -g 'batch-*.csv' -g '*summary.json' -g 'pyproject.toml' -g 'package.json' -g 'Makefile' -g 'justfile'\"",
+    "aggregated_output": "batch-a.csv\nbatch-b.csv\nbatch-c.csv\na-summary.json\n",
+    "exit_code": 0,
+    "status": "completed"
+  },
+  {
+    "id": "item_2",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"python3 - <<'PY'\nimport json\nimport subprocess\nimport sys\nimport tempfile\nfrom pathlib import Path\n\nscript = '''import csv\nimport json\nimport sys\nfrom collections import Counter\nfrom pathlib import Path\n\nsource, destination = map(Path, sys.argv[1:])\nwith source.open(newline='', encoding='utf-8-sig') as stream:\n    reader = csv.DictReader(stream)\n    if not {'state', 'region'}.issubset(reader.fieldnames or []):\n        raise ValueError('CSV must have state and region columns')\n    counts = Counter(row['region'] for row in reader if row['state'] == 'ready')\ndestination.write_text(json.dumps(dict(sorted(counts.items())), indent=2) + '\\\\\\\\n', encoding='utf-8')\nprint(destination.read_text(encoding='utf-8'), end='')\n'''\nwith tempfile.NamedTemporaryFile(mode='w', suffix='.py', prefix='ready_by_region_', dir='/private/tmp', delete=False, encoding='utf-8') as stream:\n    stream.write(script)\n    script_path = stream.name\nwith tempfile.TemporaryDirectory(prefix='ready_summary_check_', dir='/private/tmp') as sample_dir:\n    sample_output = Path(sample_dir) / 'summary.json'\n    subprocess.run([sys.executable, script_path, 'batch-a.csv', str(sample_output)], check=True, capture_output=True, text=True)\n    if json.loads(sample_output.read_text()) \"'!= json.loads(Path('\"'a-summary.json').read_text()):\n        raise ValueError('Sample output differs from the verified batch-a summary')\nprint(json.dumps({'script': script_path, 'sample_check': 'passed'}))\nPY\"",
+    "aggregated_output": "{\"script\": \"/private/tmp/ready_by_region_h80a3dx8.py\", \"sample_check\": \"passed\"}\n",
+    "exit_code": 0,
+    "status": "completed"
+  },
+  {
+    "id": "item_3",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"python3 '/private/tmp/ready_by_region_h80a3dx8.py' 'batch-c.csv' 'c-summary.json'\"",
+    "aggregated_output": "{\n  \"N\": 24,\n  \"NE\": 15,\n  \"S\": 10,\n  \"SE\": 15\n}\n",
+    "exit_code": 0,
+    "status": "completed"
+  },
+  {
+    "id": "item_4",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc \"python3 '/private/tmp/ready_by_region_h80a3dx8.py' 'batch-b.csv' 'b-summary.json'\"",
+    "aggregated_output": "{\n  \"N\": 10,\n  \"NE\": 11,\n  \"S\": 15,\n  \"SE\": 18\n}\n",
+    "exit_code": 0,
+    "status": "completed"
+  }
+]

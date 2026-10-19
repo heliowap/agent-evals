@@ -1,0 +1,38 @@
+diff --git a/bottle/05_app_bottle.py b/bottle/05_app_bottle.py
+index 23e8bc1..457a180 100644
+--- a/bottle/05_app_bottle.py
++++ b/bottle/05_app_bottle.py
+@@ -122,7 +122,7 @@ class Bottle:
+                 rs.body = itertools.chain(rs.body, body) if rs.body else body
+                 return rs
+             finally:
+-                request.path_shift(-1)
++                request.path_shift(-path_depth)
+ 
+         options.setdefault('skip', True)
+         options.setdefault('method', 'PROXY')
+diff --git a/test/test_mount.py b/test/test_mount.py
+index f29018a..6cece73 100644
+--- a/test/test_mount.py
++++ b/test/test_mount.py
+@@ -110,6 +110,20 @@ class TestAppMounting(ServerTestBase):
+         self.app.mount('/test/', self.subapp)
+         self.assertBody('/test/test', '/test/test')
+ 
++    def test_mount_wsgi_multisegment_prefix_restores_environ(self):
++        seen = {}
++        def app(environ, start_response):
++            start_response('200 OK', [])
++            return ['WSGI ' + environ['PATH_INFO']]
++        @self.app.hook('after_request')
++        def record():
++            seen['path'] = bottle.request.path
++            seen['script_name'] = bottle.request.script_name
++        self.app.mount('/api/v1/', app)
++        self.assertBody('WSGI /foo', '/api/v1/foo')
++        self.assertEqual('/api/v1/foo', seen['path'])
++        self.assertEqual('/', seen['script_name'])
++
+ 
+ class TestAppMerging(ServerTestBase):
+     def setUp(self):

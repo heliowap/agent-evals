@@ -1,0 +1,52 @@
+## Source used
+
+Both fetched primary sources are the official Kubernetes project material for the v1.34 policy:
+
+- Rendered v1.34 page: [Version Skew Policy — v1.34](https://v1-34.docs.kubernetes.io/releases/version-skew-policy/)
+- Release-1.34 source template: [`release-1.34/content/en/releases/version-skew-policy.md`](https://raw.githubusercontent.com/kubernetes/website/release-1.34/content/en/releases/version-skew-policy.md)
+
+The rendered page fills the template's `skew` shortcodes with 1.34, so the examples below are the 1.34 examples. I am applying only this version-skew policy; I am not applying release-support/EOL status or any vendor/tool policy.
+
+## General kubectl rule (v1.34 policy)
+
+The policy states, verbatim: **"`kubectl` is supported within one minor version (older or newer) of `kube-apiserver`."**
+
+So the rule is symmetric at the minor-version level: a kubectl one minor **older** than the API server and one minor **newer** than the API server are both within the supported range. The document expresses the policy in minor versions; it does not state a separate patch-level skew restriction. When API servers are themselves at mixed minors in an HA cluster, you must satisfy the one-minor bound against **every** API server instance, not just the newest or oldest.
+
+## Case 1 — all kube-apiserver instances at 1.34
+
+Per the v1.34 example:
+
+> `kube-apiserver` is at 1.34; `kubectl` is supported at **1.35, 1.34, and 1.33**.
+
+Therefore, with all servers on 1.34, the permitted kubectl minor versions are **1.33, 1.34, and 1.35** (any patch release within those minors, since the policy distinguishes only minors).
+
+## Case 2 — HA upgrade with servers at both 1.33 and 1.34
+
+This is the exact HA state the policy addresses. For each server minor, kubectl is allowed:
+
+| API server instance | kubectl minors allowed by the one-minor rule |
+|---|---|
+| 1.33 | 1.32, 1.33, 1.34 |
+| 1.34 | 1.33, 1.34, 1.35 |
+
+The intersection — the set valid against **both** 1.33 and 1.34 servers — is **1.33 and 1.34**.
+
+The v1.34 page states this directly:
+
+> `kube-apiserver` instances are at 1.34 and 1.33; `kubectl` is supported at **1.34 and 1.33** (other versions would be more than one minor version skewed from one of the `kube-apiserver` components).
+
+This mixed state is explicitly the supported prerequisite state for upgrading `kube-apiserver` to 1.34: in an HA cluster, all API server instances may be at 1.33 or 1.34 (maximum one-minor skew between oldest and newest). The same section notes that API servers must not skip minor versions when upgrading.
+
+**Is kubectl 1.35 supported during that window? No.** It is one minor newer than the 1.34 servers, but **two minors newer than the 1.33 servers**, which is outside the one-minor bound relative to an instance a client may reach. It becomes permitted only once the 1.33 instances are gone. For the same reason, kubectl 1.32 is not permitted in this window: it is two minors older than the 1.34 servers.
+
+## Reassessing 1.35 after every server reaches 1.34
+
+Once all `kube-apiserver` instances are at 1.34 — i.e., no 1.33 instance remains in service — the HA narrowing no longer applies. The base example governs: kubectl **1.35, 1.34, and 1.33** are supported. So **kubectl 1.35 is supported again** once every server is on 1.34, subject to the caveats below.
+
+## Limitations and caveats
+
+- These are **minor-version** ranges; the document does not impose a patch-level skew requirement, so any patch in 1.33.x–1.35.x qualifies under this policy text.
+- The policy itself warns: **"Specific cluster deployment tools may place additional restrictions on version skew."** Those restrictions are separate from this policy and were not considered.
+- The v1.34 page is a static documentation snapshot. Its "Supported versions" section discusses release-branch maintenance; that is release-support policy, which you instructed me not to apply, so the conclusions above rest only on the "Supported version skew" section.
+- The policy states what is *supported*; it does not guarantee that every newer-client feature/API will work against an older server — only that the skew is within the supported envelope.

@@ -1,0 +1,231 @@
+diff --git a/bottle.py b/bottle.py
+index 9edceaf..d4faf61 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -69,7 +69,7 @@ if __name__ == '__main__':
+ ###############################################################################
+ 
+ import base64, calendar, email.utils, functools, hmac, itertools, \
+-    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib
++    mimetypes, os, re, secrets, tempfile, threading, time, warnings, weakref, hashlib
+ 
+ from types import FunctionType
+ from datetime import date as datedate, datetime, timedelta
+@@ -593,6 +593,9 @@ class Bottle:
+         cfg = ConfigDict()
+         cfg._define('catchall', default=True, filter=bool,
+             help="Catch all unhandled exceptions and display an error page.")
++        cfg._define('request_id.header',
++            help="Name of the header that carries the request ID. If set, "
++                 "every response includes it. Disabled by default.")
+         return cfg
+ 
+     def __init__(self, **kwargs):
+@@ -1063,6 +1066,9 @@ class Bottle:
+             exc_info = environ.get('bottle.exc_info')
+             if exc_info is not None:
+                 del environ['bottle.exc_info']
++            header = self.config.get('request_id.header')
++            if header:
++                response.set_header(header, _request_id(environ, header))
+             start_response(response.status_line, response.headerlist, exc_info)
+             return out
+         except (KeyboardInterrupt, SystemExit, MemoryError):
+@@ -1079,6 +1085,9 @@ class Bottle:
+             environ['wsgi.errors'].write(err)
+             environ['wsgi.errors'].flush()
+             headers = [('Content-Type', 'text/html; charset=UTF-8')]
++            header = self.config.get('request_id.header')
++            if header:
++                headers.append((header, _request_id(environ, header)))
+             start_response('500 INTERNAL SERVER ERROR', headers, sys.exc_info())
+             return [tob(err)]
+ 
+@@ -1161,6 +1170,16 @@ class BaseRequest:
+         """ Return the value of a request header, or a given default value. """
+         return self.headers.get(name, default)
+ 
++    @property
++    def request_id(self):
++        """ A unique ID for this request, or None if the app does not set
++            ``request_id.header`` in its config. It is the value of that request
++            header if the client sent one, or a new random 32-character hex
++            string otherwise. The value is the same for the whole request. """
++        app = self.environ.get('bottle.app')
++        header = app.config.get('request_id.header') if app is not None else None
++        return _request_id(self.environ, header)
++
+     @DictProperty('environ', 'bottle.request.cookies', read_only=True)
+     def cookies(self):
+         """ Cookies parsed into a :class:`FormsDict`. Signed cookies are NOT
+@@ -1569,6 +1588,22 @@ def _hval(value):
+     return value
+ 
+ 
++def _request_id(environ, header):
++    """ Return the request ID for a WSGI environ, or None if no ``header`` is
++        configured. The ID is the value of that request header if it is present
++        and valid, or a new random 32-character hex string. It is generated once
++        and cached in the environ, so every call during a request returns the
++        same value. """
++    if not header: return None
++    key = 'bottle.request.request_id'
++    if key not in environ:
++        value = WSGIHeaderDict(environ).get(header)
++        if not value or any(c in value for c in '\r\n\0'):
++            value = secrets.token_hex(16)
++        environ[key] = value
++    return environ[key]
++
++
+ class HeaderProperty:
+     def __init__(self, name, reader=None, writer=None, default=''):
+         self.name, self.default = name, default
+diff --git a/test/test_request_id.py b/test/test_request_id.py
+new file mode 100644
+index 0000000..369279f
+--- /dev/null
++++ b/test/test_request_id.py
+@@ -0,0 +1,142 @@
++# -*- coding: utf-8 -*-
++import re
++import wsgiref.util
++import bottle
++from .tools import ServerTestBase
++
++HEX32 = re.compile(r'[0-9a-f]{32}\Z')
++
++
++class TestRequestId(ServerTestBase):
++    ''' Tests for the opt-in request ID (config 'request_id.header') '''
++
++    def setUp(self):
++        super(TestRequestId, self).setUp()
++        self.app.config['request_id.header'] = 'X-Request-ID'
++
++    def test_generated_id(self):
++        """ Request ID: a new 32 hex char ID is generated if the client sends none """
++        @bottle.route('/')
++        def test(): return bottle.request.request_id
++        result = self.urlopen('/')
++        self.assertTrue(HEX32.match(result['body'].decode('ascii')))
++        self.assertEqual(result['body'].decode('ascii'), result['header']['X-Request-Id'])
++
++    def test_same_value_per_read(self):
++        """ Request ID: reading request.request_id twice gives the same value """
++        @bottle.route('/')
++        def test():
++            return bottle.request.request_id + ' ' + bottle.request.request_id
++        first, second = self.urlopen('/')['body'].decode('ascii').split()
++        self.assertEqual(first, second)
++
++    def test_new_id_per_request(self):
++        """ Request ID: each request gets its own generated ID """
++        @bottle.route('/')
++        def test(): return bottle.request.request_id
++        self.assertNotEqual(self.urlopen('/')['body'], self.urlopen('/')['body'])
++
++    def test_client_id_used(self):
++        """ Request ID: the value of the incoming header is used """
++        @bottle.route('/')
++        def test(): return bottle.request.request_id
++        result = self.urlopen('/', env={'HTTP_X_REQUEST_ID': 'client-42'})
++        self.assertEqual(b'client-42', result['body'])
++        self.assertEqual('client-42', result['header']['X-Request-Id'])
++
++    def test_empty_client_id_replaced(self):
++        """ Request ID: an empty incoming header is replaced by a generated ID """
++        @bottle.route('/')
++        def test(): return bottle.request.request_id
++        result = self.urlopen('/', env={'HTTP_X_REQUEST_ID': ''})
++        self.assertTrue(HEX32.match(result['body'].decode('ascii')))
++
++    def test_invalid_client_id_replaced(self):
++        """ Request ID: an incoming header with control characters is not echoed """
++        @bottle.route('/')
++        def test(): return bottle.request.request_id
++        result = self.urlopen('/', env={'HTTP_X_REQUEST_ID': 'a\r\nSet-Cookie: x=y'})
++        self.assertTrue(HEX32.match(result['body'].decode('ascii')))
++        self.assertNotIn('Set-Cookie', result['header'])
++
++    def test_every_response_has_id(self):
++        """ Request ID: normal, error and short-circuit responses carry the ID """
++        @bottle.route('/ok')
++        def ok(): return 'ok'
++        @bottle.route('/crash')
++        def crash(): raise ValueError('boom')
++        @bottle.route('/abort')
++        def aborted(): bottle.abort(403, 'no')
++        @bottle.route('/redirect')
++        def redirected(): bottle.redirect('/ok')
++        @bottle.route('/raise')
++        def raised(): raise bottle.HTTPResponse('made', 201, {'X-Other': 'yes'})
++        @bottle.route('/return')
++        def returned(): return bottle.HTTPResponse('made', 202)
++        @bottle.route('/empty')
++        def empty(): bottle.response.status = 204; return ''
++        expected = [('/ok', 200), ('/missing', 404), ('/crash', 500),
++                    ('/abort', 403), ('/redirect', 302), ('/raise', 201),
++                    ('/return', 202), ('/empty', 204)]
++        for path, code in expected:
++            result = self.urlopen(path, env={'HTTP_X_REQUEST_ID': 'req-1'})
++            self.assertEqual(code, result['code'], path)
++            self.assertEqual('req-1', result['header'].get('X-Request-Id'), path)
++
++    def test_head_has_id(self):
++        """ Request ID: HEAD responses carry the ID """
++        @bottle.route('/')
++        def test(): return 'test'
++        result = self.urlopen('/', method='HEAD', env={'HTTP_X_REQUEST_ID': 'req-1'})
++        self.assertEqual('req-1', result['header'].get('X-Request-Id'))
++
++    def test_error_handler_has_id(self):
++        """ Request ID: custom error handler output carries the ID """
++        @self.app.error(404)
++        def custom(err): return 'custom'
++        result = self.urlopen('/missing', env={'HTTP_X_REQUEST_ID': 'req-1'})
++        self.assertEqual(404, result['code'])
++        self.assertEqual(b'custom', result['body'])
++        self.assertEqual('req-1', result['header'].get('X-Request-Id'))
++
++    def test_handler_cannot_override_id(self):
++        """ Request ID: a header set by the handler does not replace the ID """
++        @bottle.route('/')
++        def test():
++            bottle.response.set_header('X-Request-ID', 'other')
++            return 'test'
++        result = self.urlopen('/', env={'HTTP_X_REQUEST_ID': 'req-1'})
++        self.assertEqual('req-1', result['header'].get('X-Request-Id'))
++
++    def test_critical_error_has_id(self):
++        """ Request ID: the critical error fallback response carries the ID """
++        @bottle.route('/')
++        def test(): return 'test'
++        calls = []
++        def start_response(status, headers, exc_info=None):
++            calls.append((status, headers))
++            if len(calls) == 1:
++                raise RuntimeError('start_response failed')
++        env = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/',
++               'HTTP_X_REQUEST_ID': 'req-1'}
++        wsgiref.util.setup_testing_defaults(env)
++        self.app(env, start_response)
++        status, headers = calls[-1]
++        self.assertTrue(status.startswith('500'))
++        self.assertIn(('X-Request-ID', 'req-1'), headers)
++
++
++class TestRequestIdDisabled(ServerTestBase):
++    ''' Without 'request_id.header' nothing changes '''
++
++    def test_no_id(self):
++        """ Request ID: disabled by default, no header and no ID """
++        @bottle.route('/')
++        def test(): return repr(bottle.request.request_id)
++        @bottle.route('/crash')
++        def crash(): raise ValueError('boom')
++        result = self.urlopen('/', env={'HTTP_X_REQUEST_ID': 'req-1'})
++        self.assertEqual(b'None', result['body'])
++        self.assertNotIn('X-Request-Id', result['header'])
++        for path in ('/missing', '/crash'):
++            self.assertNotIn('X-Request-Id', self.urlopen(path)['header'])

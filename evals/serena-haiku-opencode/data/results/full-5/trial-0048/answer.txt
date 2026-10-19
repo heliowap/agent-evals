@@ -1,0 +1,16 @@
+I changed the access rules in `src/repository.py` and passed the tenant through `src/service.py`. The existing check and a new access check both pass.
+
+**Implementation**
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Both queries filter with `tenant=?`, `owner=?`, and `deleted_at IS NULL`, and every value is a bound parameter. `listing` keeps `ORDER BY id`. Result shape is still `{id, title, body}`.
+- **`src/service.py`**: `get_document` and `list_documents` pass all their arguments through to the repository.
+- A missing, cross-tenant, cross-owner, or deleted document all return `None` from `get_document`, so the caller cannot tell them apart.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- I added `checks/test_access.py`, which passes. It covers:
+  - Access to a valid document, and `None` for deleted, cross-tenant, cross-owner, and missing IDs.
+  - Lists scoped to tenant and owner, excluding deleted rows, in id order.
+  - Owners and tenants containing quotes, including injection-style strings, which are treated as literal values.
+  - Result keys are exactly `id`, `title`, and `body`.
+
+I didn't change `checks/public.py` or the README. The `connection` argument's type and the schema are unchanged.

@@ -1,0 +1,22 @@
+I'll fetch the two starting official pages.
+
+Both starting pages fetched. Key conflict noted. Let me check the version-matched CLI and worker_threads pages.
+
+## Verdict: do not deploy
+Node's docs state the Permission Model "does not protect against malicious code" and "does not provide security guarantees in the presence of malicious code" (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions). The security policy calls `--permission` an opt-in mechanism "designed to reduce the blast radius of mistakes in trusted application code, not to act as a security boundary against intentional misuse" (https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md, "Permission Model Boundaries (--permission)"). Customer-uploaded JS is untrusted code; the premise fails.
+
+## Assumptions to change
+- **Wildcard**: "After passing a wildcard character (*) all subsequent characters will be ignored," so `/srv/jobs/*.js` behaves like `/srv/jobs/*` — the whole tree, not just `.js` (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions).
+- **Env file**: `--env-file` reads before environment initialization, so it "is not subject to the rules of the Permission Model" — no read grant constrains it (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints). Secrets are unprotected.
+- **Pre-opened fd**: "Using existing file descriptors via the node:fs module bypasses the Permission Model" (same section).
+- **Symlinks**: "Relative symbolic links may allow access to arbitrary files and directories... you must ensure that no paths to which access has been granted contain relative symbolic links" (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues). Your job dirs violate this.
+- **Other channels**: fs scoping covers `node:fs` and "does not guarantee" other routes such as `node:sqlite` (permissions.html#file-system-permissions; SECURITY.md). `process._debugProcess(pid)` is gated by no scope and can force another same-user Node process to open its Inspector (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#process_debugprocess-and-cross-process-inspector-activation).
+- **Audit mode** never denies (https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#--permission-audit); if both flags are present, `--permission` wins.
+
+## Worker inheritance: conflicting (UNVERIFIED)
+permissions.html says "The model does not inherit to a worker thread" (constraints), while SECURITY.md says "Workers inherit the permission restrictions of their parent process." Version-matched sources disagree; worker isolation is UNVERIFIED. Resolve via the v24.21.0 tests/release PRs. worker_threads.html lets you alter `execArgv`, which SECURITY.md says adds no permissions (https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html#new-workerfilename-options).
+
+## What these mechanisms are for
+Recommendation: keep `--permission`, `permission.has`/`drop`, and audit channels for trusted application code (permissions.html#runtime-api). For tenants, add OS-level isolation (separate users, seccomp/AppArmor/containers), as the docs themselves direct (permissions.html#process_debugprocess-and-cross-process-inspector-activation).
+
+**These documents do not certify this deployment's tenant isolation.**

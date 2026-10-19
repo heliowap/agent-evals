@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/cursor.cjs": "const assert = require('node:assert/strict');\nconst { OrderHandler } = require('../.build/handler');\nconst { OrderRepository } = require('../.build/repository');\n\nfunction mk(list) { return list.map(([id, createdAt, tenant]) => ({ id, tenant, createdAt, total: 0 })); }\nfunction page(repoRows, req) {\n  const repo = new OrderRepository(repoRows);\n  const before = JSON.stringify(repoRows);\n  const res = new OrderHandler(repo).list(req);\n  assert.equal(JSON.stringify(repoRows), before, 'must not mutate input rows/array');\n  return res;\n}\n\n// Ascending sort by createdAt then id; tenant filter; limit; nextCursor chain.\nlet rows = mk([['a2', '2026-01-01', 't'], ['b1', '2026-01-01', 't'], ['a1', '2026-01-01', 't'],\n  ['z', '2025-12-31', 't'], ['other', '2026-01-01', 'u'], ['last', '2026-03-01', 't']]);\nlet p1 = page(rows, { tenant: 't', limit: 2 });\nassert.deepEqual(p1.items.map(x => x.id), ['z', 'a1']);\nassert.equal(p1.nextCursor, '2026-01-01|a1');\nconst p2 = page(rows, { tenant: 't', limit: 2, cursor: p1.nextCursor });\nassert.deepEqual(p2.items.map(x => x.id), ['a2', 'b1']);\nassert.equal(p2.nextCursor, '2026-01-01|b1');\nconst p3 = page(rows, { tenant: 't', limit: 2, cursor: p2.nextCursor });\nassert.deepEqual(p3.items.map(x => x.id), ['last']);\nassert.equal(p3.nextCursor, null); // no further matching order\n// cursor of last page resumes to empty\nassert.deepEqual(page(rows, { tenant: 't', limit: 5, cursor: '2026-03-01|last' }), { items: [], nextCursor: null });\n\n// Cursor row deleted: resumes strictly after the pair regardless.\nrows = mk([['a', '2026-01-01', 't'], ['c', '2026-01-01', 't'], ['d', '2026-01-02', 't']]);\nassert.deepEqual(page(rows, { tenant: 't', limit: 10, cursor: '2026-01-01|b' }).items.map(x => x.id), ['c', 'd']);\n\n// Cursor pair belongs to another tenant: the cursor is a pure key compared only\n// against this tenant's filtered, sorted rows (that row is not required to exist).\n// A foreign pair sorting AFTER the tenant's rows -> empty page (nothing to resume);\n// a foreign pair sorting BEFORE -> the tenant's rows all follow normally.\nrows = mk([['a', '2026-01-01', 't'], ['b', '2026-01-02', 't'], ['x', '2026-01-03', 'u']]);\nassert.deepEqual(page(rows, { tenant: 't', limit: 10, cursor: '2026-01-03|x' }).items.map(x => x.id), []);\nassert.deepEqual(page(rows, { tenant: 't', limit: 10, cursor: '2025-01-01|x' }).items.map(x => x.id), ['a', 'b']);\n// foreign cursor interleaved between the tenant's rows: only later tenant rows return\nassert.deepEqual(page(rows, { tenant: 't', limit: 10, cursor: '2026-01-01|x' }).items.map(x => x.id), ['b']);\n\n// Equal-date orders never skipped/repeated across pages.\nrows = mk([['p', '2026-01-01', 't'], ['q', '2026-01-01', 't'], ['r', '2026-01-01', 't']]);\nconst q1 = page(rows, { tenant: 't', limit: 1 });\nconst q2 = page(rows, { tenant: 't', limit: 1, cursor: q1.nextCursor });\nconst q3 = page(rows, { tenant: 't', limit: 1, cursor: q2.nextCursor });\nassert.deepEqual([q1, q2, q3].map(p => p.items[0] && p.items[0].id), ['p', 'q', 'r']);\nassert.equal(q3.nextCursor, null);\n\n// Page containing exactly the last item -> nextCursor null even when equal-date peer exists elsewhere.\nrows = mk([['a', '2026-01-01', 't'], ['b', '2026-01-02', 't']]);\nassert.equal(page(rows, { tenant: 't', limit: 1, cursor: '2026-01-01|a' }).nextCursor, null);\n\n// No cursor + limit behavior preserved (limit beyond available, limit 1).\nrows = mk([['a', '2026-01-01', 't'], ['b', '2026-01-02', 't']]);\nassert.deepEqual(page(rows, { tenant: 't', limit: 100 }).items.map(x => x.id), ['a', 'b']);\n\n// Invalid requests.\nconst bad = [\n  () => page(rows, { tenant: '', limit: 1 }),\n  () => page(rows, { tenant: 't', limit: 0 }),\n  () => page(rows, { tenant: 't', limit: 101 }),\n  () => page(rows, { tenant: 't', limit: 1.5 }),\n  () => page(rows, { tenant: 't', limit: NaN }),\n  () => page(rows, { tenant: 't', limit: Infinity }),\n  () => page(rows, { tenant: 't', limit: 1, cursor: '' }),\n  () => page(rows, { tenant: 't', limit: 1, cursor: 'nosep' }),\n  () => page(rows, { tenant: 't', limit: 1, cursor: 'a|b|c' }),\n  () => page(rows, { tenant: 't', limit: 1, cursor: '2026-01-01|' }),\n  () => page(rows, { tenant: 't', limit: 1, cursor: '|b' }),\n  () => page(rows, { tenant: 't', limit: 1, cursor: '||' }),\n];\nfor (const fn of bad) assert.throws(fn, /^Error: invalid request$/);\n\n// Cursor equality on both parts only resumes past that exact pair.\nrows = mk([['b', '2026-01-01', 't'], ['c', '2026-01-01', 't']]);\nassert.deepEqual(page(rows, { tenant: 't', limit: 10, cursor: '2026-01-01|b' }).items.map(x => x.id), ['c']);\n\nconsole.log('cursor checks OK');\n",
+      "src/handler.ts": "import { OrderRepository } from './repository';\nimport { ListRequest, Page } from './types';\n\nexport class OrderHandler {\n  constructor(private readonly repository: OrderRepository) {}\n\n  list(request: ListRequest): Page {\n    if (!request.tenant || !Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {\n      throw new Error('invalid request');\n    }\n    let after: { createdAt: string; id: string } | undefined;\n    if (request.cursor !== undefined) {\n      if (typeof request.cursor !== 'string') throw new Error('invalid request');\n      const parts = request.cursor.split('|');\n      if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error('invalid request');\n      after = { createdAt: parts[0], id: parts[1] };\n    }\n    // Filtering (by tenant, inside the repository) precedes pagination: the cursor\n    // pair is only ever compared against this tenant's sorted, filtered orders.\n    const remaining = this.repository.list(request.tenant, after);\n    const items = remaining.slice(0, request.limit);\n    const last = items.length > 0 ? items[items.length - 1] : undefined;\n    const nextCursor = last !== undefined && remaining.length > items.length\n      ? last.createdAt + '|' + last.id\n      : null;\n    return { items, nextCursor };\n  }\n}\n",
+      "src/repository.ts": "import { Order } from './types';\n\n/** An exclusive resume point: the first returned order is strictly after this (createdAt, id) pair. */\nexport interface CursorPair { createdAt: string; id: string }\n\nfunction compare(a: Pick<Order, 'createdAt' | 'id'>, b: Pick<Order, 'createdAt' | 'id'>): number {\n  if (a.createdAt < b.createdAt) return -1;\n  if (a.createdAt > b.createdAt) return 1;\n  if (a.id < b.id) return -1;\n  if (a.id > b.id) return 1;\n  return 0;\n}\n\nexport class OrderRepository {\n  constructor(private readonly rows: Order[]) {}\n\n  /**\n   * Returns the tenant's orders sorted ascending by (createdAt, id), lexicographic.\n   * If `after` is given, only orders strictly after that pair are returned, so a\n   * deleted cursor row still resumes at the right position. Filtering by tenant\n   * always happens before the cursor is applied, and neither the input array nor\n   * its rows are mutated (filter copies before the in-place sort).\n   */\n  list(tenant: string, after?: CursorPair): Order[] {\n    const filtered = this.rows\n      .filter(row => row.tenant === tenant)\n      .sort((a, b) => compare(a, b));\n    if (after === undefined) return filtered;\n    const start = filtered.findIndex(row => compare(row, after) > 0);\n    return start === -1 ? [] : filtered.slice(start);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/cursor.cjs",
+      "src/handler.ts",
+      "src/repository.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 140,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 1.124568041996099
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.08236712499638088,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.08641541699762456,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

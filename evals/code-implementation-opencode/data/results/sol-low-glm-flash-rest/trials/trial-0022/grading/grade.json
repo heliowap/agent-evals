@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/extra.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.resource import Rows\nfrom src.service import stream_rows\nfrom src.consumer import take\n\n# Lazy: started iterator not closed until exhausted/closed; close mid-way stops reads.\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v * 10)\nassert next(g) == 10 and r.closes == 0\ng.close()\nassert (r.reads, r.closes) == (1, 1)\n\n# Closing an unstarted generator performs no read and no close.\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v)\ng.close()\nassert (r.reads, r.closes) == (0, 0)\n\n# Iteration error propagates, resource closed exactly once, no further read.\nclass Boom:\n    def __init__(self):\n        self.reads = 0\n        self.closes = 0\n        self.n = 0\n    def read_next(self):\n        self.reads += 1\n        self.n += 1\n        if self.n == 2:\n            raise ValueError(\"iter boom\")\n        return self.n\n    def close(self):\n        self.closes += 1\n\nb = Boom()\ng = stream_rows(b, lambda v: v)\nassert next(g) == 1\ntry:\n    next(g)\n    raise AssertionError(\"expected ValueError\")\nexcept ValueError as exc:\n    assert str(exc) == \"iter boom\"\nassert (b.reads, b.closes) == (2, 1)\n\n# Transform failure propagates, no further row read, closed once.\nr = Rows([1, 2, 3])\ndef bad(value):\n    if value == 1:\n        raise TypeError(\"transform boom\")\n    return value\ng = stream_rows(r, bad)\ntry:\n    next(g)\n    raise AssertionError(\"expected TypeError\")\nexcept TypeError as exc:\n    assert str(exc) == \"transform boom\"\nassert (r.reads, r.closes) == (1, 1)\n\n# Cleanup failure propagates when nothing else went wrong...\nclass BadClose:\n    runs = 0\n    def read_next(self):\n        return 1\n    def close(self):\n        BadClose.runs += 1\n        raise RuntimeError(\"cleanup boom\")\n\nclass BadCloseOnTransformError(BadClose):\n    def read_next(self):\n        return 1\n\nbc = BadClose()\ng = stream_rows(bc, lambda v: v)\nnext(g)\ntry:\n    g.close()\n    raise AssertionError(\"expected RuntimeError\")\nexcept RuntimeError as exc:\n    assert str(exc) == \"cleanup boom\"\nassert BadClose.runs == 1\n\n# ...but the original error is preserved when cleanup fails on top of a transform error.\nbc = BadCloseOnTransformError()\ng = stream_rows(bc, bad)\ntry:\n    next(g)\n    raise AssertionError(\"expected TypeError\")\nexcept TypeError as exc:\n    assert str(exc) == \"transform boom\"\n\n# take with limit 0 returns [] without starting the stream.\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v, 0) == []\nassert (r.reads, r.closes) == (0, 0)\n\n# take with a positive limit closes the iterator once after taking enough rows.\nr = Rows([1, 2, 3, 4, 5])\nassert take(r, lambda v: v * 10, 2) == [10, 20]\nassert (r.reads, r.closes) == (2, 1)\n\n# take with limit beyond available rows: full list, closed once at EOF.\nr = Rows([1, 2])\nassert take(r, lambda v: v, 5) == [1, 2]\nassert (r.reads, r.closes) == (3, 1)\n\n# take closes the iterator when consuming fails; error propagates.\nr = Rows([1, 2, 3])\ntry:\n    take(r, bad, 3)\n    raise AssertionError(\"expected TypeError\")\nexcept TypeError as exc:\n    assert str(exc) == \"transform boom\"\nassert (r.reads, r.closes) == (1, 1)\n\nprint(\"extra checks passed\")\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    finally:\n        stream.close()\n    return result\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    failed = False\n    try:\n        try:\n            while True:\n                row = resource.read_next()\n                if row is None:\n                    break\n                yield transform(row)\n        except GeneratorExit:\n            raise\n        except BaseException:\n            # An iteration or a transformation error: remember it so a\n            # failing cleanup cannot mask the original error.\n            failed = True\n            raise\n    finally:\n        try:\n            resource.close()\n        except BaseException:\n            if not failed:\n                raise\n            # Cleanup failed while an iteration or transform error was\n            # already active: preserve the original error.\n"
+    },
+    "changed_files": [
+      "checks/extra.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 155,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04883474999223836
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04888129199389368,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0533872919913847,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

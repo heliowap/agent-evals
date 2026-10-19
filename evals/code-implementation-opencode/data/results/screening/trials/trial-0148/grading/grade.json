@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/transfer_checks.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, balance\nfrom src.service import transfer\nfrom src.events import Recorder\n\n\ndef setup():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\n    c.commit()\n    return c\n\n\ndef state(c):\n    return (balance(c, \"a\"), balance(c, \"b\"),\n            c.execute(\"SELECT COUNT(*) FROM ledger\").fetchone()[0])\n\n\n# success\nc = setup(); p = Recorder()\ntransfer(c, p, \"a\", \"b\", 100)\nassert state(c) == (0, 120, 1) and not c.in_transaction\nassert p.events == [{\"source\": \"a\", \"target\": \"b\", \"amount\": 100}]\n\n# invalid\nfor args in [(\"a\", \"a\", 5), (\"a\", \"zz\", 5), (\"zz\", \"a\", 5), (\"a\", \"b\", 0), (\"a\", \"b\", -1),\n             (\"a\", \"b\", True), (\"a\", \"b\", 1.0), (\"a\", \"b\", \"5\"), (\"a\", \"b\", 101)]:\n    c = setup(); p = Recorder()\n    try:\n        transfer(c, p, *args)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(args)\n    assert state(c) == (100, 20, 0) and p.events == [] and not c.in_transaction, args\n\n# database failure mid-way\nc = setup(); p = Recorder()\nc.execute(\"CREATE TRIGGER t BEFORE INSERT ON ledger BEGIN SELECT RAISE(ABORT, 'boom'); END\")\nc.commit()\ntry:\n    transfer(c, p, \"a\", \"b\", 10)\nexcept sqlite3.DatabaseError:\n    pass\nelse:\n    raise AssertionError\nassert state(c)[:2] == (100, 20) and p.events == [] and not c.in_transaction\n\n# commit failure\nclass Conn:\n    def __init__(self, c): self.c = c\n    def execute(self, *a): return self.c.execute(*a)\n    def commit(self): raise sqlite3.OperationalError(\"commit failed\")\n    def rollback(self): self.c.rollback()\nc = setup(); p = Recorder()\ntry:\n    transfer(Conn(c), p, \"a\", \"b\", 10)\nexcept sqlite3.OperationalError:\n    pass\nelse:\n    raise AssertionError\nassert state(c) == (100, 20, 0) and p.events == []\n\n# publication failure keeps the commit\nclass Bad:\n    def publish(self, e): raise RuntimeError(\"pub\")\nc = setup()\ntry:\n    transfer(c, Bad(), \"a\", \"b\", 10)\nexcept RuntimeError:\n    pass\nelse:\n    raise AssertionError\nassert state(c) == (90, 30, 1) and not c.in_transaction\nprint(\"ok\")\n",
+      "src/service.py": "from .repository import balance, move\n\n\ndef _validate_amount(amount):\n    if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n\n\ndef transfer(connection, publisher, source, target, amount):\n    _validate_amount(amount)\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n\n    try:\n        # Take the write lock up front so the validation reads and the writes\n        # form a single atomic unit.\n        connection.execute(\"BEGIN IMMEDIATE\")\n        source_balance = balance(connection, source)\n        if source_balance is None or balance(connection, target) is None:\n            raise ValueError(\"unknown account\")\n        if amount > source_balance:\n            raise ValueError(\"insufficient funds\")\n        move(connection, source, target, amount)\n        connection.commit()\n    except BaseException:\n        connection.rollback()\n        raise\n\n    # Committed; a publication failure propagates without undoing the transfer.\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\n"
+    },
+    "changed_files": [
+      "checks/transfer_checks.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 108,
+    "removed_lines": 6
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04626762500265613
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.050805209000827745,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05104470902006142,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

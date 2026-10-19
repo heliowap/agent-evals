@@ -1,0 +1,36 @@
+## Verdict on the migration note
+
+The note is **partly right and partly wrong**.
+
+| Migration-note claim | Status | Primary evidence |
+|---|---|---|
+| audioop was deprecated in 3.11 | **True** | PEP 594 Table 1 lists `audioop \| 3.11 (3.0*) \| 3.13`; the 3.12 docs banner reads "Deprecated since version 3.11, will be removed in version 3.13 … (see PEP 594 for details)" (docs.python.org/3.12/library/audioop.html, Python 3.12.15 docs, "Superseded Modules") |
+| audioop was *already absent* from 3.12's stdlib | **False** | The 3.12.15 library reference still documents the whole audioop API (`audioop.add`, `lin2adpcm`, etc.) as live, and PEP 594 states for 3.12: "This is the last version of Python with the deprecated modules," estimated EOL October 2028 |
+| Every module discussed by PEP 594, including optparse, was removed in 3.13 | **False** | PEP 594's "Modules to keep" section (Table 2, "Withdrawn deprecations") explicitly retains `colorsys`, `fileinput`, `getopt`, `optparse`, `wave`; the PEP also keeps `ftplib`. Python 3.13's "What's New" removal list names 19 modules — optparse is not among them |
+
+## audioop's timeline
+
+- **Deprecation release: Python 3.11** — PEP 594's deprecation schedule says "Starting with Python 3.11, deprecated modules will start issuing `DeprecationWarning`."
+- **Actual removal release: Python 3.13** — "PEP 594: The remaining 19 'dead batteries' … have been removed from the standard library: `aifc`, `audioop`, `cgi`, …" (What's New In Python 3.13, docs.python.org/3/whatsnew/3.13.html). The current audioop page states it was removed in 3.13 after deprecation in 3.11 and that "The removal was decided in PEP 594."
+- **Last Python release that included it: Python 3.12** — PEP 594 is explicit ("3.12 … the last version of Python with the deprecated modules"), and CPython's `Doc/library/audioop.rst` says "The last version of Python that provided the `audioop` module was Python 3.12."
+- **Governing PEP: PEP 594**, "Removing dead batteries from the standard library" (Heimes & Cannon, Status: Final, Standards Track, Python-Version: 3.11).
+
+So: **3.11 deprecated → 3.12 last release containing it → 3.13 removed, under PEP 594.** The note's "absent from 3.12" clause is an off-by-one error that would mislead anyone pinning CI to 3.12 or writing `try: import audioop` guards.
+
+## optparse: explicitly *kept* despite historical deprecation
+
+optparse appears in PEP 594 only under "Modules to keep," not in Table 1 (proposed removals). Table 2, "Withdrawn deprecations," records `optparse \| 3.2 \| argparse` — i.e., its long-standing deprecation (since 3.2) is acknowledged, with argparse as the successor. The PEP's stated rationale for retention is twofold:
+
+> "The `optparse` and `getopt` modules are widely used. They are mature modules with very low maintenance overhead."
+
+> "Although it has been deprecated for many years, it's still too widely used to remove it."
+
+Consistent with this, the current standard-library reference (Python 3.14.8 docs) still ships optparse with "Source code: Lib/optparse.py" and a "Choosing an argument parsing library" section that positions argparse as the default recommendation but lists cases where "optparse should be considered as an alternative to argparse." No removal notice appears there; the visible module header carries no deprecation banner, unlike the 3.11/3.12-era audioop pages. (Searchable PEP text also shows optparse with a "-" replacement/keep status in the withdrawn-deprecation table.)
+
+Practical takeaway: optparse is **not** a casualty of PEP 594; it stays in the 3.13/3.14 stdlib, and its deprecation is a soft "prefer argparse for new code" signal rather than a scheduled removal.
+
+## Method, and what remains unresolved
+
+Findings rest on PEP 594 (fetched directly from peps.python.org), the Python 3.12.15 audioop page (fetched directly), the Python 3.14.8 optparse page (fetched directly), plus search-excerpt evidence from docs.python.org/3/whatsnew/3.13.html and CPython's `Doc/library/audioop.rst` and `Doc/whatsnew/3.13.rst`.
+
+Per the instruction, I did **not** infer removal from any missing import or 404. Limitations: my cumulative evidence budget was exhausted before I could directly fetch docs.python.org/3/library/audioop.html, the full 3.13 "Removal" table, or the optparse deprecation banner text in 3.12 docs, so the "last version was 3.12" line and the 3.13 removal list are quoted from retrieved search excerpts of those primary sources rather than full-page reads. Version-specific confirmations were done against the 3.11/3.12 and 3.13/3.14 documentation branches, i.e., the release series the note names.

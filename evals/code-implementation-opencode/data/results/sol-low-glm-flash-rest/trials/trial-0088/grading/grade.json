@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/lifecycle.py": "import os\nimport sys\n\nsys.path.insert(0, os.getcwd())\nfrom src.consumer import take\nfrom src.resource import Rows\nfrom src.service import stream_rows\n\n\nclass FailingRows(Rows):\n    def __init__(self, rows, read_error=None, close_error=None):\n        super().__init__(rows)\n        self.read_error = read_error\n        self.close_error = close_error\n\n    def read_next(self):\n        if self.read_error is not None:\n            self.reads += 1\n            raise self.read_error\n        return super().read_next()\n\n    def close(self):\n        super().close()\n        if self.close_error is not None:\n            raise self.close_error\n\n\ndef expect_error(error, action):\n    try:\n        action()\n    except BaseException as caught:\n        assert caught is error\n    else:\n        raise AssertionError('Expected error')\n\n\nr = Rows([1, 2, 3])\ns = stream_rows(r, lambda x: x * 2)\nassert (r.reads, r.closes) == (0, 0)\ns.close()\nassert (r.reads, r.closes) == (0, 0)\n\nr = Rows([1, 2, 3])\ns = stream_rows(r, lambda x: x * 2)\nassert next(s) == 2\nassert (r.reads, r.closes) == (1, 0)\ns.close()\ns.close()\nassert (r.reads, r.closes) == (1, 1)\n\nfor cleanup_error in (None, RuntimeError('cleanup')):\n    error = ValueError('read')\n    r = FailingRows([1], read_error=error, close_error=cleanup_error)\n    s = stream_rows(r, lambda x: x)\n    expect_error(error, lambda: next(s))\n    s.close()\n    assert (r.reads, r.closes) == (1, 1)\n\n    error = ValueError('transform')\n    r = FailingRows([1, 2], close_error=cleanup_error)\n\n    def transform(value):\n        raise error\n\n    s = stream_rows(r, transform)\n    expect_error(error, lambda: next(s))\n    s.close()\n    assert (r.reads, r.closes) == (1, 1)\n\nfor explicit in (False, True):\n    error = RuntimeError('cleanup')\n    r = FailingRows([1] if explicit else [], close_error=error)\n    s = stream_rows(r, lambda x: x)\n    if explicit:\n        assert next(s) == 1\n        expect_error(error, s.close)\n    else:\n        expect_error(error, lambda: next(s))\n    s.close()\n    assert r.closes == 1\n\nfor limit, expected, reads, closes in ((0, [], 0, 0), (2, [2, 4], 2, 1),\n                                        (5, [2, 4, 6], 4, 1)):\n    r = Rows([1, 2, 3])\n    assert take(r, lambda x: x * 2, limit) == expected\n    assert (r.reads, r.closes) == (reads, closes)\n\nerror = ValueError('consumer transform')\nr = FailingRows([1, 2], close_error=RuntimeError('cleanup'))\n\ndef transform(value):\n    raise error\n\nexpect_error(error, lambda: take(r, transform, 2))\nassert (r.reads, r.closes) == (1, 1)\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n        return result\n    finally:\n        stream.close()\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    failed = False\n    try:\n        while True:\n            try:\n                row = resource.read_next()\n                if row is None:\n                    break\n                value = transform(row)\n            except BaseException:\n                failed = True\n                raise\n            yield value\n    finally:\n        try:\n            resource.close()\n        except BaseException:\n            if not failed:\n                raise\n"
+    },
+    "changed_files": [
+      "checks/lifecycle.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 130,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04584324997267686
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04906195800867863,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04437529100687243,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

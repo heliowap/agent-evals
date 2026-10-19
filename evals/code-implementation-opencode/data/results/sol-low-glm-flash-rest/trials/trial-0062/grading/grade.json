@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/authorization.cjs": "const assert = require('node:assert/strict');\n\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\n\nfunction freshState() {\n  return new DocumentRepository([\n    { id: 'one', tenant: 'a', owner: 'alice', deleted: false, archived: false },\n    { id: 'two', tenant: 'a', owner: 'alice', deleted: false, archived: true },\n    { id: 'gone', tenant: 'a', owner: 'alice', deleted: true, archived: false },\n    { id: 'other', tenant: 'b', owner: 'alice', deleted: false, archived: false },\n  ]);\n}\nconst admin = { tenant: 'a', user: 'adminx', role: 'admin' };\nconst editorOwner = { tenant: 'a', user: 'alice', role: 'editor' };\nconst editorStranger = { tenant: 'a', user: 'bob', role: 'editor' };\nconst viewer = { tenant: 'a', user: 'alice', role: 'viewer' };\n\n// admin may archive any visible document, exactly one audit entry per success\nlet state = freshState();\nnew DocumentService(state).archive(admin, 'one');\nassert.equal(state.documents[0].archived, true);\nassert.deepEqual(state.audit, [{ actor: 'adminx', document: 'one' }]);\n\n// editor may archive a document they own\nstate = freshState();\nnew DocumentService(state).archive(editorOwner, 'one');\nassert.equal(state.documents[0].archived, true);\nassert.deepEqual(state.audit, [{ actor: 'alice', document: 'one' }]);\n\n// editor may not archive a document owned by someone else -> forbidden, no mutation\nstate = freshState();\nassert.throws(() => new DocumentService(state).archive(editorStranger, 'one'), /forbidden/);\nassert.equal(state.documents[0].archived, false);\nassert.deepEqual(state.audit, []);\n\n// viewer may never archive, even their own document -> forbidden, no mutation\nassert.throws(() => new DocumentService(state).archive(viewer, 'one'), /forbidden/);\nassert.equal(state.documents[0].archived, false);\nassert.deepEqual(state.audit, []);\n\n// invisible documents throw 'not found' for every role, no mutation\nfor (const actor of [admin, editorOwner, editorStranger, viewer]) {\n  for (const id of ['missing', 'gone', 'other']) {\n    state = freshState();\n    assert.throws(() => new DocumentService(state).archive(actor, id), /not found/);\n    assert.deepEqual(state.audit, []);\n    assert.ok(state.documents.every(d => !d.archived || d.id === 'two'));\n  }\n}\n\n// invisible wins over permission: viewer/foreign-tenant -> 'not found', not 'forbidden'\nstate = freshState();\nassert.throws(() => new DocumentService(state).archive(viewer, 'other'), /not found/);\nassert.throws(() => new DocumentService(state).archive({ ...admin, tenant: 'b' }, 'one'), /not found/);\n\n// repeated archive is a no-op: no extra audit entry, permission still enforced first\nstate = freshState();\nlet service = new DocumentService(state);\nservice.archive(editorOwner, 'one');\nassert.deepEqual(state.audit, [{ actor: 'alice', document: 'one' }]);\nservice.archive(editorOwner, 'one');\nassert.deepEqual(state.audit, [{ actor: 'alice', document: 'one' }]);\nassert.equal(state.documents[0].archived, true);\n// permission checked before the no-op short-circuit\nassert.throws(() => service.archive(editorStranger, 'one'), /forbidden/); // already archived, not owner\nassert.throws(() => service.archive(viewer, 'one'), /forbidden/); // already archived, viewer\nassert.throws(() => service.archive(editorStranger, 'two'), /forbidden/); // archived, bob not owner\nservice.archive(editorOwner, 'two'); // archived doc, alice owns -> permission ok, no-op\nassert.deepEqual(state.audit, [{ actor: 'alice', document: 'one' }]);\nassert.throws(() => service.archive(editorOwner, 'other'), /not found/);\n\n// failures leave already-archived docs and existing audit entries untouched\nstate = freshState();\nservice = new DocumentService(state);\nservice.archive(admin, 'two'); // no-op on archived\nassert.deepEqual(state.audit, []);\nassert.throws(() => service.archive(viewer, 'one'), /forbidden/);\nassert.equal(state.documents[0].archived, false);\nassert.deepEqual(state.audit, []);\n\nconsole.log('checks/authorization.cjs passed');\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\n\n/**\n * A document is visible to an actor only when it exists, is not deleted and\n * belongs to the actor's tenant. Visibility applies to every role, admin\n * included, and is enforced before authorization.\n */\nfunction isVisible(actor: Actor, document: Document): boolean {\n  return !document.deleted && document.tenant === actor.tenant;\n}\n\n/**\n * Admins may archive any visible document, editors only documents they own,\n * viewers never. Anything other than admin/editor falls back to denied.\n */\nfunction mayArchive(actor: Actor, document: Document): boolean {\n  if (actor.role === 'admin') return true;\n  if (actor.role === 'editor') return document.owner === actor.user;\n  return false;\n}\n\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    if (!document || !isVisible(actor, document)) throw new Error('not found');\n    if (!mayArchive(actor, document)) throw new Error('forbidden');\n    if (!document.archived) this.repository.archive(document, actor.user);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/authorization.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 113,
+    "removed_lines": 10
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5030375000205822
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06562612499692477,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.056938374997116625,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

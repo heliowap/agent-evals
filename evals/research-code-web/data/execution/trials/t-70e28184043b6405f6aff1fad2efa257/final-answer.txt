@@ -1,0 +1,49 @@
+Here's the full trace for `z.string().transform(fn)` in the v4 classic API, based on this snapshot's sources.
+
+## 1. Public builder: string schema → ZodPipe
+
+The classic API surface is `packages/zod/src/v4/classic/schemas.ts`.
+
+- `transform<NewOut>(transform: (arg, ctx) => NewOut | Promise<NewOut>): ZodPipe<this, ZodTransform<Awaited<NewOut>, core.output<this>>>` — declared on `ZodType` at **classic/schemas.ts:131–133**. So `z.string().transform(fn)` is typed as a `ZodPipe` whose `in` is the string schema and whose `out` is a `ZodTransform`.
+- The implementation is on `ZodType.prototype` at **classic/schemas.ts:245–247**: `transform(tx) { return pipe(this, transform(tx)); }` — the string schema itself is not mutated; the builder constructs a pipe (`pipe` → `ZodPipe`, defined around **classic/schemas.ts:2934**, `in: transform(fn) ... ` / wrapping `this` as `in`, transforming fn as `out`) whose `def.in` is the string schema and `def.out` is a fresh `ZodTransform`.
+
+## 2. How the transformation is represented
+
+- The wrapper `transform<I, O>(fn): ZodTransform<Awaited<O>, I>` at **classic/schemas.ts:2291–2298** constructs a `ZodTransform` with def `{ type: "transform", transform: fn }`.
+- Core declaration: `$ZodTransformDef` with `type: "transform"` and `transform: (input, payload: ParsePayload<unknown>) => util.MaybeAsync<unknown>` — **core/schemas.ts:3824–3827**. The function is thus stored in the definition and receives both the value and the payload (the payload doubles as a `$RefinementCtx` with an `addIssue` hook — see below).
+
+## 3. Execution order at parse time
+
+Core `$ZodPipe` constructor (`$ZodPipe`, **core/schemas.ts:4425–4447**): forward parsing first runs `def.in._zod.run(payload, ctx)` — the string schema validates the raw input — at **core/schemas.ts:4441–4445**, then `handlePipeResult(left, def.out, ctx)` runs the transform only on the parsed result. So the fixed order is: **input parsing (string checks) first, then the transformation** on the validated `payload.value`.
+
+`handlePipeResult` (**core/schemas.ts:4449–4457**) then runs `next._zod.run({ value: left.value, issues: left.issues }, ctx)` where `next` is the transform.
+
+## 4. Which issues stop the pipe, and the exception
+
+Same function, **core/schemas.ts:4450–4455**: any issue in the left payload sets `left.aborted = true` and returns it without running the transform — inline comment: "Any issue stops the pipe, so a failing refinement never feeds its transform." The explicitly documented exception is code `"unrecognized_keys"`:
+
+```ts
+if (left.issues.some((iss) => iss.code !== "unrecognized_keys")) {
+  left.aborted = true;
+  return left;
+}
+```
+
+`unrecognized_keys` describes extra properties of the *input* object (not the value being piped) and an enclosing intersection may still reconcile it, so it alone does not abort the pipe (line 4451).
+
+## 5. Transform execution and result carriage
+
+The classic `ZodTransform`'s `_zod.parse` (**classic/schemas.ts:2257–2287**; the core `$ZodTransform` variant is **core/schemas.ts:3837–3865** with equivalent logic at 3844–3863):
+
+- Backward direction throws `$ZodEncodeError` (2258–2260).
+- It injects `payload.addIssue` so the user fn can push issues (string shorthand → `util.issue(issue, payload.value, def)`; Zod 3–style objects get `code ??= "custom"`, `input` defaulted to `payload.value`, optional `fatal → continue = false`) — 2262–2276.
+- It calls `const output = def.transform(payload.value, payload)` (2278). Synchronously, `payload.value = output; return payload;` (2285–2286). If the fn returns a Promise it chains `.then` and assigns then (2279–2284); core additionally throws `$ZodAsyncError` if a Promise appears in sync mode (core 3858–3859).
+
+The transformed value is carried onward by **mutating the shared parse payload**: `payload.value` is overwritten with the function's return and the same payload object (issue array retained) is returned so downstream parsers/parents read `payload.value` as the pipe's output. The pipe's typed output is `core.output<B>` per `$ZodPipeInternals` (**core/schemas.ts:4411–4419**).
+
+## Summary of cited spans
+
+- classic/schemas.ts:131–133 (typed builder), 245–247 (impl), 2243–2298 (ZodTransform class + `transform()` factory), 2934 (`pipe` helper)
+- core/schemas.ts:3824–3865 (`$ZodTransformDef`, `$ZodTransform` ctor/parse), 4394–4457 (`$ZodPipeDef`, `$ZodPipe` ctor/parse, `handlePipeResult`)
+
+Limitation: this is static reading only, as requested; I did not execute the snapshot, and the classic `ZodTransform` assumes `payload.addIssue`-style issue objects rather than a separate payload, so byte-for-byte sync behavior differences between the classic and core transform parsers beyond those shown were not tested.

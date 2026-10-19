@@ -1,0 +1,18 @@
+## Decision: Not sufficient as designed — three corrections needed
+
+**1. Repeatable Read does not make cross-row business invariants serial.**
+PostgreSQL's Repeatable Read is Snapshot Isolation: it prevents dirty/nonrepeatable/phantom reads (stronger than the SQL standard's minimum, which permits phantoms at this level), but **serialization anomalies are explicitly still possible** — "the view will not necessarily always be consistent with some serial execution… Attempts to enforce business rules by transactions running at this isolation level are not likely to work correctly without careful use of explicit locks" ([transaction-iso §13.2.2](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-REPEATABLE-READ); [Table 13.1](https://www.postgresql.org/docs/18/transaction-iso.html#MVCC-ISOLEVEL-TABLE)). The write-skew window you have (read invariant rows, write different rows) is exactly what only **Serializable (SSI, SQLSTATE 40001)** detects ([§13.2.3](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-SERIALIZABLE)). Correcting the premise: a stable snapshot + no phantoms ≠ equivalence to serial execution.
+
+**2. Retrying only the failed statement is wrong.**
+PostgreSQL provides **no automatic retry facility** because correctness requires retrying "the complete transaction, including all logic that decides which SQL to issue and/or which values to use" ([§13.5](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-Failure-HANDLING)). The retry unit is the whole transaction, **owned by the application/client driver**, re-reading the invariant on each retry — statement-level replay does not re-derive decisions from a fresh snapshot.
+
+**3. Unique violations must not be in an unconditional retry bucket.**
+SQLSTATE 23505 (unique_violation) and 23P01 may be transient (a concurrent worker picked the same key — "effectively a serialization failure" the server can't detect, even under Serializable), but they can equally be persistent constraint errors; "more care is needed" vs. 40001, which IS recommended to "retry… unconditionally" ([§13.5](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html)). Only retry 23505 when the application can attribute it to a race on generated/derived keys; add 40P01 (deadlock) to the retry set. The wrapper must classify by SQLSTATE, and retry coverage should be complete-transaction, cause-inspectable.
+
+## Narrow changes that matter
+- Use **Serializable**, not Repeatable Read, for the invariant workflow (or add explicit blocking locks at Repeatable Read — [§13.4.2](https://www.postgresql.org/docs/18/applevel-consistency.html#NON-SERIALIZABLE-CONSISTENCY)).
+- Move retry ownership to the application; retry-unit = full transaction with fresh decision logic.
+- Retry 40001 unconditionally; 40P01 advisedly; 23505/23P01 only with cause inspection.
+
+## Product's "every operation commits within ≤3 attempts under contention"
+**Cannot be promised.** Documentation states retries are not guaranteed to complete: "multiple retries may be needed" and "with very high contention… many attempts," including indefinite blocking on a conflicting prepared transaction ([§13.5](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html)). What can be documented instead: attempt-capped retry with backoff, surfaced to the caller on exhaustion — an SLA on mean behavior is UNVERIFIED and would need load measurements, not docs, to establish.

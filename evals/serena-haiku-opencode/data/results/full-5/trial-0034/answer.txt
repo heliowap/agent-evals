@@ -1,0 +1,17 @@
+`get_document` and `list_documents` now only return documents that match the tenant and owner and have `deleted_at IS NULL`. Both the public check and the new security check pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` take `tenant` and `owner` and add `tenant=? AND owner=? AND deleted_at IS NULL` to their queries. All values are bound parameters. `listing` keeps `ORDER BY id`. `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: the public functions pass `tenant` and `owner` through to the repository instead of ignoring them.
+- **`checks/secure_access.py`** (new): covers the following cases.
+  - Quoted titles and bodies with SQL-like content round-trip correctly.
+  - Soft-deleted, cross-tenant and cross-owner documents return `None` from `get_document`, indistinguishable from a missing ID.
+  - Injection-style IDs and tenant/owner strings match nothing.
+  - Lists are filtered and ordered by id, and contain no deletion metadata.
+  - The table row count is unchanged.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/secure_access.py` passes.

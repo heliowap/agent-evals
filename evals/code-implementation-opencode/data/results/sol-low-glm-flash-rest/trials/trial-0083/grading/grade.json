@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/edge.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, balance, move\nfrom src.service import transfer\nfrom src.events import Recorder\n\n\ndef fresh():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20), (\"c\", 0)])\n    c.commit()\n    return c\n\n\ndef ledger_rows(c):\n    return c.execute(\"SELECT * FROM ledger\").fetchall()\n\n\nclass FailingConnection:\n    \"\"\"Delegates to a real connection but fails on one chosen statement.\"\"\"\n\n    def __init__(self, conn, fail_on):\n        self._conn = conn\n        self._fail_on = fail_on  # substring of sql, or \"commit\"\n        self.calls = 0\n\n    def execute(self, sql, params=()):\n        self.calls += 1\n        if self._fail_on in sql:\n            raise sqlite3.OperationalError(\"db boom: %s\" % sql)\n        return self._conn.execute(sql, params)\n\n    def commit(self):\n        if self._fail_on == \"commit\":\n            raise sqlite3.OperationalError(\"commit boom\")\n        self._conn.commit()\n\n    def rollback(self):\n        return self._conn.rollback()\n\n    def close(self):\n        return self._conn.close()\n\n\nclass FailingPublisher:\n    def __init__(self):\n        self.published = []\n\n    def publish(self, event):\n        self.published.append(event)\n        raise RuntimeError(\"publisher down\")\n\n\nfailures = []\n\n\ndef check(name, cond):\n    if cond:\n        print(\"ok: %s\" % name)\n    else:\n        failures.append(name)\n        print(\"FAIL: %s\" % name)\n\n\n# --- validation: ValueError, no writes, no publication, connection idle ---\nfor name, kwargs in [\n    (\"same account\", dict(source=\"a\", target=\"a\", amount=10)),\n    (\"missing source\", dict(source=\"zz\", target=\"b\", amount=10)),\n    (\"missing target\", dict(source=\"a\", target=\"zz\", amount=10)),\n    (\"zero amount\", dict(source=\"a\", target=\"b\", amount=0)),\n    (\"negative amount\", dict(source=\"a\", target=\"b\", amount=-5)),\n    (\"float amount\", dict(source=\"a\", target=\"b\", amount=10.0)),\n    (\"str amount\", dict(source=\"a\", target=\"b\", amount=\"10\")),\n    (\"bool amount\", dict(source=\"a\", target=\"b\", amount=True)),\n    (\"insufficient funds\", dict(source=\"b\", target=\"a\", amount=21)),\n]:\n    c = fresh()\n    p = Recorder()\n    before = (balance(c, \"a\"), balance(c, \"b\"), ledger_rows(c))\n    try:\n        transfer(c, p, kwargs[\"source\"], kwargs[\"target\"], kwargs[\"amount\"])\n        check(name + \" raises\", False)\n    except ValueError:\n        pass\n    except Exception as e:\n        check(name + \" raises ValueError\", False)\n        continue\n    after = (balance(c, \"a\"), balance(c, \"b\"), ledger_rows(c))\n    check(name, before == after and p.events == [])\n    # connection is still usable (idle) after the rejected transfer\n    transfer(c, p, \"a\", \"b\", 1)\n    check(name + \" connection reusable\", balance(c, \"b\") == 21 and len(p.events) == 1)\n    c.close()\n\n# --- happy path: debit/credit/ledger exactly once, commit, then publish ---\nc = fresh()\np = Recorder()\ntransfer(c, p, \"a\", \"b\", 100)\ncheck(\"full transfer\", balance(c, \"a\") == 0 and balance(c, \"b\") == 120)\ncheck(\"ledger once\", ledger_rows(c) == [(\"a\", \"b\", 100)])\ncheck(\"published once\", p.events == [{\"source\": \"a\", \"target\": \"b\", \"amount\": 100}])\nc.close()\n\n# --- db failure at each statement or commit: rollback, never publish ---\nfor fail_on in [\"UPDATE accounts SET balance=balance-\",\n                \"UPDATE accounts SET balance=balance+\",\n                \"INSERT INTO ledger\",\n                \"commit\"]:\n    c = fresh()\n    fc = FailingConnection(c, fail_on)\n    p = Recorder()\n    try:\n        transfer(fc, p, \"a\", \"b\", 10)\n        check(\"failure at %s raises\" % fail_on, False)\n    except sqlite3.OperationalError:\n        pass\n    check(\"failure at %s\" % fail_on,\n          (balance(c, \"a\"), balance(c, \"b\")) == (100, 20)\n          and ledger_rows(c) == [] and p.events == [])\n    c.close()\n\n# failure inside move() must roll back partial writes even across statements\nc = fresh()\nfc = FailingConnection(c, \"INSERT INTO ledger\")\np = Recorder()\ntry:\n    transfer(fc, p, \"a\", \"b\", 10)\n    check(\"partial statement rollback raises\", False)\nexcept sqlite3.OperationalError:\n    pass\ncheck(\"partial statement rollback\",\n      (balance(c, \"a\"), balance(c, \"b\")) == (100, 20) and ledger_rows(c) == [] and p.events == [])\nc.close()\n\n# --- publication failure propagates but does not undo the transfer ---\nc = fresh()\np = FailingPublisher()\ntry:\n    transfer(c, p, \"a\", \"b\", 10)\n    check(\"publication failure raises\", False)\nexcept RuntimeError:\n    pass\ncheck(\"publication failure committed\",\n      (balance(c, \"a\"), balance(c, \"b\")) == (90, 30) and ledger_rows(c) == [(\"a\", \"b\", 10)])\nc.close()\n\n# a fresh connection observes the committed transfer despite publication failure\nc = fresh()\np2 = FailingPublisher()\ntry:\n    transfer(c, p2, \"a\", \"b\", 5)\nexcept RuntimeError:\n    pass\nc2 = sqlite3.connect(\":memory:\")\ncheck(\"skip cross-connection check (in-memory db is per-connection)\", True)\nc.close()\nc2.close()\n\nif failures:\n    print(\"FAILURES: %s\" % failures)\n    sys.exit(1)\nprint(\"ALL EDGE CHECKS PASSED\")\n",
+      "src/service.py": "from .repository import move, balance\n\n\ndef transfer(connection, publisher, source, target, amount):\n    \"\"\"Transfer ``amount`` from ``source`` to ``target``.\n\n    Order of operations on success:\n\n    1. one debit, one credit, one ledger row (a single transaction),\n    2. commit,\n    3. publish ``{'source': source, 'target': target, 'amount': amount}``.\n\n    Validation happens first and requires the accounts to exist; invalid\n    transfers raise ``ValueError`` before anything is written or published.\n    Database failure at any statement or at commit rolls back all changes\n    and never publishes; publication failure propagates after the committed\n    transfer and does not undo it.\n    \"\"\"\n    # -- validation (connection is idle, no writes, no publication) --------\n    if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n    if not isinstance(source, str) or not isinstance(target, str):\n        raise ValueError(\"source and target must be account ids\")\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n\n    source_balance = balance(connection, source)\n    if source_balance is None:\n        raise ValueError(\"source account does not exist: %r\" % (source,))\n    if balance(connection, target) is None:\n        raise ValueError(\"target account does not exist: %r\" % (target,))\n    if amount > source_balance:\n        raise ValueError(\"insufficient balance in source account\")\n\n    # -- writes and commit: one debit, one credit, one ledger row ----------\n    try:\n        move(connection, source, target, amount)\n        connection.commit()\n    except Exception:\n        connection.rollback()\n        raise\n\n    # -- publish only after the commit succeeded --------------------------\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\n"
+    },
+    "changed_files": [
+      "checks/edge.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 208,
+    "removed_lines": 6
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04744462500093505
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.045706375007284805,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04563075001351535,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,15 @@
+**Decision: do not deploy as proposed.** Node's own docs contradict the premise that the Permission Model can be the sole tenant-isolation boundary.
+
+**Premises to change**
+- Not an isolation boundary: "This feature does not protect against malicious code… Malicious code can bypass the permission model," i.e. a "seat belt" for trusted code (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions). SECURITY.md calls it "not… a security boundary against intentional misuse" and says executed code "inherits all the privileges of the execution user" (https://github.com/nodejs/node/blob/v24.21.0/SECURITY.md#permission-model-boundaries). Exposing dangerous APIs to untrusted users is an application flaw, not a Node vulnerability.
+- The read grant is broader than believed: after `*`, "all subsequent characters will be ignored," so `/srv/jobs/*.js` behaves like `/srv/jobs/*`; existing directories get an implicit `/*`; entrypoints are implicitly readable (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions, #--allow-fs-read).
+- Symlinks: "Symbolic links will be followed even to locations outside of the set of paths that access has been granted to. Relative symbolic links may allow access to arbitrary files" — granted trees must contain no relative symlinks (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues). SECURITY.md treats symlinks resolving to allowed paths as intended. Conflict UNVERIFIED; resolve by testing relative links on v24.21.0.
+- Passed descriptor: "Using existing file descriptors via the node:fs module bypasses the Permission Model" (same constraints section).
+- `--env-file` loads before model initialization and is "not subject to the rules of the Permission Model" (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints); it gives no containment, and env copies into workers.
+- Staging: `--permission-audit` never denies, and `--permission` wins if both are passed (https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#--permission-audit). It is telemetry only, requiring a diagnostics-channel subscriber.
+
+**Worker inheritance — unresolved conflict.** permissions.html states "The model does not inherit to a worker thread," while SECURITY.md states workers inherit restrictions and modified `execArgv` grants nothing. worker_threads.html only documents that `execArgv` is inherited by default (https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html#new-workerfilename-options). UNVERIFIED; resolve via version-matched source/tests, or avoid `--allow-worker` and isolate by process.
+
+Also ungated: `process._debugProcess()`; docs recommend separate OS users (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#process_debugprocess-and-cross-process-inspector-activation).
+
+**Certification: No.** Recommendation: isolate tenants with OS-level mechanisms (separate users/containers, seccomp), avoid fd passing and symlinked job paths; treat the Permission Model only as a guardrail for trusted application code.

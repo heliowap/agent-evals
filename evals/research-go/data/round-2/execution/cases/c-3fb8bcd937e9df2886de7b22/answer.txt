@@ -1,0 +1,20 @@
+I'll fetch both starting sources in parallel.
+
+Both starting sources are version-matched. One direct conflict exists on worker inheritance (permissions doc vs SECURITY.md), so I'll check the version-matched worker_threads page.
+
+## Decision: No — the Permission Model cannot be certified as a tenant-isolation boundary for customer-uploaded code, on your own Node.js v24.21.0 docs
+
+**Fatal premise.** The v24.21.0 permissions doc states the model "does not protect against malicious code… does not provide security guarantees in the presence of malicious code"; SECURITY.md's threat model says Node trusts "the code it is asked to run," including dynamically loaded code, and classifies the Permission Model as reducing "blast radius of mistakes in trusted application code, **not**… a security boundary." Running hostile, uploaded JS outside the threat model means no certification is possible from these documents (see next-evidence targets below for what WOULD be needed).
+
+**Assumptions that must change (documented facts):**
+- `--allow-fs-read=/srv/jobs/*.js` — after `*`, all subsequent characters are ignored; it behaves like `/srv/jobs/*`, and since the directory exists it is effectively wildcarded over `/srv/jobs`. Your "only `.js` files" reading is incorrect ([File System Permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions)).
+- **Relative symlinks in job dirs directly violate a documented requirement**: symlinks "will be followed even to locations outside… granted paths"; relative symlinks "may allow access to arbitrary files." You must guarantee no granted path contains them ([Limitations and Known Issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues)). SECURITY.md only exempts symlinks resolving *within* the allow-list — yours may not.
+- `--env-file` reads files *before* the model initializes and "is not subject to the rules of the Permission Model" — your outside-the-read-list env file is read anyway ([constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)).
+- Pre-opened FDs: "Using existing file descriptors via the node:fs module bypasses the Permission Model," and `permission.drop()` never closes already-open FDs/child processes ([runtime API](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissiondropscope-reference)).
+- `node:sqlite`, OpenSSL STORE loaders, and `process._debugProcess()` are documented outside/bypassing scopes.
+
+**Worker inheritance: UNVERIFIED — sources conflict.** The permissions doc explicitly says "The model does not inherit to a worker thread"; SECURITY.md says workers "inherit the permission restrictions of their parent process"; worker_threads docs say only that *options* are inherited by default. Do not enable `--allow-worker` under any inheritance assumption until resolved against the runtime implementation/tests, or better, drop cross-tenant worker capability entirely — note workers share a process and memory, so this is not isolation regardless.
+
+**Useful mechanisms (for trusted code, per docs):** staging `--permission-audit` via diagnostics channels to discover required grants; enforce `--permission` + `process.permission.has()` checks and irreversible `permission.drop()` after initialization; per-Worker `resourceLimits` for resource containment — all seat-belt/defense-in-depth, not tenant boundaries (SECURITY.md is explicit that defense-in-depth issues receive no CVEs).
+
+**Recommendation:** use OS-level isolation (separate OS users, containers/seccomp/AppArmor) — the permissions doc itself prescribes that for cross-process attacks — and certify via a formal third-party threat-model assessment; Node.js documents will not certify it.

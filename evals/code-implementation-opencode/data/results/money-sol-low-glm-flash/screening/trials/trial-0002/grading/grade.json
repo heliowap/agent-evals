@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/validation.py": "import os\nimport sys\nfrom decimal import Decimal, getcontext, localcontext\n\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\ndef rejects(function, value):\n    try:\n        function(value)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(f\"Accepted invalid value: {value!r}\")\n\n\nfor value in [\".1\", \"1.\", \" 1\", \"1 \", \"1\\n\", \"1e2\", \"1_0\", \"١\", \"１\",\n              \"\", \"0\", \"-1\", \"0.001\", \"1.0001\", \"1000000.01\", 0, -1,\n              True, False, 1.0, None, [], {}, Decimal(\"NaN\"), Decimal(\"sNaN\"),\n              Decimal(\"Infinity\"), Decimal(\"-Infinity\"), Decimal(\"1E-100000\")]:\n    rejects(parse_amount, value)\n    rejects(make_invoice, [value])\n\nfor value in [None, \"1.00\", (1,), {1}, iter([1]), 1]:\n    rejects(make_invoice, value)\nrejects(make_invoice, [\"1000000\", \"0.01\"])\n\noriginal_context = getcontext().copy()\nwith localcontext() as context:\n    context.prec = 3\n    before = context.copy()\n    for value, expected in [(1, \"1.00\"), (\"+00012.5000\", \"12.50\"),\n                            (Decimal(\"1E+6\"), \"1000000.00\"),\n                            (Decimal(\"123456.78000\"), \"123456.78\"),\n                            (\"0.01000\", \"0.01\")]:\n        result = parse_amount(value)\n        assert result.as_tuple().exponent == -2\n        assert format_amount(result) == expected\n    amounts = [\"999999.99\", Decimal(\"0.0100\")]\n    snapshot = amounts.copy()\n    assert make_invoice(amounts) == {\"total\": \"1000000.00\", \"count\": 2}\n    assert amounts == snapshot\n    assert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\n    assert context.prec == before.prec\n    assert context.flags == before.flags\nassert getcontext().prec == original_context.prec\nassert getcontext().flags == original_context.flags\n",
+      "src/api.py": "from .money import parse_amount, format_amount, _from_cents, _to_cents\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"Amounts must be a list\")\n\n    total_cents = 0\n    for item in amounts:\n        total_cents += _to_cents(parse_amount(item))\n        if total_cents > 100000000:\n            raise ValueError(\"Invoice total must be at most 1000000.00\")\n    return {\"total\": format_amount(_from_cents(total_cents)), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\n\n_AMOUNT_PATTERN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n_MAX_AMOUNT = Decimal(\"1000000.00\")\n\n\ndef _from_cents(cents):\n    \"\"\"Construct a fixed-scale Decimal without consulting the decimal context.\"\"\"\n    return Decimal((0, Decimal(cents).as_tuple().digits, -2))\n\n\ndef _to_cents(amount):\n    \"\"\"Convert a validated, fixed-scale amount to integer cents.\"\"\"\n    cents = 0\n    for digit in amount.as_tuple().digits:\n        cents = cents * 10 + digit\n    return cents\n\n\ndef parse_amount(value):\n    if isinstance(value, Decimal):\n        amount = value\n    elif isinstance(value, int) and not isinstance(value, bool):\n        amount = Decimal(value)\n    elif isinstance(value, str) and _AMOUNT_PATTERN.fullmatch(value):\n        amount = Decimal(value)\n    else:\n        raise ValueError(\"Amount must be a Decimal, integer, or decimal string\")\n\n    if not amount.is_finite() or amount <= 0 or amount > _MAX_AMOUNT:\n        raise ValueError(\"Amount must be positive and at most 1000000.00\")\n\n    # Work with the coefficient rather than context-sensitive arithmetic.\n    # Discard only zero digits beyond the cents position; never round.\n    _, digits, exponent = amount.as_tuple()\n    shift = exponent + 2\n    if shift < 0:\n        cut = -shift\n        if cut >= len(digits) or any(digits[-cut:]):\n            raise ValueError(\"Amount must be exactly representable in cents\")\n        digits = digits[:-cut]\n    cents = 0\n    for digit in digits:\n        cents = cents * 10 + digit\n    if shift > 0:\n        cents *= 10 ** shift\n    return _from_cents(cents)\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/validation.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 115,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.051955458999145776
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05903366699931212,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05138799999258481,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

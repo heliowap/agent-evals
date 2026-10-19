@@ -1,0 +1,13 @@
+**Runner outcomes**
+- **A** (auto; go 1.21.0, toolchain go1.21.9): bundled 1.21.3 is older than the toolchain line, so it runs go1.21.9 — searching PATH first, otherwise downloading and caching it ([toolchain#select](https://go.dev/doc/toolchain#select)). Downloads go through GOPROXY and must pass checksum-database verification ([toolchain#download](https://go.dev/doc/toolchain#download)).
+- **B** (local; go 1.21.9): always runs bundled 1.21.3, which refuses to load a module whose go line exceeds its own version; it errors and exits ([toolchain#select](https://go.dev/doc/toolchain#select), [toolchain#config](https://go.dev/doc/toolchain#config)).
+- **C** (go1.21.3+path; A's module; no go1.21.9 on PATH): the toolchain line outranks the go line; +path disables download fallback and stops after the PATH search, so it refuses ([toolchain#select](https://go.dev/doc/toolchain#select)).
+
+**go vs toolchain**
+`go` is a mandatory minimum Go version (language version; must be ≥ every dependency's go line since 1.21); `toolchain` is only a suggestion, effective just in the main module when the default toolchain is older ([gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go), [gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). Correct a likely premise: a dependency's **toolchain** line does not force downstream consumers; its **go** line does cascade — commands meeting a newer requirement switch, then record go/toolchain lines in your go.mod ([toolchain#switch](https://go.dev/doc/toolchain#switch)).
+
+**Proposal corrections**
+GOSUMDB=off is backwards: toolchain downloads then fail for lack of verification, and GOPRIVATE/GONOSUMDB don't cover them ([toolchain#download](https://go.dev/doc/toolchain#download)). "+path makes the whole build network-free" is **UNVERIFIED**; the docs say only that it disables the *toolchain* download fallback ([toolchain#select](https://go.dev/doc/toolchain#select)). Next evidence: Go Modules Reference proxy/vendoring sections, e.g. https://go.dev/ref/mod#module-proxy.
+
+**Policy**
+Keep checksum verification on (permit proxy.golang.org/sum.golang.org through the restricted network); set `go` to your true minimum and `toolchain` to the tested release; preinstall that SDK and use `+path` for PATH-only resolution, else `auto` with a trusted proxy. Note: go.sum can't hold toolchain sums, so verification depends on the checksum DB ([toolchain#download](https://go.dev/doc/toolchain#download)). No setting here guarantees offline/hermetic or reproducible builds.

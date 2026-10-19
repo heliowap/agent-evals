@@ -1,0 +1,64 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\nconst { formatAmount } = require('../.build/money');\nconst { renderInvoice } = require('../.build/invoice');\nconst { renderReport } = require('../.build/report');\n\nconst cases = [\n  [0, '0.00'],\n  [-0, '0.00'],\n  [1, '0.01'],\n  [9, '0.09'],\n  [99, '0.99'],\n  [100, '1.00'],\n  [123, '1.23'],\n  [123456, '1234.56'],\n  [-1, '-0.01'],\n  [-9, '-0.09'],\n  [-99, '-0.99'],\n  [-100, '-1.00'],\n  [-123, '-1.23'],\n  [-123456, '-1234.56'],\n];\n\nfor (const [cents, expected] of cases) {\n  assert.equal(formatAmount(cents), expected);\n  assert.equal(renderInvoice('inv', cents), 'inv: $' + expected);\n}\n\nassert.equal(renderReport([]), '');\nassert.equal(\n  renderReport(cases.map(([cents], index) => ({ id: String(index), cents }))),\n  cases.map(([, expected], index) => index + ',' + expected).join('\\n'),\n);\nassert.equal(renderReport([{ id: 'a', cents: 0 }, { id: 'b', cents: -1 }]), 'a,0.00\\nb,-0.01');\n",
+      "src/invoice.ts": "import { formatAmount } from './money';\nexport function renderInvoice(id: string, cents: number): string { return id + ': $' + formatAmount(cents); }\n",
+      "src/invoiceAmount.ts": null,
+      "src/money.ts": "export function formatAmount(cents: number): string {\n  const sign = cents < 0 ? '-' : '';\n  const absolute = Math.abs(cents);\n  return sign + Math.floor(absolute / 100) + '.' + String(absolute % 100).padStart(2, '0');\n}\n",
+      "src/report.ts": "import { formatAmount } from './money';\nexport function renderReport(rows: { id: string; cents: number }[]): string {\n  return rows.map(row => row.id + ',' + formatAmount(row.cents)).join('\\n');\n}\n",
+      "src/reportAmount.ts": null
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/invoice.ts",
+      "src/invoiceAmount.ts",
+      "src/money.ts",
+      "src/report.ts",
+      "src/reportAmount.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 6,
+    "added_lines": 44,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.49627654199139215
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06896029101335444,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05467237500124611,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.056853707996197045,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

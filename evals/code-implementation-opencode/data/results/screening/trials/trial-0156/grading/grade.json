@@ -1,0 +1,62 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.dispatcher import export\nassert export([{\"id\": 1, \"name\": \"Alice\"}], \"csv\") == \"id,name\\n1,Alice\\n\"\nassert export([{\"id\": 1, \"name\": \"Alice\"}], \"json\") == '[{\"id\":\"1\",\"name\":\"Alice\"}]'\nassert export([], \"csv\") == \"id,name\\n\"\nassert export([], \"json\") == \"[]\"\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nassert export_rows(iter([{\"id\": 1, \"name\": None, \"x\": 2}, {\"id\": \"a,b\"}]), \"csv\") == 'id,name\\n1,\\n\"a,b\",\\n'\nassert export_rows([{\"id\": 1, \"name\": \"é\"}], \"json\") == '[{\"id\":\"1\",\"name\":\"é\"}]'\nassert export_csv([]) == \"id,name\\n\" and export_json([]) == \"[]\"\ntry:\n    export_rows([], \"xml\")\n    raise SystemExit(\"expected ValueError\")\nexcept ValueError:\n    pass\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/dispatcher.py": "from .exporter import export_rows\n\n\ndef export(rows, format):\n    return export_rows(rows, format)\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    return [\n        {key: \"\" if row.get(key) is None else str(row[key]) for key in _FIELDS}\n        for row in rows\n    ]\n\n\ndef _to_csv(rows):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(_FIELDS)\n    for row in rows:\n        writer.writerow([row[key] for key in _FIELDS])\n    return buffer.getvalue()\n\n\ndef _to_json(rows):\n    return json.dumps(rows, ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\"csv\": _to_csv, \"json\": _to_json}\n\n\ndef export_rows(rows, format):\n    serializer = _SERIALIZERS.get(format)\n    if serializer is None:\n        raise ValueError(\"unsupported format\")\n    return serializer(_normalize(rows))\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/public.py",
+      "src/csv_exporter.py",
+      "src/dispatcher.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 5,
+    "added_lines": 68,
+    "removed_lines": 34
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04576983299921267
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05272379101370461,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0499669169948902,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05842433398356661,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

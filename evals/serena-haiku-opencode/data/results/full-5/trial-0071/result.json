@@ -1,0 +1,147 @@
+{
+  "id": "trial-0071",
+  "configuration": "haiku-high-serena",
+  "effort": "high",
+  "arm": "serena",
+  "case": "py-document-scope",
+  "role": "implementation",
+  "rep": 5,
+  "position": 3,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/test_access.py": "import os, sys, unittest\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nclass AccessTests(unittest.TestCase):\n    def setUp(self):\n        self.c = sqlite3.connect(\":memory:\")\n        initialize(self.c)\n        rows = [\n            (1, \"t\", \"o\", \"A\", \"a\", None),\n            (2, \"t\", \"o\", \"B\", \"b\", \"2026-01-01\"),\n            (3, \"x\", \"o\", \"C\", \"c\", None),\n            (4, \"t\", \"p\", \"D\", \"d\", None),\n            (5, \"t\", \"o'brien\", \"E\\\"q\", \"e\", None),\n            (6, \"t\", \"o\", \"F\", \"f\", None),\n        ]\n        self.c.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\n        self.c.commit()\n\n    def tearDown(self):\n        self.c.close()\n\n    def test_get_document_visible(self):\n        self.assertEqual(get_document(self.c, \"t\", \"o\", 1), {\"id\": 1, \"title\": \"A\", \"body\": \"a\"})\n\n    def test_get_document_hidden_cases_return_none(self):\n        self.assertIsNone(get_document(self.c, \"x\", \"o\", 1))   # cross-tenant\n        self.assertIsNone(get_document(self.c, \"t\", \"p\", 1))   # cross-owner\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", 2))   # deleted\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", 99))  # missing\n\n    def test_get_document_quote_in_owner_is_bound(self):\n        self.assertEqual(get_document(self.c, \"t\", \"o'brien\", 5), {\"id\": 5, \"title\": 'E\"q', \"body\": \"e\"})\n        self.assertIsNone(get_document(self.c, \"t\", \"o' OR '1'='1\", 1))\n\n    def test_list_documents_filters_and_orders(self):\n        self.assertEqual(list_documents(self.c, \"t\", \"o\"), [\n            {\"id\": 1, \"title\": \"A\", \"body\": \"a\"},\n            {\"id\": 6, \"title\": \"F\", \"body\": \"f\"},\n        ])\n\n    def test_list_documents_quote_and_injection_are_bound(self):\n        self.assertEqual(list_documents(self.c, \"t\", \"o' OR '1'='1\"), [])\n        self.assertEqual(list_documents(self.c, \"t\", \"o'brien\"), [{\"id\": 5, \"title\": 'E\"q', \"body\": \"e\"}])\n\n    def test_result_fields_exact(self):\n        for doc in list_documents(self.c, \"t\", \"o\"):\n            self.assertEqual(set(doc), {\"id\", \"title\", \"body\"})\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND id=? AND deleted_at IS NULL\",\n        (tenant, owner, document_id),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+        "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+      },
+      "changed_files": [
+        "checks/test_access.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 82,
+      "removed_lines": 20
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.04887716699158773
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.048065332986880094,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.047030249959789217,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 22.555251499987207,
+  "preparation_s": 1.5054541670251638,
+  "export_s": 0.37674395798239857,
+  "grading_s": 0.29239554196828976,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "request_names": [
+      "initial_instructions"
+    ],
+    "response_names": [
+      "initial_instructions"
+    ],
+    "pending_calls": 0,
+    "tool_calls": 1,
+    "useful_successful_calls": 0,
+    "used": false,
+    "errors": 0,
+    "rejected_calls": 0,
+    "bridge_errors": 0,
+    "catalog_ready_s": 0.626610375,
+    "calls": [
+      {
+        "name": "initial_instructions",
+        "error": false,
+        "useful": false,
+        "wall_s": 0.069158292
+      }
+    ],
+    "native_export_reconciled": true
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 4,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_3a264ae256127b7ba1fa",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "high"
+  },
+  "usage": {
+    "input_tokens": 8,
+    "output_tokens": 2386,
+    "reasoning_tokens": 1620,
+    "cached_input_tokens": 28252,
+    "cache_write_tokens": 6818
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 4,
+  "error_events": [],
+  "reported_cost_usd": 0.0031385700000000002,
+  "total_trial_s": 24.967614541994408
+}

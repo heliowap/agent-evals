@@ -1,0 +1,264 @@
+diff --git a/bottle.py b/bottle.py
+index 9edceaf..070774c 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -110,6 +110,18 @@ def _wsgi_recode(src):
+     return src.encode('latin1').decode('utf8', 'surrogateescape')
+ 
+ 
++def _request_id(environ, header):
++    """ Return the request ID of the request in *environ*. The ID is taken from
++        the *header* of the request if present, or generated, and cached in the
++        environ so that every later call returns the same value. """
++    rid = environ.get('bottle.request.id')
++    if rid is None:
++        rid = WSGIHeaderDict(environ).get(header) if header else None
++        rid = rid or os.urandom(16).hex()
++        environ['bottle.request.id'] = rid
++    return rid
++
++
+ def _raise(*a):
+     raise a[0](a[1]).with_traceback(a[2])
+ 
+@@ -593,6 +605,9 @@ class Bottle:
+         cfg = ConfigDict()
+         cfg._define('catchall', default=True, filter=bool,
+             help="Catch all unhandled exceptions and display an error page.")
++        cfg._define('request_id.header', default=None,
++            help="Name of the header that carries the request ID. If set, "
++                 "every response includes it. Unset disables the feature.")
+         return cfg
+ 
+     def __init__(self, **kwargs):
+@@ -936,6 +951,14 @@ class Bottle:
+     def default_error_handler(self, res):
+         return tob(template(ERROR_PAGE_TEMPLATE, e=res, template_settings=dict(name='__ERROR_PAGE_TEMPLATE')))
+ 
++    def _request_id_header(self, environ):
++        """ Return the ``(name, value)`` of the request ID header that goes into
++            every response, or ``None`` if ``request_id.header`` is not set. """
++        name = self.config.get('request_id.header')
++        if not name:
++            return None
++        return name, _request_id(environ, name)
++
+     def _handle(self, environ):
+         path = environ['bottle.raw_path'] = environ['PATH_INFO']
+         environ['PATH_INFO'] = _wsgi_recode(path)
+@@ -1055,6 +1078,8 @@ class Bottle:
+         out = None
+         try:
+             out = self._cast(self._handle(environ))
++            if request_id_header := self._request_id_header(environ):
++                response.set_header(*request_id_header)
+             # rfc2616 section 4.3
+             if response._status[0] in (100, 101, 204, 304) \
+                or environ['REQUEST_METHOD'] == 'HEAD':
+@@ -1079,6 +1104,10 @@ class Bottle:
+             environ['wsgi.errors'].write(err)
+             environ['wsgi.errors'].flush()
+             headers = [('Content-Type', 'text/html; charset=UTF-8')]
++            if request_id_header := self._request_id_header(environ):
++                # Not via response.headerlist, so do its latin1 conversion here.
++                name, value = request_id_header
++                headers.append((name, value.encode('utf8', 'surrogateescape').decode('latin1')))
+             start_response('500 INTERNAL SERVER ERROR', headers, sys.exc_info())
+             return [tob(err)]
+ 
+@@ -1151,6 +1180,16 @@ class BaseRequest:
+         """ The ``REQUEST_METHOD`` value as an uppercase string. """
+         return self.environ.get('REQUEST_METHOD', 'GET').upper()
+ 
++    @property
++    def request_id(self):
++        """ An ID for this request that stays the same during the request. It is
++            the value of the header named by ``app.config['request_id.header']``
++            if the request has that header. Otherwise it is a new ID made of 32
++            lowercase hex characters. """
++        app = self.environ.get('bottle.app')
++        header = app.config.get('request_id.header') if app else None
++        return _request_id(self.environ, header)
++
+     @DictProperty('environ', 'bottle.request.headers', read_only=True)
+     def headers(self):
+         """ A :class:`WSGIHeaderDict` that provides case-insensitive access to
+diff --git a/test/test_request_id.py b/test/test_request_id.py
+new file mode 100644
+index 0000000..ca4da4d
+--- /dev/null
++++ b/test/test_request_id.py
+@@ -0,0 +1,173 @@
++# -*- coding: utf-8 -*-
++""" Tests for the opt-in request ID feature (``request_id.header``). """
++
++import io
++import re
++import unittest
++import wsgiref.util
++import wsgiref.validate
++
++import bottle
++from bottle import Bottle, HTTPResponse, abort, redirect, request, tob
++
++HEX32 = re.compile(r'^[0-9a-f]{32}$')
++
++
++class TestRequestId(unittest.TestCase):
++
++    def setUp(self):
++        self.app = Bottle()
++
++    def enable(self):
++        self.app.config['request_id.header'] = 'X-Request-ID'
++
++    def call(self, path='/', headers=None):
++        env = {'PATH_INFO': path, 'QUERY_STRING': '', 'SCRIPT_NAME': '',
++               'wsgi.errors': io.StringIO()}
++        wsgiref.util.setup_testing_defaults(env)
++        for name, value in (headers or {}).items():
++            env['HTTP_' + name.upper().replace('-', '_')] = value
++        result = {}
++
++        def start_response(status, headerlist, exc_info=None):
++            result['status'] = status
++            result['headers'] = headerlist
++
++        app = wsgiref.validate.validator(self.app)
++        body = b''.join(app(env, start_response))
++        return result['status'], result['headers'], body
++
++    def request_ids(self, headers):
++        return [value for name, value in headers if name.lower() == 'x-request-id']
++
++    def test_disabled_sends_no_header(self):
++        """ Request ID: no header is sent when request_id.header is not set """
++        @self.app.route('/ok')
++        def ok(): return 'ok'
++        @self.app.route('/abort')
++        def aborted(): abort(400, 'nope')
++        @self.app.route('/redirect')
++        def redirected(): redirect('/ok')
++        @self.app.route('/raise')
++        def raised(): raise HTTPResponse('raised', 201)
++        @self.app.route('/crash')
++        def crashed(): raise ValueError('boom')
++        for path in ('/ok', '/missing', '/abort', '/redirect', '/raise', '/crash'):
++            status, headers, body = self.call(path, headers={'X-Request-ID': 'abc'})
++            self.assertEqual([], self.request_ids(headers), path)
++
++    def test_disabled_property_still_stable(self):
++        """ Request ID: request.request_id is a stable generated ID when disabled """
++        @self.app.route('/')
++        def index(): return request.request_id + ',' + request.request_id
++        status, headers, body = self.call('/')
++        first, second = body.decode('utf8').split(',')
++        self.assertRegex(first, HEX32)
++        self.assertEqual(first, second)
++
++    def test_echoes_incoming_header(self):
++        """ Request ID: the incoming header value is used as the request ID """
++        self.enable()
++        @self.app.route('/')
++        def index(): return request.request_id
++        status, headers, body = self.call('/', headers={'X-Request-ID': 'abc-123'})
++        self.assertEqual(b'abc-123', body)
++        self.assertEqual(['abc-123'], self.request_ids(headers))
++
++    def test_generates_id_per_request(self):
++        """ Request ID: a new 32 hex ID is generated when the header is missing """
++        self.enable()
++        @self.app.route('/')
++        def index(): return request.request_id
++        status, headers, first = self.call('/')
++        status, headers2, second = self.call('/')
++        self.assertRegex(first.decode('utf8'), HEX32)
++        self.assertEqual([first.decode('utf8')], self.request_ids(headers))
++        self.assertNotEqual(first, second)
++
++    def test_empty_header_is_generated(self):
++        """ Request ID: an empty incoming header is treated as missing """
++        self.enable()
++        @self.app.route('/')
++        def index(): return request.request_id
++        status, headers, body = self.call('/', headers={'X-Request-ID': ''})
++        self.assertRegex(body.decode('utf8'), HEX32)
++        self.assertEqual([body.decode('utf8')], self.request_ids(headers))
++
++    def test_same_value_within_request(self):
++        """ Request ID: every read during one request returns the same value """
++        self.enable()
++        @self.app.route('/')
++        def index():
++            a = request.request_id
++            b = request.request_id
++            return a + ',' + b
++        status, headers, body = self.call('/')
++        first, second = body.decode('utf8').split(',')
++        self.assertEqual(first, second)
++        self.assertEqual([first], self.request_ids(headers))
++
++    def test_header_on_all_responses(self):
++        """ Request ID: every kind of response carries the request ID """
++        self.enable()
++        @self.app.route('/ok')
++        def ok(): return 'ok'
++        @self.app.route('/abort')
++        def aborted(): abort(400, 'nope')
++        @self.app.route('/redirect')
++        def redirected(): redirect('/ok', 303)
++        @self.app.route('/raise')
++        def raised(): raise HTTPResponse('raised', 201)
++        @self.app.route('/crash')
++        def crashed(): raise ValueError('boom')
++        @self.app.error(404)
++        def not_found(error): return 'custom 404'
++        @self.app.route('/broken')
++        def broken(): raise ValueError('boom')
++        @self.app.error(500)
++        def broken_handler(error): raise RuntimeError('error handler is broken')
++
++        for path, code in (('/ok', 200), ('/missing', 404), ('/abort', 400),
++                           ('/redirect', 303), ('/raise', 201), ('/crash', 500),
++                           ('/broken', 500)):
++            status, headers, body = self.call(path, headers={'X-Request-ID': 'req-1'})
++            self.assertEqual(code, int(status.split()[0]), path)
++            self.assertEqual(['req-1'], self.request_ids(headers), path)
++
++    def test_app_cannot_override_header(self):
++        """ Request ID: a header set by the route is replaced by the request ID """
++        self.enable()
++        @self.app.route('/')
++        def index():
++            bottle.response.set_header('X-Request-ID', 'other')
++            return 'ok'
++        status, headers, body = self.call('/', headers={'X-Request-ID': 'req-2'})
++        self.assertEqual(['req-2'], self.request_ids(headers))
++
++    def test_non_ascii_header_round_trip(self):
++        """ Request ID: non-ASCII header values are returned unchanged """
++        self.enable()
++        @self.app.route('/')
++        def index(): return request.request_id
++        @self.app.route('/broken')
++        def broken(): raise ValueError('boom')
++        @self.app.error(500)
++        def broken_handler(error): raise RuntimeError('error handler is broken')
++        wire = 'é'.encode('utf8').decode('latin1')
++        status, headers, body = self.call('/', headers={'X-Request-ID': wire})
++        self.assertEqual(tob('é'), body)
++        self.assertEqual([wire], self.request_ids(headers))
++        # The error path bypasses response.headerlist, so it must encode on its own.
++        status, headers, body = self.call('/broken', headers={'X-Request-ID': wire})
++        self.assertEqual(500, int(status.split()[0]))
++        self.assertEqual([wire], self.request_ids(headers))
++
++    def test_unbound_request(self):
++        """ Request ID: a request not bound to an app still gets a generated ID """
++        req = bottle.BaseRequest({})
++        self.assertRegex(req.request_id, HEX32)
++        self.assertEqual(req.request_id, req.request_id)
++
++
++if __name__ == '__main__':
++    unittest.main()

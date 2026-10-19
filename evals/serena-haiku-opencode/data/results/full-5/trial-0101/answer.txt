@@ -1,0 +1,19 @@
+I implemented `import_contacts` and exposed it through `handle_import`. The public check and a new import check both pass.
+
+**Changes**
+- **`src/repository.py`**: added `list_emails(connection)`, which returns the set of existing emails. `put_contact` and `list_contacts` are unchanged.
+- **`src/service.py`**: added `import_contacts(connection, rows)`.
+  - It validates every row first, so nothing is written if any row is bad. Rows must be dicts with exactly `email` and `name`, both strings. Both are trimmed, and the email is lowercased. The email must have one `@`, nonempty sides, and no whitespace. The name must be nonempty. Duplicate normalized emails raise `ValueError`.
+  - An empty batch returns `{'inserted': 0, 'updated': 0}` without touching the database.
+  - Otherwise it runs `BEGIN`, reads the existing emails, upserts each row, and commits. Any exception rolls back and re-raises. Counts are taken from the pre-read email set, so an existing email counts as updated even when its name is unchanged.
+  - `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict whose only key is `contacts`, and that value must be a list. Otherwise it raises `ValueError`. It then returns the `import_contacts` summary. `handle_add` is unchanged.
+- **`checks/import_checks.py`** (new): covers counts, normalization, each rejection case, envelope rejection, `add_contact` still working, and rollback after a simulated mid-batch database error.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 checks/import_checks.py` prints `import checks ok`.
+
+**Notes**
+- Existing-email matching uses the stored value as-is. A row that was inserted before this change with uppercase or padded email would not match a normalized import, and would be inserted as a separate row. Existing data was not migrated.
+- Transaction handling uses an explicit `BEGIN`/`commit`/`rollback`, so atomicity holds whether or not the connection is in autocommit mode.

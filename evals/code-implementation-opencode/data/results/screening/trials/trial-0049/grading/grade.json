@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\nconst { Ledger } = require('../.build/ledger');\nconst { PaymentService } = require('../.build/service');\nconst { Transient } = require('../.build/transport');\n\nasync function main() {\n  const ledger = new Ledger();\n  const receipts = [];\n  const service = new PaymentService(ledger, {\n    acknowledge: async r => { receipts.push(r); }\n  });\n  const first = await service.pay('shop', 'sale', 123);\n  assert.deepEqual(first, { id: 1, tenant: 'shop', key: 'sale', cents: 123 });\n  assert.equal(ledger.entries.length, 1);\n  assert.equal(receipts.length, 1);\n  const repeated = await Promise.all(Array.from({ length: 10 }, () => service.pay('shop', 'sale', 123)));\n  repeated.forEach(r => assert.strictEqual(r, first));\n  assert.equal(ledger.entries.length, 1);\n  await assert.rejects(service.pay('shop', 'sale', 124), { message: 'key conflict' });\n  assert.equal(receipts.length, 11);\n  assert.equal(ledger.entries.length, 1);\n  await service.pay('other', 'sale', 124);\n  await service.pay('shop', 'other', 124);\n  assert.equal(ledger.entries.length, 3);\n\n  const concurrentLedger = new Ledger();\n  const concurrent = await Promise.all(Array.from({ length: 10 }, () => concurrentLedger.apply('t', 'k', 1)));\n  concurrent.forEach(r => assert.strictEqual(r, concurrent[0]));\n  assert.equal(concurrentLedger.entries.length, 1);\n  await assert.rejects(concurrentLedger.apply('t', 'k', 2), { message: 'key conflict' });\n  // Delimiter-like keys must not collide across tenants.\n  await concurrentLedger.apply('a:b', 'c', 1);\n  await concurrentLedger.apply('a', 'b:c', 2);\n  assert.equal(concurrentLedger.entries.length, 3);\n\n  for (const attempts of [1, 3, 5]) {\n    const retryLedger = new Ledger();\n    const sent = [];\n    const failures = Array.from({ length: attempts }, (_, i) => new Transient(`failure ${i}`));\n    const retryService = new PaymentService(retryLedger, {\n      acknowledge: async r => { sent.push(r); throw failures[sent.length - 1]; }\n    });\n    await assert.rejects(retryService.pay('t', 'k', 10, attempts), error => error === failures[attempts - 1]);\n    assert.equal(sent.length, attempts);\n    assert.equal(retryLedger.entries.length, 1);\n    sent.forEach(r => assert.strictEqual(r, retryLedger.entries[0]));\n  }\n  const successLedger = new Ledger();\n  const sent = [];\n  const eventual = new PaymentService(successLedger, {\n    acknowledge: async r => { sent.push(r); if (sent.length < 3) throw new Transient(); }\n  });\n  const result = await eventual.pay('t', 'k', 10);\n  assert.equal(sent.length, 3);\n  sent.forEach(r => assert.strictEqual(r, result));\n  assert.equal(successLedger.entries.length, 1);\n\n  const permanent = new Error('permanent');\n  let calls = 0;\n  const failing = new PaymentService(new Ledger(), {\n    acknowledge: async () => { calls++; throw permanent; }\n  });\n  await assert.rejects(failing.pay('t', 'k', 1), error => error === permanent);\n  assert.equal(calls, 1);\n\n  let actions = 0;\n  const validating = new PaymentService({ apply: async () => { actions++; } }, {\n    acknowledge: async () => { actions++; }\n  });\n  const invalid = [\n    ['', 'k', 1, 3], ['t', '', 1, 3], [null, 'k', 1, 3], ['t', 1, 1, 3],\n    ...[0, -1, 1.5, NaN, Infinity].map(c => ['t', 'k', c, 3]),\n    ...[0, -1, 6, 1.5, NaN, Infinity, '3', null].map(a => ['t', 'k', 1, a])\n  ];\n  for (const args of invalid) {\n    await assert.rejects(validating.pay(...args), { message: 'invalid payment' });\n  }\n  assert.equal(actions, 0);\n  const invalidLedger = new Ledger();\n  for (const args of invalid.slice(0, 9)) {\n    await assert.rejects(invalidLedger.apply(...args), { message: 'invalid payment' });\n  }\n  assert.equal(invalidLedger.entries.length, 0);\n}\nmodule.exports = main();\n",
+      "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  private readonly receipts = new Map<string, Map<string, Receipt>>();\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0) {\n      throw new Error('invalid payment');\n    }\n    let tenantReceipts = this.receipts.get(tenant);\n    const existing = tenantReceipts?.get(key);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return existing;\n    }\n    if (!tenantReceipts) {\n      tenantReceipts = new Map<string, Receipt>();\n      this.receipts.set(tenant, tenantReceipts);\n    }\n    // Publish synchronously so concurrent calls cannot commit a second debit.\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    tenantReceipts.set(key, receipt);\n    return receipt;\n  }\n}\n",
+      "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0 ||\n        !Number.isInteger(attempts) || attempts < 1 || attempts > 5) {\n      throw new Error('invalid payment');\n    }\n    let receipt: Receipt | undefined;\n    for (let n = 0; n < attempts; n++) {\n      try {\n        receipt ??= await this.ledger.apply(tenant, key, cents);\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n === attempts - 1) throw error;\n      }\n    }\n    throw new Error('invalid payment');\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/ledger.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 134,
+    "removed_lines": 39
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.542900208994979
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06604849998257123,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.058388000004924834,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

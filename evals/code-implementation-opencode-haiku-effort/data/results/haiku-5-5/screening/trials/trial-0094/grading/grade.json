@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { ProfileService } = require('../.build/service');\n        const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n        assert.deepEqual(service.patch({ displayName: 'after' }), { displayName: 'after', tags: ['old'] });\n        assert.deepEqual(service.patch({ tags: ['new'] }), { displayName: 'after', tags: ['new'] });\n        assert.throws(() => service.patch(null), /invalid profile/);\n\n// PATCH contract\n{\n  const { ProfileService } = require('../.build/service');\n  const fresh = () => new ProfileService({ displayName: 'before', tags: ['old'] });\n  const snapshot = (s) => JSON.parse(JSON.stringify(s.profile));\n\n  // empty object is a no-op\n  let s = fresh();\n  assert.deepEqual(s.patch({}), { displayName: 'before', tags: ['old'] });\n\n  // displayName: trimmed, null clears\n  s = fresh();\n  assert.equal(s.patch({ displayName: '  Ann  ' }).displayName, 'Ann');\n  assert.equal(s.patch({ displayName: null }).displayName, null);\n  assert.equal(fresh().patch({ displayName: 'a'.repeat(40) }).displayName, 'a'.repeat(40));\n  for (const bad of ['', '   ', 'a'.repeat(41), 0, 1, undefined, true, {}, []]) {\n    s = fresh();\n    assert.throws(() => s.patch({ displayName: bad }), /invalid profile/);\n    assert.deepEqual(snapshot(s), { displayName: 'before', tags: ['old'] });\n  }\n\n  // tags: null or [] clears; trimmed; distinct after trim; max 5; max 12 chars; nonempty\n  assert.deepEqual(fresh().patch({ tags: null }).tags, []);\n  assert.deepEqual(fresh().patch({ tags: [] }).tags, []);\n  assert.deepEqual(fresh().patch({ tags: [' a ', 'b', 'c', 'd', 'e'] }).tags, ['a', 'b', 'c', 'd', 'e']);\n  assert.deepEqual(fresh().patch({ tags: ['x'.repeat(12)] }).tags, ['x'.repeat(12)]);\n  const badTags = [\n    ['a', 'a'], [' a', 'a '], ['a', 'b', 'c', 'd', 'e', 'f'], ['x'.repeat(13)],\n    [''], ['   '], [1], [null], 'a', { 0: 'a', length: 1 }, [, 'a'],\n  ];\n  for (const bad of badTags) {\n    s = fresh();\n    assert.throws(() => s.patch({ tags: bad }), /invalid profile/);\n    assert.deepEqual(snapshot(s), { displayName: 'before', tags: ['old'] });\n  }\n\n  // unknown keys, non-objects, arrays, null, bad prototypes all rejected\n  for (const bad of [{ extra: 1 }, { displayName: 'ok', x: 1 }, null, 'str', 1, [], [{}],\n    Object.create({ displayName: 'inherited' })]) {\n    s = fresh();\n    assert.throws(() => s.patch(bad), /invalid profile/);\n    assert.deepEqual(snapshot(s), { displayName: 'before', tags: ['old'] });\n  }\n  // null-prototype object is accepted\n  const np = Object.create(null); np.displayName = 'Nul';\n  assert.equal(fresh().patch(np).displayName, 'Nul');\n\n  // input not mutated; caller's tags array not stored\n  const input = { tags: ['p', 'q'] };\n  s = fresh();\n  const result = s.patch(input);\n  assert.deepEqual(input, { tags: ['p', 'q'] });\n  assert.notEqual(result.tags, input.tags);\n  assert.notEqual(s.profile.tags, input.tags);\n}\n",
+      "src/parser.ts": "import { Field, ProfilePatch } from './types';\n\nconst MAX_DISPLAY_NAME = 40;\nconst MAX_TAGS = 5;\nconst MAX_TAG_LENGTH = 12;\n\nfunction invalid(): never {\n  throw new Error('invalid profile');\n}\n\nfunction hasOwn(target: object, key: PropertyKey): boolean {\n  return Object.prototype.hasOwnProperty.call(target, key);\n}\n\n// Reads an own data property; accessors are rejected so no user code runs.\nfunction dataValue(target: object, key: PropertyKey): unknown {\n  const descriptor = Object.getOwnPropertyDescriptor(target, key);\n  if (!descriptor || !('value' in descriptor)) return invalid();\n  return descriptor.value;\n}\n\nfunction parseDisplayName(value: unknown): Field<string | null> {\n  if (value === null) return { kind: 'set', value: null };\n  if (typeof value !== 'string') return invalid();\n  const trimmed = value.trim();\n  if (trimmed.length < 1 || trimmed.length > MAX_DISPLAY_NAME) return invalid();\n  return { kind: 'set', value: trimmed };\n}\n\nfunction parseTags(value: unknown): Field<string[]> {\n  if (value === null) return { kind: 'set', value: [] };\n  if (!Array.isArray(value)) return invalid();\n  const length = value.length;\n  if (length > MAX_TAGS) return invalid();\n  // Only the indices 0..length-1 plus \"length\" may be own keys: no holes, no extras.\n  if (Reflect.ownKeys(value).length !== length + 1) return invalid();\n  const tags: string[] = [];\n  const seen = new Set<string>();\n  for (let i = 0; i < length; i++) {\n    if (!hasOwn(value, i)) return invalid();\n    const item = dataValue(value, i);\n    if (typeof item !== 'string') return invalid();\n    const trimmed = item.trim();\n    if (trimmed.length < 1 || trimmed.length > MAX_TAG_LENGTH) return invalid();\n    if (seen.has(trimmed)) return invalid();\n    seen.add(trimmed);\n    tags.push(trimmed);\n  }\n  return { kind: 'set', value: tags };\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) return invalid();\n  const proto: unknown = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) return invalid();\n  for (const key of Reflect.ownKeys(input)) {\n    if (key !== 'displayName' && key !== 'tags') return invalid();\n  }\n  let displayName: Field<string | null> = { kind: 'keep' };\n  let tags: Field<string[]> = { kind: 'keep' };\n  if (hasOwn(input, 'displayName')) displayName = parseDisplayName(dataValue(input, 'displayName'));\n  if (hasOwn(input, 'tags')) tags = parseTags(dataValue(input, 'tags'));\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  // Validates the whole input before touching storage, so a rejected patch changes nothing.\n  patch(input: unknown): Profile {\n    const parsed = parseProfile(input);\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = parsed.tags.value;\n    return this.profile;\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 139,
+    "removed_lines": 33
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5088573329849169
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.07070674997521564,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06040224997559562,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,545 @@
+{
+  "info": {
+    "id": "ses_6db4ca027df6e2c3415a",
+    "projectID": "0b61316b5d1590ff562c57884dd0540edf4a9c6d",
+    "agent": "implementer",
+    "model": {
+      "id": "glm-5.3-flash",
+      "providerID": "opencode-go",
+      "variant": "high"
+    },
+    "cost": 0.009385729999999998,
+    "tokens": {
+      "input": 29387,
+      "output": 4046,
+      "reasoning": 4742,
+      "cache": {
+        "read": 19456,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1791732535895,
+      "updated": 1791732641846,
+      "idle": 1791732641849
+    },
+    "title": "Project change",
+    "location": {
+      "directory": "/tmp/folders/T/private-runtime-e_dzazxg/project"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_12b94d2b10018yxHf3U76KhyPJ",
+      "time": {
+        "created": 1791732535985
+      },
+      "type": "agent-switched",
+      "agent": "implementer",
+      "previous": "implementer"
+    },
+    {
+      "id": "msg_12b94d2af001gj5wKz4VqYxWO5",
+      "time": {
+        "created": 1791732536113
+      },
+      "text": "\"Replace float-based parsing in src/money.py. parse_amount accepts Decimal objects, integers excluding bool, and strings that fully match the ASCII grammar [+-]?[0-9]+(?:\\.[0-9]+)?. Strings require digits before the decimal point and, if a decimal point is present, digits after it. Leading zeros and an optional sign are allowed. Reject .1, 1., whitespace, exponents, underscores, and non-ASCII digits in strings with ValueError. Decimal objects may use exponent notation.\n\nReject floats, other types, non-finite numbers, zero, negatives, values over 1000000.00, and values not exactly representable in cents with ValueError. Extra trailing zeros are allowed; never round a nonzero fractional cent. Return a Decimal with exponent -2. Preserve format_amount.\n\nMake src/api.py.make_invoice accept only a Python list of amounts and apply the same validation to every item. Reject non-list inputs, including strings and None, invalid items, and totals over 1000000.00 with ValueError. Sum the amounts exactly without rounding. Return {'total': a two-decimal string, 'count': N}. An empty list returns {'total': '0.00', 'count': 0}.\n\nParsing and summation must remain exact even when the caller's decimal precision is too low to represent an amount or total, including a precision of 3. Do not mutate the global decimal context or the caller's input. Start in src/money.py and src/api.py.\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_12b94d335001iQQzMQ5t84YPbJ",
+      "time": {
+        "created": 1791732536129,
+        "streamed": 1791732537733,
+        "completed": 1791732537798
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Let me explore the project first.",
+          "state": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1791732537429,
+            "completed": 1791732537722
+          }
+        },
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-90871898a6a22322",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "find /workspace -type f -name \"*.py\" | head -50; echo ---; ls /workspace"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"/workspace/checks/public.py\\n/workspace/src/__init__.py\\n/workspace/src/money.py\\n/workspace/src/api.py\\n---\\nREADME.md\\nchecks\\nsrc\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732537436,
+            "ran": 1791732537728,
+            "completed": 1791732537794
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.0001662,
+      "tokens": {
+        "input": 978,
+        "output": 32,
+        "reasoning": 7,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b94d9cb001oegvHbcb248dKP",
+      "time": {
+        "created": 1791732537807,
+        "streamed": 1791732538713,
+        "completed": 1791732538775
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-9e65676034a21ec5",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cat /workspace/src/money.py /workspace/src/api.py /workspace/src/__init__.py; echo ===; cat /workspace/checks/public.py; echo ===; cat /workspace/README.md"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"from decimal import Decimal\\n\\ndef parse_amount(value):\\n    return Decimal(str(round(float(value), 2)))\\n\\ndef format_amount(value):\\n    return format(value, \\\".2f\\\")\\nfrom .money import parse_amount, format_amount\\n\\ndef make_invoice(amounts):\\n    total = sum((parse_amount(item) for item in amounts), start=parse_amount(\\\"0\\\"))\\n    return {\\\"total\\\": format_amount(total), \\\"count\\\": len(amounts)}\\n===\\nimport os, sys\\nsys.path.insert(0, os.getcwd())\\nfrom src.money import parse_amount, format_amount\\nfrom src.api import make_invoice\\nassert format_amount(parse_amount(\\\"12.50\\\")) == \\\"12.50\\\"\\nassert make_invoice([\\\"1.20\\\", \\\"2.30\\\"]) == {\\\"total\\\": \\\"3.50\\\", \\\"count\\\": 2}\\nassert make_invoice([]) == {\\\"total\\\": \\\"0.00\\\", \\\"count\\\": 0}\\n===\\n# Service component\\n\\nReplace float-based parsing in src/money.py. parse_amount accepts Decimal objects, integers excluding bool, and strings that fully match the ASCII grammar [+-]?[0-9]+(?:\\\\.[0-9]+)?. Strings require digits before the decimal point and, if a decimal point is present, digits after it. Leading zeros and an optional sign are allowed. Reject .1, 1., whitespace, exponents, underscores, and non-ASCII digits in strings with ValueError. Decimal objects may use exponent notation.\\n\\nReject floats, other types, non-finite numbers, zero, negatives, values over 1000000.00, and values not exactly representable in cents with ValueError. Extra trailing zeros are allowed; never round a nonzero fractional cent. Return a Decimal with exponent -2. Preserve format_amount.\\n\\nMake src/api.py.make_invoice accept only a Python list of amounts and apply the same validation to every item. Reject non-list inputs, including strings and None, invalid items, and totals over 1000000.00 with ValueError. Sum the amounts exactly without rounding. Return {'total': a two-decimal string, 'count': N}. An empty list returns {'total': '0.00', 'count': 0}.\\n\\nParsing and summation must remain exact even when the caller's decimal precision is too low to represent an amount or total, including a precision of 3. Do not mutate the global decimal context or the caller's input. Start in src/money.py and src/api.py.\\n\\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732538523,
+            "ran": 1791732538710,
+            "completed": 1791732538772
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.00018715,
+      "tokens": {
+        "input": 1081,
+        "output": 50,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b94dd9f001ZEP5qF67Dzzc3M",
+      "time": {
+        "created": 1791732538789,
+        "streamed": 1791732607062,
+        "completed": 1791732607177
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Key requirements:\n\nparse_amount:\n- Accepts Decimal, int (not bool), str matching `^[+-]?[0-9]+(?:\\.[0-9]+)?$` (ASCII digits only — note `[0-9]` in Python regex with `re` matches only ASCII unless re.UNICODE... actually `\\d` matches Unicode digits, but `[0-9]` matches only ASCII 0-9. So `[0-9]+` is fine). But fullmatch against Unicode strings: characters like Arabic-Indic digits won't match [0-9]. Good.\n- Reject floats, other types, bool.\n- Non-finite Decimals rejected (Decimal can be NaN/Infinity — they'd fail the regex anyway if converted... but Decimal objects with exponent notation accepted; NaN/Inf rejected via is_finite check).\n- Zero, negatives, > 1000000.00 rejected. Values not exactly representable in cents (fractional cent nonzero) rejected. Extra trailing zeros allowed (e.g., \"1.200\" → 1.20).\n- Return Decimal with exponent -2 (i.e., quantized to 0.01 with exact quantize — quantize with context that doesn't round? Use localcontext with high precision and ROUND... but value is exactly representable so quantize exact. Need precision enough: value up to 1000000.00 has 8-9 digits; use localcontext(prec=...)). But caller's context precision could be 3 — quantize raises InvalidOperation if result has more digits than precision. So use localcontext with sufficient precision.\n- Must not mutate global decimal context; use decimal.localcontext.\n\nNote: caller's input Decimal must not be mutated — quantize returns new object, fine.\n\nAlso exactness: sum must be exact even with low context precision — use localcontext with high precision for sum, or sum manually with localcontext. Actually Decimal arithmetic uses current context precision, so use localcontext(prec=large) in make_invoice.\n\nAlso parsing strings: Decimal(str) construction from string is exact regardless of context precision (constructor doesn't round). Good. But creating Decimal from a Decimal object: Decimal(d) is exact, no rounding? Actually Decimal(d) copies exactly, no context. Yes, construction from another Decimal is exact. int → Decimal exact.\n\nThen quantize: use localcontext with prec enough (say 30) and rounding... value exactly representable so no rounding issue. But never round nonzero fractional cent — we already validated cents are exact, so quantize is exact. Wait — \"never round a nonzero fractional cent\" — we reject those, so fine.\n\nRange check: value > 1000000.00 → reject. Use comparison: value > Decimal(\"1000000.00\"). But comparison under low precision context? Comparisons are exact in Decimal, not affected by precision. Correct — comparisons are exact.\n\nNegative check: value < 0 → reject. Zero: value == 0 → reject. Comparisons exact.\n\nGrammar check for strings: regex fullmatch. Also ensure ASCII: `[0-9]` only ASCII. Also reject \"1_0\" etc. via regex. Whitespace rejected via fullmatch.\n\nWait, but also Decimal objects may use exponent notation, e.g. Decimal(\"1.2E+2\") = 120 → ok. Also Decimal with exponent like Decimal(\"1.20\") fine.\n\nNon-finite Decimal: check is_finite.\n\nInteger: type(value) is int (reject bool since bool is subclass). Use isinstance(value, int) and not isinstance(value, bool).\n\nmake_invoice:\n- Only list: isinstance(amounts, list). Reject tuple? \"accept only a Python list\" — yes, reject tuple too? \"Reject non-list inputs, including strings and None\". Hmm, tuples are non-list. I'll reject anything not isinstance(list). But subclasses of list? Probably fine to accept isinstance(x, list). I'll use isinstance(amounts, list).\n- Sum exactly: localcontext with high precision, sum Decimals with start=Decimal(\"0.00\")? Start zero. Sum of Decimals with exponent -2 each: adding Decimals under low precision would round — use localcontext(prec=large). Amounts up to 1000000.00 each; count could be large; total must be ≤ 1000000.00 else reject. Use prec like 50 or compute needed digits. Just use localcontext() with prec set high, e.g. max(50, ...). Actually with many items each up to 1e6, sum before check could overflow? No overflow since precision high. Total check: if total > 1000000.00 → ValueError.\n- Return {'total': format_amount(total), 'count': len(amounts)}. Empty: total 0.00 → '0.00'. format_amount preserved: format(value, \".2f\") — for Decimal with exponent -2 works.\n\nBut wait: make_invoice rejects total over 1000000.00 — but parse_amount already rejects each item > 1000000.00. Sum could still exceed.\n\nAlso \"Do not mutate the caller's input\" — we don't.\n\nAlso \"never round a nonzero fractional cent\" — parse rejects those. And summation exact — since each amount is cents-exact, sum is cents-exact.\n\nPrecision concern: format_amount uses format which is exact for Decimal. But if local context in format... format doesn't use context. Fine.\n\nEdge: parse_amount on Decimal with huge exponent like Decimal(\"1E+2\") → 100.00 ok. Decimal(\"1E+100\") → > 1e6 → reject. Comparison exact even with big exponents — yes.\n\nQuantize precision: need digits for 1000000.00 → 9 digits including... Decimal(\"1000000.00\").quantize(Decimal(\"0.01\")) requires precision 9. Use prec=50 in localcontext. But quantize also flags InvalidOperation if exponent of result out of bounds (Emax/Emin) — default Emax huge, fine. But under caller context with prec=3, quantize would fail — so wrap in localcontext.\n\nAlso construction Decimal(value) where value is Decimal — but if caller's Decimal was created under low precision? Construction is exact regardless. Good.\n\nOne more subtlety: sum under localcontext — I'll create context inside make_invoice with prec sufficiently large. What's max needed? Each amount ≤ 1000000.00 (9 digits). Total ≤ 1000000.00 checked. To sum without rounding before checking total, intermediate sums could be large if many items: N items each up to 1e6 → sum up to N*1e6. With prec P, need P ≥ digits(N) + 9. Use prec = 30 + len? Simpler: prec = 50 plus... if N huge (e.g. 10^6 items), digits(N)+9 ≈ 15+. prec=50 covers up to 10^41 items. Fine. Or compute prec dynamically: max(50, len(amounts)//3 + 15). I'll do something like that, simple: use a generous fixed prec like 100? That's fine and cheap. Actually precision affects addition cost slightly; 100 fine. But if count is astronomically large... unrealistic. I'll compute dynamic: prec = max(50, len(str(len(amounts))) + 12). Hmm, keep simple: prec = 50 if len(amounts) small else ... Just do:\n\ndigits_needed = len(str(len(amounts))) + 9 + 2; prec = max(50, digits_needed). Fine.\n\nAlso check total comparison: total > Decimal(\"1000000.00\") — comparisons exact regardless of context. Good.\n\nAlso empty list: total = Decimal(\"0.00\"), return '0.00'.\n\nAlso make_invoice items: apply same validation via parse_amount.\n\nDo we need to reject bool in list items? parse_amount handles.\n\nNow write checks under checks/: add a file checks/money_extra.py? README says \"Add checks under checks/.\" I'll add checks/extra.py with thorough assertions and keep public checks passing.\n\nLet me write code.\n\nmoney.py:\n\n```python\nimport re\nfrom decimal import Decimal, localcontext, InvalidOperation\n\n_MAX = Decimal(\"1000000.00\")\n_CENT = Decimal(\"0.01\")\n_STRING_PATTERN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n\ndef parse_amount(value):\n    if isinstance(value, bool) or not isinstance(value, (Decimal, int, str)):\n        raise ValueError(...)\n    if isinstance(value, str):\n        if _STRING_PATTERN.fullmatch(value) is None:\n            raise ValueError(...)\n        candidate = Decimal(value)  # exact\n    elif isinstance(value, int):\n        candidate = Decimal(value)\n    else:\n        if not value.is_finite():\n            raise ValueError(...)\n        candidate = Decimal(value)  # exact copy\n    ...\n```\n\nWait: Decimal(value) from a Decimal — is it exact? Yes, \"If value is a Decimal, it's returned exactly\" — construction never rounds. Actually Decimal(other_decimal) returns exactly. Good. But what about a Decimal subclass? isinstance handles.\n\nHmm, one catch: int huge like 10**400 → Decimal(int) exact; comparison > _MAX exact → reject. Fine.\n\nThen:\n\n```python\n    if not candidate.is_finite():\n        raise ValueError\n    with localcontext() as ctx:\n        ctx.prec = 50\n        if candidate < 0 or candidate == 0 or candidate > _MAX:\n            raise ValueError\n        # exact cents check\n        cents = candidate.scaleb(2)  # exact? scaleb uses context — wrap in localcontext\n        if cents != cents.to_integral_value():\n            raise ValueError\n        result = candidate.quantize(_CENT)\n    return result\n```\n\nscaleb with localcontext prec 50: candidate up to 1e6 with fractional digits — scaleb(2) exact given prec 50. to_integral_value doesn't use precision. Comparison exact. quantize under prec 50 exact.\n\nAlternatively check via candidate == candidate.quantize(_CENT) — quantize exact if representable. But under prec 50, quantize of a value with more fractional digits... quantize rounds if needed per context rounding; with prec 50 it wouldn't lose digits for our range (max 1e6 with many fractional digits, e.g. 1.0000000001 — that's 11 digits, fine under 50). But a Decimal like 0.000000...1 with 60 fractional digits: quantize would round to 0.00 → nonzero fractional cent would be rounded to zero → then equals? 0.000...1 quantize → 0.00, but original ≠ 0 (it's positive nonzero), caught by zero check? candidate == 0 false. Then quantize rounds to 0.00, and we'd accept! Bad. So better: use as_tuple to check fractional digits exactly, or use the scaleb/to_integral approach with sufficiently high precision, or check exactness via tuple.\n\nBetter exact check without context: inspect candidate.as_tuple(). Let value = candidate; exponent e (int), digits tuple. Cents-exact means value * 100 is an integer. Number of fractional decimal places = -e (if e < 0). If e >= 0, value is integer → fine. If e < 0: fractional digits = -e; trailing zeros in digits can be ignored. value has at most f = -e fractional places; it's a multiple of 0.01 iff digits after removing trailing zeros leave at most 2 fractional places, i.e., all digits beyond the 2nd fractional position (from the right among significant digits) are zero.\n\nSimplest robust: strip trailing zeros from digits; if digits all zero → zero (rejected earlier). Let sig = digits with trailing zeros removed; then the value = int(sig) * 10^e. Multiple of 0.01 iff int(sig)*100*10^e is integer iff e >= -2 or (e < -2 and trailing zeros... but we removed trailing zeros, so if e < -2, int(sig) is not divisible by 10^(e+... hmm.\n\nvalue = D * 10^e where D = int(sig) (sig nonzero, no trailing zeros → D not divisible by 10 unless sig length 1... D could still be like 5). value * 100 = D * 10^(e+2). Integer iff e+2 >= 0, or D divisible by 10^-(e+2). Since we stripped trailing zeros, D is divisible by 10 only if... D not divisible by 10 (last digit nonzero), unless D is single digit? D = 5 not divisible by 10. So D not divisible by 10 at all (last digit of sig is nonzero). Wait if sig = \"10\" we strip trailing zero → \"1\". So D's last digit nonzero → D not divisible by 10. Therefore exact cents iff e >= -2.\n\nSo: after stripping trailing zeros from digit tuple, check tuple exponent e >= -2. But careful: we shouldn't mutate candidate; as_tuple returns immutable info. Also Decimal(\"0\") special: digits (0,), exponent 0 — zero rejected by comparison first.\n\nAlso trailing zeros allowed: \"1.200\" → digits (1,2,0,0), exponent -3. Strip trailing zeros → (1,2), exponent becomes... the value is 120 * 10^-3 = 12 * 10^-2. My check: strip trailing zeros, but the exponent of the stripped representation changes: 1.200 = D=1200, e=-3; strip one trailing zero → D=120, effective e=-2 → e >= -2 → exact. So compute: while digits and last digit == 0: digits = digits[:-1]; e += 1. Then check e >= -2. \n\nBut careful: Decimal(\"100\") → digits (1,0,0), e=0 → strip → (1,), e=2 → fine. Decimal(\"1E+2\") digits (1,) e=2 fine.\n\nAlso quantize result: with localcontext prec 50, candidate.quantize(_CENT) — if candidate has 50+ significant digits (e.g., huge trailing zeros with exponent far negative but e >= -2 after stripping... no, if e >= -2, the significant digits ≤ 9 for values ≤ 1e6... wait: value ≤ 1e6 and e >= -2 means at most 8-9 digits. But trailing zeros don't add significant digits? digits tuple includes trailing zeros as digits; e.g., Decimal(\"1.0000...0\") with 100 zeros: digits length 101, e=-100. Strip zeros → (1,), e=-99? No: strip each zero increments e: (1,), e = -100 + 100 = 0. Fine. But quantize under prec 50 on the original with 101 digits: quantize result has exponent -2 and coefficient \"100...0.00\"? Result of quantize is 1.00 — coefficient \"100\"? Hmm, quantize returns value with exponent -2: 1.00 → digits (1,0,0) — but does quantize need to create result with more digits than precision? Result digits: integer part 1 + 2 decimals = 3 digits. Precision concerns result digits, not input. So quantize fine even with prec like 28 default? Actually the rule: quantize raises InvalidOperation if the result coefficient has more digits than context precision. Result coefficient for 1.00 is 3 digits. For 1000000.00 → 9 digits. So prec=50 plenty.\n\nAlternative simpler: since I verify e >= -2 after stripping, the value is exactly representable; then result = candidate.quantize(_CENT) in localcontext(prec=50) is exact.\n\nHmm wait, one more: what about candidate with exponent very positive, e.g., Decimal(\"1E+1000000\")? Comparison candidate > _MAX → True → reject before quantize. Comparison exact, no InvalidOperation. Good. Decimal(\"9E+999999999999\")? Comparison still exact — Decimal comparisons handle any exponents within limits? Decimal('1e999999999999') is a valid Decimal (within context Emax at construction? Construction from string doesn't apply context limits). Comparison with _MAX: exact, handles huge exponents — I believe compare is exact for arbitrary Decimals. Yes.\n\nBut quantize could raise InvalidOperation if exponent of result out of context bounds — only reached for accepted values (≤ 1e6, e ≥ -2), result exponent -2 fine.\n\nAlso `candidate < 0 or candidate == 0` — could just check candidate.is_zero()... is_signed and is_zero. Use: if candidate.is_zero() or candidate.is_signed() ... is_signed true for -0 too, but -0 is zero anyway. Use candidate <= 0 → covers zero and negative. Then candidate > _MAX.\n\nAlso sign: \"-0.00\"? zero → reject. Good.\n\nNote: for strings, is a leading \"+\" allowed? Grammar allows. Decimal(\"+1.20\") parses fine.\n\nStrings with huge digits like \"0.\" + \"0\"*1000 + \"1\"? That's e... digits (1,) e=-1001 → strip → e=-1000 < -2 → reject. Good. \"0.01\" fine. Also \"1000000.00\" ok, \"1000000.01\" → > max? = 1000000.01 > 1000000.00 → reject. Good.\n\nWhat about string like \"999999999999999999999.00\"? > max → reject.\n\nAlso string conversion Decimal(value): under caller's context? Decimal(string) construction is exact, no context rounding. Good.\n\nNow also should we handle Decimal with signaling NaN: is_finite check handles. Also comparison of NaN would raise — but we check is_finite first.\n\nmake_invoice:\n\n```python\nfrom decimal import Decimal, localcontext\nfrom .money import parse_amount, format_amount\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(...)\n    with localcontext() as ctx:\n        count = len(amounts)\n        ctx.prec = max(50, len(str(count)) + 20)\n        total = Decimal(0)\n        for item in amounts:\n            total += parse_amount(item)\n        if total > Decimal(\"1000000.00\"):\n            raise ValueError\n    return {\"total\": format_amount(total), \"count\": count}\n```\n\nWait — total exponent: sum of Decimals with exponent -2 stays exponent -2 under addition? Addition result exponent = min of exponents (ideal exponent) — with prec high and exact, result exponent is min exponent = -2. Actually Decimal addition result ideal exponent is min(e1,e2); if exact, exponent = min. So total has exponent -2 → format \".2f\" fine. Even if exponent differs, format(value, \".2f\") rounds correctly? format on Decimal with .2f — formatting Decimal to fixed point: does it round? format(Decimal('1.005'), '.2f') → \"1.00\"? Decimal.__format__ rounds half-even using... it uses context rounding? Actually Decimal formatting with 'f' rounds using ROUND_HALF_EVEN on the exact value, not context-dependent. Since total is cents-exact, no rounding anyway.\n\nEmpty list: total = Decimal(0) → format \".2f\" → \"0.00\". Good.\n\ntotal > _MAX check outside or inside context — comparison exact either way. Put inside.\n\nNote ctx.prec must be enough for exact sum: each item ≤ 1e6 (8-9 digits), count items → total ≤ count * 1e6, digits = len(str(count)) + 8ish. prec = len(str(count)) + 20 covers. Good.\n\nAlso \"Do not mutate the caller's input\" — we only read. parse_amount with strings creates new Decimal.\n\nformat_amount preserved as-is.\n\nAlso: should parse_amount accept Decimal subclass / int? isinstance fine.\n\nOne more subtlety: \"Reject floats\" — including numpy? Not needed.\n\nAlso `isinstance(value, int)` with bool excluded. What about IntEnum? Edge, ignore.\n\nAlso non-finite check for Decimal before anything — NaN strings won't appear (regex). Decimal NaN: check is_finite.\n\nHmm: Decimal(value) copy — does it apply context? No, Decimal(d) is exact.\n\nAlso, what about a Decimal with exponent notation like Decimal(\"1.2e1\")? = 12, accepted (Decimal objects may use exponent notation).\n\nNow write checks file checks/extra_checks.py with many assertions, and run public check.\n\nEdge: localcontext default rounding — we never rely on rounding; quantize exact. But to be safe set rounding? quantize with exact representable value doesn't round. Fine.\n\nAnother subtlety: localcontext() copies the caller's context (including prec=3) and we override prec. Also Emax/Emin inherited — if caller set tiny Emax? Not required.\n\nAlso careful: parse_amount must not be affected by caller prec=3 — all arithmetic in localcontext. Comparisons exact. Decimal(value) constructions exact. Good.\n\nLet me write files and tests.",
+          "state": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1791732539577,
+            "completed": 1791732607051
+          }
+        },
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-af62ffae4b08f52c",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cat > /workspace/src/money.py <<'EOF'\n\"\"\"Exact money parsing helpers.\n\nAmounts are validated and converted without any floating point and without\nrelying on (or mutating) the caller's decimal context precision.\n\"\"\"\n\nimport re\nfrom decimal import Decimal, localcontext\n\n_MAX_AMOUNT = Decimal(\"1000000.00\")\n_CENT = Decimal(\"0.01\")\n\n# Full-string ASCII grammar: optional sign, digits, optional fraction.\n# [0-9] deliberately matches ASCII digits only; fullmatch forbids anything\n# else (whitespace, exponents, underscores, non-ASCII digits).\n_AMOUNT_STRING = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n\n# Precision used for the internal (always exact) arithmetic. Large enough for\n# every representable amount and any exact quantize to cents.\n_INTERNAL_PREC = 50\n\n\ndef _is_cents_exact(value):\n    \"\"\"Return True when *value* is an exact multiple of 0.01.\n\n    Works on the exact (digits, exponent) tuple so the answer never depends\n    on the ambient context precision. Trailing zeros are allowed.\n    \"\"\"\n    sign, digits, exponent = value.as_tuple()\n    if not isinstance(exponent, int):  # NaN / Infinity\n        return False\n    # Strip trailing zero digits; each stripped zero shifts the exponent.\n    while digits and digits[-1] == 0:\n        digits = digits[:-1]\n        exponent += 1\n    if not digits:\n        return False  # zero is handled separately, but keep it out here\n    # value == int(digits) * 10**exponent with a last digit != 0, so the\n    # value is a multiple of 0.01 exactly when exponent >= -2.\n    return exponent >= -2\n\n\ndef parse_amount(value):\n    \"\"\"Parse *value* into a positive amount with exactly two decimal places.\n\n    Accepts Decimal objects (exponent notation allowed), integers (bool is\n    rejected) and strings fully matching ``[+-]?[0-9]+(?:\\\\.[0-9]+)?``.\n\n    Rejects floats, any other type, non-finite values, zero, negatives,\n    values over 1000000.00 and values that are not an exact number of cents\n    (a nonzero fractional cent is never rounded) with ValueError.\n    \"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"amount must be a Decimal, int or string, not bool\")\n    if isinstance(value, Decimal):\n        if not value.is_finite():\n            raise ValueError(\"amount must be finite\")\n        # Construction from another Decimal is exact (no context rounding).\n        amount = Decimal(value)\n    elif isinstance(value, int):\n        # Construction from an int is exact (no context rounding).\n        amount = Decimal(value)\n    elif isinstance(value, str):\n        if _AMOUNT_STRING.fullmatch(value) is None:\n            raise ValueError(\n                \"string amount must match [+-]?[0-9]+(\\\\.[0-9]+)? exactly\"\n            )\n        # Construction from a string is exact (no context rounding).\n        amount = Decimal(value)\n    else:\n        raise ValueError(\n            \"amount must be a Decimal, int or string, got %s\"\n            % type(value).__name__\n        )\n\n    with localcontext() as ctx:\n        ctx.prec = _INTERNAL_PREC\n        if amount <= 0:\n            raise ValueError(\"amount must be greater than zero\")\n        if amount > _MAX_AMOUNT:\n            raise ValueError(\"amount must not exceed 1000000.00\")\n        if not _is_cents_exact(amount):\n            raise ValueError(\"amount must be an exact number of cents\")\n        # Exact because the value is a multiple of 0.01 and prec is ample.\n        result = amount.quantize(_CENT)\n    return result\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\nEOF\ncat > /workspace/src/api.py <<'EOF'\n\"\"\"Invoice API built on exact money parsing.\"\"\"\n\nfrom decimal import Decimal, localcontext\nfrom .money import parse_amount, format_amount, _INTERNAL_PREC\n\n_MAX_TOTAL = Decimal(\"1000000.00\")\n\n\ndef make_invoice(amounts):\n    \"\"\"Build an invoice from a list of amounts.\n\n    Only Python lists are accepted. Every item is validated exactly like\n    parse_amount does, and the total is summed exactly (no rounding) even\n    when the ambient decimal precision would be too small to hold it.\n    \"\"\"\n    if not isinstance(amounts, list):\n        raise ValueError(\"amounts must be a list\")\n    count = len(amounts)\n    with localcontext() as ctx:\n        # Enough precision to hold the exact sum of `count` items of at most\n        # 1000000.00 each, regardless of the caller's context precision.\n        ctx.prec = max(_INTERNAL_PREC, len(str(count)) + 20)\n        total = Decimal(0)\n        for item in amounts:\n            total += parse_amount(item)\n        if total > _MAX_TOTAL:\n            raise ValueError(\"invoice total must not exceed 1000000.00\")\n    return {\"total\": format_amount(total), \"count\": count}\nEOF\ncd /workspace && python3 checks/public.py && echo PUBLIC_OK"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"PUBLIC_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732595401,
+            "ran": 1791732607060,
+            "completed": 1791732607176
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.0030648000000000003,
+      "tokens": {
+        "input": 1722,
+        "output": 1112,
+        "reasoning": 4501,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b95e8cc001EOwYbCOOYxs2ue",
+      "time": {
+        "created": 1791732607184,
+        "streamed": 1791732619756,
+        "completed": 1791732619833
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Public checks pass. Now add extra checks under checks/ and verify edge cases, including caller context prec=3 and no global context mutation.",
+          "state": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1791732608471,
+            "completed": 1791732619743
+          }
+        },
+        {
+          "type": "text",
+          "text": "Public checks pass. Now I'll add a thorough checks file under `checks/` and verify edge cases:"
+        },
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-a4ec82394264f0e8",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cat > /workspace/checks/extra.py <<'EOF'\n\"\"\"Extra checks: exact parsing/summation under hostile decimal contexts.\"\"\"\nimport os, sys\nsys.path.insert(0, os.getcwd())\nfrom decimal import Decimal, getcontext, localcontext\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\ndef expect_value_error(fn, *args):\n    try:\n        fn(*args)\n    except ValueError:\n        return\n    raise AssertionError(\"expected ValueError for %r\" % (args,))\n\n# Accepted values -> Decimal with exponent -2\nfor raw, expected in [\n    (\"1\", \"1.00\"), (\"+1.20\", \"1.20\"), (\"-0.50\", \"-0.50\") if False else (\"0.50\", \"0.50\"),\n    (\"007\", \"7.00\"), (\"1.5\", \"1.50\"), (\"1.200\", \"1.20\"), (\"0.01\", \"0.01\"),\n    (\"1000000.00\", \"1000000.00\"),\n    (1, \"1.00\"), (2, \"2.00\"),\n    (Decimal(\"1.2\"), \"1.20\"), (Decimal(\"1E+2\"), \"100.00\"),\n    (Decimal(\"1.200\"), \"1.20\"), (Decimal(\"0.01\"), \"0.01\"),\n    (Decimal(\"1000000.00\"), \"1000000.00\"),\n]:\n    got = parse_amount(raw)\n    assert isinstance(got, Decimal) and got.as_tuple().exponent == -2, (raw, got)\n    assert format_amount(got) == expected, (raw, got)\n\n# Rejected strings (grammar)\nfor bad in [\".1\", \"1.\", \"\", \" 1.20\", \"1.20 \", \"1e2\", \"1E2\", \"1_0\", \"1,20\",\n            \"1.2.3\", \"١٢\", \"１２\", \"+\", \"-\", \"１.２\", \"1.20\\n\", \"\\t1\"]:\n    expect_value_error(parse_amount, bad)\n\n# Rejected types / values\nexpect_value_error(parse_amount, 1.20)          # float\nexpect_value_error(parse_amount, 1.0)\nexpect_value_error(parse_amount, True)          # bool\nexpect_value_error(parse_amount, False)\nexpect_value_error(parse_amount, None)\nexpect_value_error(parse_amount, [1])\nexpect_value_error(parse_amount, (1,))\nexpect_value_error(parse_amount, Decimal(\"NaN\"))\nexpect_value_error(parse_amount, Decimal(\"Infinity\"))\nexpect_value_error(parse_amount, Decimal(\"-Infinity\"))\nexpect_value_error(parse_amount, Decimal(\"-1.20\"))   # negative\nexpect_value_error(parse_amount, -2)\nexpect_value_error(parse_amount, \"-1.20\")\nexpect_value_error(parse_amount, \"0\")            # zero\nexpect_value_error(parse_amount, \"0.00\")\nexpect_value_error(parse_amount, Decimal(\"0\"))\nexpect_value_error(parse_amount, Decimal(\"-0.00\"))\nexpect_value_error(parse_amount, \"1000000.01\")   # over max\nexpect_value_error(parse_amount, Decimal(\"1000000.01\"))\nexpect_value_error(parse_amount, Decimal(\"1E+7\"))\nexpect_value_error(parse_amount, \"0.001\")        # nonzero fractional cent\nexpect_value_error(parse_amount, \"1.205\")\nexpect_value_error(parse_amount, Decimal(\"0.001\"))\nexpect_value_error(parse_amount, Decimal(\"1.005\"))\nexpect_value_error(parse_amount, Decimal(\"0.000...no\") if False else Decimal(\"1.000000000000000000000001\"))\n\n# make_invoice\nassert make_invoice([\"1.20\", \"2.30\"]) == {\"total\": \"3.50\", \"count\": 2}\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\nassert make_invoice([Decimal(\"0.01\")] * 3) == {\"total\": \"0.03\", \"count\": 3}\nassert make_invoice([\"1000000.00\"]) == {\"total\": \"1000000.00\", \"count\": 1}\nassert make_invoice([2, \"0.50\", Decimal(\"1E+1\")]) == {\"total\": \"11.50\", \"count\": 3}\nfor bad in [\"1.20\", None, (1, 2), 5, {\"1.20\"}, 1.2, Decimal(\"1.20\"), bytes(\"1\", \"ascii\")]:\n    expect_value_error(make_invoice, bad)\nexpect_value_error(make_invoice, [\"1.00\", \"bad\"])\nexpect_value_error(make_invoice, [1.0])\nexpect_value_error(make_invoice, [\"1000000.00\", \"0.01\"])  # total over max\nexpect_value_error(make_invoice, [True])\n\n# Exactness with tiny caller precision (must not mutate global context)\ngetcontext().prec = 3\nbefore = getcontext().prec\nassert format_amount(parse_amount(\"12.50\")) == \"12.50\"\nassert make_invoice([\"1.20\", \"2.30\"]) == {\"total\": \"3.50\", \"count\": 2}\nassert make_invoice([\"999999.99\", \"0.01\"]) == {\"total\": \"1000000.00\", \"count\": 2}\nassert make_invoice([\"0.01\"] * 12345) == {\"total\": \"123.45\", \"count\": 12345}\nassert getcontext().prec == before, \"global context mutated\"\n\n# Input must not be mutated\nd = Decimal(\"1.200\")\nassert parse_amount(d) == Decimal(\"1.20\") and d == Decimal(\"1.200\")\nlst = [\"1.20\"]\nassert make_invoice(lst) == {\"total\": \"1.20\", \"count\": 1} and lst == [\"1.20\"]\n\n# Caller context restored after calls (localcontext semantics)\ngetcontext().prec = 3\nwith localcontext() as c:\n    c.prec = 3\n    assert parse_amount(\"123.45\") == Decimal(\"123.45\")\nassert getcontext().prec == 3\n\nprint(\"EXTRA_OK\")\nEOF\ncd /workspace && python3 checks/extra.py && python3 checks/public.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"Traceback (most recent call last):\\n  File \\\"/workspace/checks/extra.py\\\", line 66, in <module>\\n    assert make_invoice([2, \\\"0.50\\\", Decimal(\\\"1E+1\\\")]) == {\\\"total\\\": \\\"11.50\\\", \\\"count\\\": 3}\\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\\nAssertionError\\n\",\"exit_code\":1,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732608881,
+            "ran": 1791732619753,
+            "completed": 1791732619832
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.0017932,
+      "tokens": {
+        "input": 7368,
+        "output": 1348,
+        "reasoning": 28,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b961a3f001KZDts9f9EWUu3r",
+      "time": {
+        "created": 1791732619845,
+        "streamed": 1791732622403,
+        "completed": 1791732622514
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "2 + 0.50 + 10 = 12.50, not 11.50. My arithmetic error in the test. Fix the test.",
+          "state": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1791732621314,
+            "completed": 1791732622394
+          }
+        },
+        {
+          "type": "text",
+          "text": "That's an arithmetic error in my test (2 + 0.50 + 10 = 12.50), not in the implementation. Fixing the check:"
+        },
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-b94a8c71b2ce7015",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && sed -i 's/\"total\": \"11.50\", \"count\": 3/\"total\": \"12.50\", \"count\": 3/' checks/extra.py && python3 checks/extra.py && python3 checks/public.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"EXTRA_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732621977,
+            "ran": 1791732622400,
+            "completed": 1791732622513
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.0008107199999999999,
+      "tokens": {
+        "input": 4002,
+        "output": 97,
+        "reasoning": 32,
+        "cache": {
+          "read": 4864,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b9624b5001fsBYUjSQe7HqKd",
+      "time": {
+        "created": 1791732622523,
+        "streamed": 1791732628739,
+        "completed": 1791732628864
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-bc176547a2b7ce3e",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && python3 - <<'EOF'\n# Final spot-checks: weird-but-plausible edge cases\nimport sys; sys.path.insert(0, '.')\nfrom decimal import Decimal, getcontext, localcontext, ROUND_DOWN\nfrom src.money import parse_amount\nfrom src.api import make_invoice\n\n# Huge trailing zeros / exponents must still be exact\nassert parse_amount(Decimal(\"1E+2\")) == Decimal(\"100.00\")\nassert parse_amount(Decimal(\"1.0E+2\")) == Decimal(\"100.00\")\nassert parse_amount(Decimal(\"1.0000000000000000000000000001\")) is not None or True\ntry:\n    parse_amount(Decimal(\"1.0000000000000000000000000001\")); print(\"FAIL tiny\")\nexcept ValueError: pass\nassert parse_amount(\"0.10\") == Decimal(\"0.10\")\n# very long zero-padded fraction\ntry:\n    parse_amount(\"0.\" + \"0\"*500 + \"1\"); print(\"FAIL longfrac\")\nexcept ValueError: pass\nassert parse_amount(\"0.0100\") == Decimal(\"0.01\")\n\n# exact sum with count needing many digits\nn = 200000\nassert make_invoice([\"999999.99\"]*0 + [\"0.01\"]*n) == {\"total\": \"%.2f\" % (n*0.01), \"count\": n}\n# non-list subclass? list subclass is a list -> accepted\nclass L(list): pass\nassert make_invoice(L([\"1.00\"])) == {\"total\": \"1.00\", \"count\": 1}\n# global context untouched by parse/make\ngetcontext().prec = 3\nassert make_invoice([\"0.01\"]*n)[\"total\"] == \"2000.00\"\nassert getcontext().prec == 3\n# int subclass bool rejected, plain big int ok\ntry: parse_amount(True); print(\"FAIL bool\")\nexcept ValueError: pass\nassert parse_amount(1000000) == Decimal(\"1000000.00\")\ntry: parse_amount(1000001); print(\"FAIL over\")\nexcept ValueError: pass\nprint(\"SPOT_OK\")\nEOF\npython3 checks/public.py && python3 checks/extra.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"Traceback (most recent call last):\\n  File \\\"<stdin>\\\", line 10, in <module>\\n  File \\\"/workspace/src/money.py\\\", line 83, in parse_amount\\n    raise ValueError(\\\"amount must be an exact number of cents\\\")\\nValueError: amount must be an exact number of cents\\nEXTRA_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732624364,
+            "ran": 1791732628737,
+            "completed": 1791732628860
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.00100767,
+      "tokens": {
+        "input": 4165,
+        "output": 474,
+        "reasoning": 0,
+        "cache": {
+          "read": 4864,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b963d8c001NdkB70ZWiNPJlQ",
+      "time": {
+        "created": 1791732628884,
+        "streamed": 1791732633980,
+        "completed": 1791732634470
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "The traceback is from my spot-check line 10, which was an intentional probe wrapped in try/except — wait, line 10 is `parse_amount(Decimal(\"1.0000000000000000000000000001\"))` at line 10? Lines: 1 import sys..., actually line 10 is the try block probe... The first occurrence at line 10 is `assert parse_amount(Decimal(...)) is not None or True` — hmm no. Let me count: line 10 is `assert parse_amount(Decimal(\"1.0000000000000000000000000001\")) is not None or True`? That raises ValueError uncaught — yes, that line was a mistake on my part (the value is not cents-exact, correctly rejected). The rest didn't run because the script aborted. Fix the spot script.",
+          "state": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1791732629714,
+            "completed": 1791732633976
+          }
+        },
+        {
+          "type": "text",
+          "text": "That traceback is from my own flawed spot-check line (the tiny value is correctly rejected — I wrote it outside a try/except). The script aborted before running the remaining probes, so re-running the rest:"
+        },
+        {
+          "type": "tool",
+          "id": "chatcmpl-tool-b560ebabe50879bf",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && python3 - <<'EOF'\nimport sys; sys.path.insert(0, '.')\nfrom decimal import Decimal, getcontext\nfrom src.money import parse_amount\nfrom src.api import make_invoice\n\nassert parse_amount(Decimal(\"1E+2\")) == Decimal(\"100.00\")\nassert parse_amount(Decimal(\"1.0E+2\")) == Decimal(\"100.00\")\nfor bad in [Decimal(\"1.0000000000000000000000000001\"), \"0.\" + \"0\"*500 + \"1\"]:\n    try:\n        parse_amount(bad); print(\"FAIL\", bad)\n    except ValueError: pass\nassert parse_amount(\"0.0100\") == Decimal(\"0.01\")\n\nn = 200000\nassert make_invoice([\"0.01\"]*n) == {\"total\": \"2000.00\", \"count\": n}\nclass L(list): pass\nassert make_invoice(L([\"1.00\"])) == {\"total\": \"1.00\", \"count\": 1}\ngetcontext().prec = 3\nassert make_invoice([\"0.01\"]*n)[\"total\"] == \"2000.00\"\nassert getcontext().prec == 3\ntry: parse_amount(True); print(\"FAIL bool\")\nexcept ValueError: pass\nassert parse_amount(1000000) == Decimal(\"1000000.00\")\ntry: parse_amount(1000001); print(\"FAIL over\")\nexcept ValueError: pass\nprint(\"SPOT_OK\")\nEOF\npython3 checks/public.py && python3 checks/extra.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"SPOT_OK\\nEXTRA_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791732632320,
+            "ran": 1791732633978,
+            "completed": 1791732634467
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0.00113087,
+      "tokens": {
+        "input": 4743,
+        "output": 373,
+        "reasoning": 174,
+        "cache": {
+          "read": 4864,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b965370001Gypqs0nZRNA4PY",
+      "time": {
+        "created": 1791732634489,
+        "streamed": 1791732641844,
+        "completed": 1791732641846
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "glm-5.3-flash",
+        "providerID": "opencode-go",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Done. All checks pass (`checks/public.py` and the new `checks/extra.py`).\n\n## Changes\n\n**`src/money.py`** — removed all float usage:\n- `parse_amount` accepts only `Decimal`, `int` (bool explicitly rejected via `isinstance(value, bool)` check first), and `str`.\n- Strings must fully match `[+-]?[0-9]+(?:\\.[0-9]+)?` via `re.fullmatch` — `[0-9]` is ASCII-only, so whitespace, exponents, underscores, `.1`, `1.`, and non-ASCII digits (e.g. `１２`) are all rejected with `ValueError`. String → `Decimal` construction is exact and context-independent.\n- `Decimal` objects may use exponent notation (`Decimal(\"1E+2\")` → `100.00`); NaN/Infinity rejected via `is_finite`.\n- Cents-exactness is decided from `as_tuple()` (digits/exponent) with trailing zeros stripped — completely independent of context precision, so a nonzero fractional cent like `Decimal(\"1.0000000000000000000000000001\")` is rejected even under `prec=3`, while trailing zeros (`\"1.200\"` → `1.20`) are allowed.\n- Zero, negatives (covers `-0`), and values over `1000000.00` (comparisons are exact in `decimal`) are rejected. Result is produced with `amount.quantize(Decimal(\"0.01\"))` inside a `localcontext(prec=50)`, giving exponent `-2` regardless of the caller's context. `format_amount` is unchanged.\n\n**`src/api.py`**:\n- `make_invoice` accepts only `isinstance(amounts, list)` (strings, `None`, tuples, ints, etc. raise `ValueError`); every item goes through `parse_amount`.\n- Summation runs inside `localcontext` with precision sized to the exact worst-case total (`max(50, digits(count)+20)`), so the sum is exact even with caller precision 3 and huge item counts (verified with 200 000 items under `prec=3`). Totals over `1000000.00` are rejected.\n- Returns `{'total': two-decimal string, 'count': N}`; empty list → `{'total': '0.00', 'count': 0}`. Neither the global decimal context nor caller input is mutated (verified).\n\n**`checks/extra.py`** — added ~70 assertions covering accepted/rejected grammar, types, range, cents-exactness, invoice behavior, and precision/context-mutation invariants."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "stop",
+      "cost": 0.00122512,
+      "tokens": {
+        "input": 5328,
+        "output": 560,
+        "reasoning": 0,
+        "cache": {
+          "read": 4864,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_12b967039001x7V6GDGXGcVmW5",
+      "time": {
+        "created": 1791732641849
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

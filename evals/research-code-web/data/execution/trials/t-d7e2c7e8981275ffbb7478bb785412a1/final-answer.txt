@@ -1,0 +1,85 @@
+### Assessment of the Claim
+
+The claim that **every selected native histogram can be emitted in every negotiated format is false (unsupported)**. 
+
+In Prometheus's federation endpoint (`/federate`), exponential native histograms without custom buckets cannot be serialized in non-protobuf formats (such as standard plain text). If a non-protobuf exposition format is negotiated, those native histograms are dropped from the response.
+
+---
+
+### The Decisive Closed Skip Branch
+
+The decisive skip logic is located in **`web/federate.go`**, lines **193–203** (inside the sample iteration loop over `vec`, which begins at line **190**):
+
+```go
+// web/federate.go:190-203
+for _, s := range vec {
+    isHistogram := s.H != nil
+    formatType := format.FormatType()
+    if isHistogram &&
+        !s.H.UsesCustomBuckets() &&
+        formatType != expfmt.TypeProtoDelim &&
+        formatType != expfmt.TypeProtoText &&
+        formatType != expfmt.TypeProtoCompact {
+        // Can't serve a native histogram with a non-protobuf format.
+        // (We can serve an NHCB, though, as it is converted to a
+        // classic histogram for federation.)
+        // TODO(codesome): Serve them when other protocols get the native histogram support.
+        continue
+    }
+```
+
+When a sample represents a histogram (`isHistogram == true`), does not have custom buckets (`!s.H.UsesCustomBuckets() == true`), and the negotiated format is not one of the recognized protobuf formats, the branch executes `continue` (line **202**), skipping the histogram series entirely.
+
+---
+
+### Permitted Format Categories for Histograms Without Custom Buckets
+
+During request handling in **`web/federate.go`**, lines **75–76**, format negotiation evaluates client `Accept` headers against four supported formats:
+```go
+format = expfmt.NegotiateAccept(req.Header,
+    expfmt.NewFormat(expfmt.TypeProtoDelim),
+    expfmt.NewFormat(expfmt.TypeProtoText),
+    expfmt.NewFormat(expfmt.TypeProtoCompact),
+    expfmt.NewFormat(expfmt.TypeTextPlain))
+```
+
+For native histograms without custom buckets, the skip guard permits strictly **protobuf format categories**:
+1. **`expfmt.TypeProtoDelim`** (delimited protobuf)
+2. **`expfmt.TypeProtoText`** (text-format protobuf)
+3. **`expfmt.TypeProtoCompact`** (compact text-format protobuf)
+
+The non-protobuf format category, **`expfmt.TypeTextPlain`**, fails this check and is excluded, resulting in the histogram being skipped. (See also **`docs/federation.md`**, lines **9–11**, noting that federation of native histograms requires protobuf negotiation).
+
+---
+
+### Contrast with Custom-Bucket Histograms (NHCBs)
+
+Custom-bucket histograms (schema `-53` native histograms with custom bucket layouts) are handled differently:
+- **Bypassing the Skip Check**: For an NHCB, `s.H.UsesCustomBuckets()` returns `true`. Consequently, `!s.H.UsesCustomBuckets()` in line **194** evaluates to `false`, bypassing the skip branch even if `formatType` is `expfmt.TypeTextPlain`.
+- **Conversion to Classic Histograms**: In **`web/federate.go`**, lines **297–301**, the serializer checks:
+  ```go
+  if s.H.UsesCustomBuckets() {
+      protMetric.Histogram = makeClassicHistogram(s.H)
+  } else {
+      protMetric.Histogram = makeNativeHistogram(s.H)
+  }
+  ```
+- **Classic Schema Support**: As implemented in `makeClassicHistogram` (**`web/federate.go`**, lines **350–378**), NHCBs are mapped to classic Prometheus histogram representations (`*dto.Histogram` with explicit `UpperBound` and `CumulativeCountFloat` bucket slices). Because classic histograms have standard textual representations (`_bucket`, `_sum`, `_count`), the encoder can serialize them to `TypeTextPlain` (lines **373–376**).
+
+---
+
+### Application to Ordinary Float Samples
+
+This restriction **does not apply** to ordinary float samples:
+- For ordinary float samples, `s.H` is `nil`. 
+- In line **191**, `isHistogram := s.H != nil` evaluates to `false`.
+- The condition `if isHistogram && ...` short-circuits immediately.
+- Float samples proceed through lines **290–294**, populating `protMetric.Untyped = &dto.Untyped{Value: proto.Float64(s.F)}` under `dto.MetricType_UNTYPED` (lines **246–249**).
+- Plain text encoders natively support untyped float metrics, allowing ordinary float samples to be emitted across all four negotiated formats.
+
+---
+
+### Unresolved Limitations
+
+1. **Protocol Limitations**: As noted in the comment at `web/federate.go:201` (`TODO(codesome)`), standard exponential native histograms cannot be federated via text formats until non-protobuf exposition protocols gain native histogram support.
+2. **Silent Drop Behavior**: When text format is negotiated, exponential native histograms without custom buckets are silently omitted (`continue`) without an HTTP warning header or logged warning to notify the scraper.

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_money_rules.py": "import os\nimport sys\nimport unittest\nfrom decimal import Decimal, getcontext\n\nsys.path.insert(0, os.getcwd())\nfrom src.api import make_invoice\nfrom src.money import format_amount, parse_amount\n\n\nclass ParseAmountTests(unittest.TestCase):\n    def test_accepted_inputs(self):\n        cases = {\n            \"12.50\": \"12.50\",\n            \"12\": \"12.00\",\n            \"0.01\": \"0.01\",\n            \"+3.1\": \"3.10\",\n        }\n        for raw, expected in cases.items():\n            with self.subTest(raw=raw):\n                result = parse_amount(raw)\n                self.assertIsInstance(result, Decimal)\n                self.assertEqual(result.as_tuple().exponent, -2)\n                self.assertEqual(format_amount(result), expected)\n        self.assertEqual(format_amount(parse_amount(\"1.2300\")), \"1.23\")\n        self.assertEqual(format_amount(parse_amount(Decimal(\"1.2300\"))), \"1.23\")\n        self.assertEqual(format_amount(parse_amount(7)), \"7.00\")\n        self.assertEqual(format_amount(parse_amount(1000000)), \"1000000.00\")\n        self.assertEqual(format_amount(parse_amount(\"1000000.00\")), \"1000000.00\")\n\n    def test_rejected_inputs(self):\n        bad = [\n            1.5, 0.0, True, False, None, b\"1.00\", [1], \"1e2\", \" 1.00\", \"1.00 \",\n            \"1_000\", \"abc\", \"\", \"-\", \".\", \"0\", \"0.00\", \"-1.00\", \"+0\", \"0.001\",\n            \"1.005\", \"1000000.01\", \"1000001\", 1000001, 0, -1,\n            Decimal(\"NaN\"), Decimal(\"sNaN\"), Decimal(\"Infinity\"),\n            Decimal(\"-Infinity\"), Decimal(\"0.001\"), Decimal(\"-5\"),\n            Decimal(\"1000000.001\"), Decimal(\"1E+7\"), \"inf\", \"nan\",\n        ]\n        for value in bad:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_does_not_touch_global_context(self):\n        def config():\n            ctx = getcontext()\n            return (ctx.prec, ctx.rounding, ctx.Emin, ctx.Emax, ctx.capitals,\n                    ctx.clamp, dict(ctx.traps))\n\n        before = config()\n        parse_amount(Decimal(\"1.2300000000000000000000000000000000000000\"))\n        make_invoice([Decimal(\"0.10\"), \"2.00\"])\n        self.assertEqual(config(), before)\n\n\nclass MakeInvoiceTests(unittest.TestCase):\n    def test_totals(self):\n        self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n        self.assertEqual(make_invoice([\"1.20\", \"2.30\"]), {\"total\": \"3.50\", \"count\": 2})\n        self.assertEqual(make_invoice([Decimal(\"0.10\"), 2]),\n                         {\"total\": \"2.10\", \"count\": 2})\n        self.assertEqual(make_invoice([\"1000000.00\"]), {\"total\": \"1000000.00\", \"count\": 1})\n\n    def test_total_limit(self):\n        self.assertEqual(make_invoice([\"999999.99\", \"0.01\"]),\n                         {\"total\": \"1000000.00\", \"count\": 2})\n        with self.assertRaises(ValueError):\n            make_invoice([\"999999.99\", \"0.02\"])\n        with self.assertRaises(ValueError):\n            make_invoice([500000, 500000, \"0.01\"])\n\n    def test_rejects_bad_items(self):\n        for bad in [[1.5], [\"0\"], [True], [\"1e2\"], [None]]:\n            with self.subTest(bad=bad):\n                with self.assertRaises(ValueError):\n                    make_invoice(bad)\n\n    def test_input_not_mutated(self):\n        items = [\"1.00\", Decimal(\"2.00\")]\n        snapshot = list(items)\n        make_invoice(items)\n        self.assertEqual(items, snapshot)\n        self.assertIs(type(items), list)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/api.py": "from .money import MAX_CENTS, amount_cents, cents_to_decimal, format_amount\n\n\ndef make_invoice(amounts):\n    items = list(amounts)  # copy; the caller's container is not modified\n    total_cents = 0\n    for item in items:\n        total_cents += amount_cents(item)\n        if total_cents > MAX_CENTS:\n            raise ValueError(\"invoice total must be at most 1000000.00\")\n    return {\"total\": format_amount(cents_to_decimal(total_cents)), \"count\": len(items)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\nMAX_CENTS = 100000000  # 1000000.00\n_MAX_AMOUNT = Decimal(\"1000000.00\")\n_PLAIN_DECIMAL = re.compile(r\"[+-]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)\")\n\n\ndef amount_cents(value):\n    \"\"\"Validate an amount and return it as a positive integer number of cents.\n\n    Works on exact integer/Decimal arithmetic only, so the global decimal\n    context is never read or changed and the input is never mutated.\n    \"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"boolean is not a valid amount\")\n    if isinstance(value, Decimal):\n        number = value\n    elif isinstance(value, int):\n        number = Decimal(value)\n    elif isinstance(value, str):\n        if _PLAIN_DECIMAL.fullmatch(value) is None:\n            raise ValueError(f\"not a plain decimal string: {value!r}\")\n        number = Decimal(value)\n    else:\n        raise ValueError(f\"unsupported amount type: {type(value).__name__}\")\n\n    if not number.is_finite():\n        raise ValueError(\"amount must be finite\")\n    if number <= 0:\n        raise ValueError(\"amount must be positive\")\n    if number > _MAX_AMOUNT:\n        raise ValueError(\"amount must be at most 1000000.00\")\n    if number.adjusted() < -2:\n        # Positive and below one cent: not exactly representable in cents.\n        raise ValueError(\"amount is not exactly representable in cents\")\n\n    _, digits, exponent = number.as_tuple()\n    coefficient = int(\"\".join(map(str, digits)))\n    if exponent < -2:\n        # Only trailing zeros may fall beyond the cent position.\n        coefficient, remainder = divmod(coefficient, 10 ** (-2 - exponent))\n        if remainder:\n            raise ValueError(\"amount is not exactly representable in cents\")\n        return coefficient\n    return coefficient * 10 ** (exponent + 2)\n\n\ndef cents_to_decimal(cents):\n    \"\"\"Return a non-negative integer number of cents as a Decimal with exponent -2.\"\"\"\n    return Decimal(f\"{cents // 100}.{cents % 100:02d}\")\n\n\ndef parse_amount(value):\n    return cents_to_decimal(amount_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/test_money_rules.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 158,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.06382774998201057
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06875508301891387,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": false,
+      "exit_code": 1,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/.runner-acceptance.py\", line 2, in <module>\n    runpy.run_path('.acceptance.py', run_name='__main__')\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \".acceptance.py\", line 18, in <module>\n    raise AssertionError(\"invalid amount accepted: \" + repr(value))\nAssertionError: invalid amount accepted: '.1'\n",
+      "wall_s": 0.05407012498471886,
+      "check_completed": false
+    }
+  },
+  "patch_correct": false,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

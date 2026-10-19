@@ -1,0 +1,27 @@
+## Decision: per-runner outcome
+
+**Runner A (auto, go 1.21.0 + toolchain go1.21.9):** runs go1.21.9. Under `auto`, if the `toolchain` line is newer than the default, the go command runs it; finding no `go1.21.9` on PATH it downloads and caches it ([toolchain#select](https://go.dev/doc/toolchain#select), [toolchain#download](https://go.dev/doc/toolchain#download)).
+
+**Runner B (`local`, go 1.21.9):** refuses. `local` always runs the bundled 1.21.3, and a toolchain refuses to load a module whose `go` line exceeds its own version ([toolchain#config](https://go.dev/doc/toolchain#config)).
+
+**Runner C (`go1.21.3+path`):** refuses. The `toolchain go1.21.9` line is newer than the default, so it switches, searches PATH, finds nothing, and `+path` disables the download fallback, stopping after the PATH search ([toolchain#select](https://go.dev/doc/toolchain#select)).
+
+## go vs toolchain
+
+`go` is a mandatory minimum required Go version; the toolchain refuses to load a module declaring a newer one ([gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go)). `toolchain` is only a *suggestion*, effective only in the main module and only when the default toolchain is older ([gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). A **dependency's** suggested toolchain is ignored by downstream consumers; only its `go` line propagates, constraining the main module's `go` line and potentially triggering toolchain switches ([toolchain#config](https://go.dev/doc/toolchain#config), [toolchain#switch](https://go.dev/doc/toolchain#switch)).
+
+## GOSUMDB=off claim — incorrect premise
+
+`GOSUMDB=off` does **not** enable automatic toolchain downloads; toolchain downloads *fail for lack of verification* if `GOSUMDB=off`, and `GOPRIVATE`/`GONOSUMDB` do not exempt them ([toolchain#download](https://go.dev/doc/toolchain#download)). So the proposal both weakens verification and breaks the intended download path.
+
+## "+path is network-free" — UNVERIFIED
+
+`+path` only removes the *toolchain download* fallback; module dependencies are still fetched through the module proxy unless `GOPROXY=off`. No source documents this as fully network-free.
+
+## Recommendation
+
+Keep the checksum database enabled; don't set `GOSUMDB=off`. For restricted CI, pre-install required toolchains on PATH and use `+path` (or pin a concrete `GOTOOLCHAIN=go1.21.9`) so selection is deterministic and offline. That verification-neutral approach is a recommendation, not a documented requirement.
+
+## Guarantee these settings do not establish
+
+Neither `+path`, PATH pre-seeding, nor `GOSUMDB=off` guarantees reproducibility or a fully cached/offline build; `GOSUMDB=off` removes verification rather than granting it. Resolve residual uncertainty by confirming whether Runner B/C modules' deps are cached — evidence target: [Go Modules Reference, checksum database](https://go.dev/ref/mod#checksum-database).

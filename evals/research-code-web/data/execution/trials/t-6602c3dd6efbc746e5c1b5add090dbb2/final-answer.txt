@@ -1,0 +1,52 @@
+## Where the filtering lives
+
+The request-preparation implementation is `PrepareInput` → `prepare()` → `resolveTools()` in **`packages/opencode/src/session/llm/request.ts`** (`export * as LLMRequestPrep` at line 228). The per-message tool toggles come from `input.user.tools` (`PrepareInput.user: SessionV1.User`, request.ts:21/30; `PrepareInput` spans 20–36), and the permission ruleset arrives via `input.permission?: PermissionV1.Ruleset` plus `input.agent: Agent.Info` (lines 25–26).
+
+- **Helper:** `resolveTools(input)` — `packages/opencode/src/session/llm/request.ts:210-216.` It is the only in-preparation filter; everything afterward (`prepare` at lines 148–175, e.g. the `strict: false` hardcode for OpenAI/azure/bedrock-apis at 157 and the Copilot `_noop` stub at 165) operates on already-filtered tools.
+- **Caller:** the session LLM service, `packages/opencode/src/session/llm.ts`, which builds the prepared request and consumes `prepared.tools` (lines 150, 232–233) — this is a compiling `LLMEvent` stream path, not tool execution. Note that this second, workflow-specific use of rules (`llm.ts:149-153`) only computes `sessionPreapprovedTools` (dropping rules whose last match `action === "ask"`); it does **not** remove tools from a request. Filtering remains `resolveTools` in `request.ts`.
+
+## Bound: preparation, not execution
+
+Tool execution itself lives elsewhere (e.g. the workflow tool whitelist/discussion at `llm.ts:130-147` runs `t.execute!` on the model's chosen tool). That is arbitrary runtime execution, and `resolveTools` is not on that path — it runs once per prepared chat request to decide the *advertisable* toolset.
+
+## Permission merge ordering
+
+`resolveTools` merges two rulesets (request.ts:211-214):
+
+```ts
+Permission.merge(input.agent.permission, input.permission ?? [])
+```
+
+`merge(...rulesets)` is just `rulesets.flat()` (**`packages/opencode/src/permission/index.ts:200-202`**), preserving argument order: **agent rules first, then session/request rules appended after**. Later entries therefore shadow earlier ones, because rule selection uses `findLast` (see below). The same ordering is mirrored at the workflow site in `llm.ts:149` (`input.agent.permission ?? []`, then `input.permission ?? []`).
+
+## Message-toggle exclusion
+
+`resolveTools` returns:
+
+```ts
+Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+```
+
+(request.ts:215). A tool is excluded only when the per-message toggle is **explicitly `false`** (`input.user.tools?.[k] !== false`). Missing keys, `undefined`, or `true` keep the tool (subject to permission denial).
+
+## Permission rule selection and disable semantics
+
+`Permission.disabled(tools, ruleset)` — **`packages/opencode/src/permission/index.ts:204-214`**:
+
+1. Computes the effective permission key per tool (line 209): `edits.includes(tool) → "edit"`, `reads.includes(tool) → "read"`, otherwise the tool's own name.
+2. Picks the controlling rule with `ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))` (line 210) — the **last** matching rule wins, which is why earlier-merged rulesets (agent) are shadowed by later-merged ones (session). Matching is against `rule.permission` only; `Wildcard` comes from `@opencode-ai/core/util/wildcard` (index.ts:4).
+3. A tool is disabled only when the winning rule is a **catch-all**: `rule?.pattern === "*" && rule.action === "deny"` (lines 211). Scoped patterns (e.g. path-specific `edit` denies expanded by `fromConfig`/`expand`, index.ts:178-198) do **not** disable the tool at preparation time — they are enforcement decisions left to the runtime permission service (`Permission.Service.ask` / `evaluate`, index.ts:32, 69-175).
+
+## Tool-name grouping
+
+Declared at index.ts:205-206:
+
+- **Edit group → mapped to `"edit"`:** `["edit", "write", "apply_patch"]`
+- **MCP-resource read group → mapped to `"read"`:** `["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]`
+
+All other tools match rules under their literal name.
+
+## Notes / limitations
+
+- `disabled()` is shared: `Permission.visibleTools` (index.ts:216-219) applies the same disable-set for visibility (e.g. config/UI listing); the request-specific complement (the `user.tools === false` toggle) exists only in `resolveTools`.
+- My `llm.ts` read (lines 130–239 of 404) was paginated, but the cited facts (prepared.tools usage at 150, 232–233; merge at 149) fall inside the visible span. No code or tests were run; all citations are from snapshot reads with line numbers.

@@ -1,0 +1,15 @@
+`get_document` and `list_documents` now enforce tenant, owner, and `deleted_at IS NULL`, and both existing checks pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Their SQL adds `tenant=? AND owner=? AND deleted_at IS NULL` (and `id=?` for `find`), all as bound parameters. `listing` keeps `ORDER BY id`. `decode` is unchanged, so results contain only `id`, `title`, and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` and `owner` through to the repository.
+- **`checks/test_access.py`** (new): covers accessible and inaccessible records (deleted, cross-tenant, cross-owner, missing), returning `None` for all unavailable IDs, lists ordered by id with only the three fields, and names containing quotes or SQL-injection-style strings.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/test_access.py` passes.
+- The only callers of `find` and `listing` are the two service functions, so the changed signatures have no other call sites in the project.
+
+`find`'s positional signature changed to `(connection, tenant, owner, document_id)`. Any code outside this project that calls the repository functions directly would need updating.

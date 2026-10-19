@@ -1,0 +1,14 @@
+Both `get_document` and `list_documents` are now scoped to tenant and owner and exclude soft-deleted rows. The existing public check and a new check both pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Their SQL adds `tenant=? AND owner=? AND deleted_at IS NULL`, with every value passed as a bound parameter. `listing` keeps `ORDER BY id`. `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass tenant and owner through to the repository. Their signatures are unchanged.
+- **`checks/secure_access.py`** (new): covers a visible document, soft-deleted, cross-tenant and cross-owner IDs, a missing ID, and an injection-style ID. It also covers owner and tenant names containing quotes, a name that tries an `OR '1'='1'` bypass, and a name containing a SQL injection payload. It checks that lists are ordered by id and contain no deleted or foreign rows, and that the table is intact afterward.
+
+**Verification**
+
+- `python3 checks/public.py`: passes.
+- `python3 checks/secure_access.py`: passes.
+
+`get_document` returns `None` for all unavailable cases, so the caller cannot tell a cross-tenant, cross-owner or deleted record from a missing one.

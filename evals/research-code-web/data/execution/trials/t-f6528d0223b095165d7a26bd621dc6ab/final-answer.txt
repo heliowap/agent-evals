@@ -1,0 +1,44 @@
+## Bounded answer: No — the supplied custom transport suppresses environment-proxy construction
+
+All of the logic lives in `Client.__init__` (`httpx/_client.py`) plus its two helpers, `_get_proxy_map` (lines 239–251) and the transport-initialization/dispatch methods (lines 718–769). The async `AsyncClient` mirrors it at lines 1399–1483; I verified the sync path.
+
+### 1. The gate: `allow_env_proxies = trust_env and transport is None`
+
+At `httpx/_client.py:685` the constructor computes:
+
+```python
+allow_env_proxies = trust_env and transport is None
+```
+
+So with a *supplied* custom transport, `transport is None` is false, and `allow_env_proxies` is false even when `trust_env=True`. This feeds `_get_proxy_map(proxy, allow_env_proxies)` at line 686, whose closed branches are:
+
+- `httpx/_client.py:242–248`: if `proxy is None` — the inner branch at 243–247 (`if allow_env_proxies: return {key: Proxy(url=url) ... for key, url in get_environment_proxies().items()}`) is **not taken**; control falls to line 248 `return {}`.
+- `httpx/_client.py:249–251` (`else`): only entered when an explicit `proxy` argument was given; returns `{"all://": proxy}` (after line 250's `Proxy(url=proxy)` normalization for `str | URL`).
+
+So with `transport=<custom>, trust_env=True, proxy=None`, the proxy map is the empty dict `{}` — no environment-proxy transports are constructed. `get_environment_proxies()` (`httpx/_utils.py:30–69`, including the `NO_PROXY` handling at 47–69) is never consulted in this configuration.
+
+### 2. Is the supplied default transport retained? Yes.
+
+`self._transport` is built at lines 688–696 by `_init_transport(..., transport=transport)`. Inside `_init_transport` (`httpx/_client.py:718–738`):
+
+- Lines 728–729: `if transport is not None: return transport` — the caller's instance is returned as-is, untouched; the constructor's `verify/cert/trust_env/http1/http2/limits` arguments are not applied to it.
+- Lines 731–738 (the fall-through `return HTTPTransport(...)`) is a closed branch never reached when a custom transport is supplied.
+
+Thus `self._transport` *is* the user's object, and it is used for any URL not covered by a mount.
+
+### 3. Contrast: an explicit `proxy` argument
+
+Even with a custom transport, passing `proxy=...` takes the `else` branch at `httpx/_client.py:249–251`, yielding the map `{"all://": proxy}`. The mounts comprehension at lines 697–710 then builds `self._mounts` from that map, calling `_init_proxy_transport` (lines 740–758), which constructs a **new, separate** `HTTPTransport(..., proxy=proxy)` (lines 750–758). Note line 701's call receives `trust_env=trust_env` — but with a custom transport the relevant `trust_env` behavior inside that *new* default transport is its own concern; the point here is that an explicit proxy produces a mount regardless of the custom transport, while the custom transport still serves as the base `self._transport` (used only where no mount matches).
+
+### 4. How explicit mounts (including a `None` mount) affect selection
+
+After the proxy-map mounts, lines 711–714 merge user-supplied `mounts` (`self._mounts.update({URLPattern(key): transport for ...})`), and line 716 sorts them (`dict(sorted(self._mounts.items()))`). Selection is in `_transport_for_url` (`httpx/_client.py:760–769`):
+
+- Lines 765–767: iterate sorted mounts; on the first `pattern.matches(url)` hit, `return self._transport if transport is None else transport`. A mount value of `None` is therefore not "no entry" — it explicitly routes that URL pattern back to the base `self._transport` (i.e., your custom transport), bypassing any broader pattern that would otherwise match earlier or later in the sorted order.
+- Line 769: if no mount matches, the base `self._transport` is used.
+
+Because env proxies were suppressed in this configuration, the only mounts are the user's own (lines 711–714); a `mounts={"all://": None}` entry would be a no-op relative to the base, while a narrower `None` mount (e.g., for a specific host) carves that host out of any broader proxy mount — meaningful chiefly in the explicit-proxy case or async analog.
+
+### Summary
+
+With `transport=<custom>, trust_env=True, proxy=None`: `allow_env_proxies` is false (line 685), `_get_proxy_map` returns `{}` (line 248, closed branch at 243–247 skipped), no proxy transports are built, and the custom transport is retained verbatim as `self._transport` (lines 728–729). Explicit `proxy` still creates a mount (lines 249–251, 697–710, 750–758); explicit mounts, including `None` mounts, override per-pattern selection at lines 765–767, falling back to the custom transport otherwise (line 769). I did not evaluate what environment variables any *internal* logic inside a user's custom transport might read — that is outside the constructor's branches cited here.

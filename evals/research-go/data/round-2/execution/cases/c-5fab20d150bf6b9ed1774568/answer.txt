@@ -1,0 +1,19 @@
+I'll research the official Go toolchain documentation.
+
+## Runner outcomes (documented)
+
+- **Runner A (GOTOOLCHAIN=auto):** auto = local+auto, so the default is the bundled 1.21.3. A `toolchain go1.21.9` line newer than the default makes the command run go1.21.9; it searches PATH for a program named `go1.21.9`, and with none found it **downloads, verifies, and runs Go 1.21.9** ([#select](https://go.dev/doc/toolchain#select)). This needs a reachable proxy/network.
+- **Runner B (GOTOOLCHAIN=local):** "always runs the bundled Go toolchain," so switching is disabled; since Go 1.21 the go line is a **mandatory minimum**, and Go 1.21.3 "will refuse to load a module or workspace" declaring `go 1.21.9` ([#select](https://go.dev/doc/toolchain#select), [#config](https://go.dev/doc/toolchain#config)). Runner B refuses with an error.
+- **Runner C (GOTOOLCHAIN=go1.21.3+path):** same startup decision as A (default 1.21.3, suggested 1.21.9 wins), but `+path` "disables the download fallback," so after the PATH search finds nothing the command **stops and fails** ([#select](https://go.dev/doc/toolchain#select)).
+
+## go vs toolchain
+
+The `go` line is a hard minimum: toolchains refuse modules requiring newer versions, it sets the enforced language version, and it must be ≥ every required dependency's go line ([#config](https://go.dev/doc/toolchain#config); [gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go)). The `toolchain` line is only a **suggestion**, honored only when the module is the main module and the default toolchain is older ([gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). Reacting to the toolchain line is fine and should be kept, but the toolchain line is only a suggestion honored only in the main module—**not** a guarantee.
+
+Premise corrections, both documented: GOSUMDB=off doesn't "make downloads work"—"toolchain downloads fail for lack of verification if GOSUMDB=off" ([#download](https://go.dev/doc/toolchain#download)). And `+path` is only download-free for the toolchain, not network-free overall; here it doesn't even start here (no go1.21.9 on PATH), and dependfetching still needs network or vendor/.
+
+Deferred responses the doc supports: Respond, then wait for the anchor changed by the user; two official pages used (toolchain, gomod-ref). If picking "no guarantee," explain it is the one the settings don't establish (see below).
+
+## Policy and non-guarantees
+
+**Recommendation (mine, not documented guarantees):** pin `go`/`toolchain` explicitly, leave GOTOOLCHAIN=auto, keep GOSUMDB enabled, and serve toolchains via an internal GOPROXY mirror, or preinstall the pinned go in PATH; never set GOSUMDB=off for toolchains. **Guarantees not established:** the toolchain line is a suggestion honored only in the main module—**not** a guarantee that all consumers use 1.21.9; auto-mode switching after `go get` can even rewrite it ([#switch](https://go.dev/doc/toolchain#switch)). Whether PATH-found toolchains are checksum-verified is UNVERIFIED in the pages fetched—resolve via https://go.dev/ref/mod (checksums section).

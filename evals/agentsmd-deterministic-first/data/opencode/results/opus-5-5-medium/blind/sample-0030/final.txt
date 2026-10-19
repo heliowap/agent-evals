@@ -1,0 +1,14 @@
+I added `eval` to the list of banned builtins in `checks.json`:
+
+```json
+{"forbidden_builtins": ["eval"]}
+```
+
+I didn't need to change `check.py`. It already reads Python files under `src` as code rather than plain text, and only flags direct calls like `eval(...)`. Comments, strings and method calls like `obj.eval()` don't count as that kind of call, so they still pass.
+
+I tested it with temporary files, then deleted them:
+- **Current repo:** `python3 check.py` passes (exit 0).
+- **Comments, strings, `obj.eval()`:** a file with `# eval(x)`, `"eval(1)"` and a class with an `eval` method passes (exit 0).
+- **Real `eval` call:** a file with `eval("1+1")` fails (exit 1), and the check lists the file.
+
+Some uses of the builtin would still get past this check, such as `builtins.eval(...)` or `f = eval; f(...)`. The check only looks for calls written as `eval(...)`. If you want those blocked too, `check.py` would need to be extended.

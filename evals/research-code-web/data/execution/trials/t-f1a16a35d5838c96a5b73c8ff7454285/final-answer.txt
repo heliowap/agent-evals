@@ -1,0 +1,32 @@
+## Locating the three assertions
+
+All three live in `packages/zod/src/v4/classic/tests/transform.test.ts` (imports at lines 1–2: `vitest` + `zod/v4`):
+
+**1. Synchronous number→string in an object — test `"coercion"` (lines 93–102).** A sync transform `z.number().transform((n) => String(n))` (line 94) is placed under `id` inside a `z.object` (lines 95–99), parsed synchronously via `.parse({ id: 5 })` (line 99). The assertion (line 101) is:
+
+```ts
+expect(data).toEqual({ id: "5" });
+```
+
+**2. Async transformation via async parsing — test `"async coercion"` (lines 104–113).** Same shape, but the callback is `async (n) => String(n)` (line 105) and parsing is `await ...parseAsync({ id: 5 })` (lines 106–110). The assertion (line 112) is again `expect(data).toEqual({ id: "5" })`.
+
+**3. That async transformation via synchronous parsing — test `"sync coercion async error"` (lines 115–125).** The same `async (n) => String(n)` transform under `id` (lines 116–120) is invoked with sync `.parse({ id: 5 })` (line 122). The assertion is a bare, argument-less `expect(...).toThrow()` (lines 117–123). It does **not** assert an exact error class, an error name, or any message. Line 124 is a commented-out `// expect(data).toEqual({ id: '5' });`, confirming no success-path assertion survives here.
+
+So the sum total of what these three tests assert is: sync transform in an object yields `{ id: "5" }`; async transform + `parseAsync` yields `{ id: "5" }`; async transform + sync `parse` throws *something*. Nothing more.
+
+## The core runtime check (static implementation inference — not asserted by tests)
+
+The mechanism explaining the sync rejection is visible only in the implementation, not in the test file:
+
+- `$ZodTransform`'s parse hook (`packages/zod/src/v4/core/schemas.ts:3844–3864`): the transform output `_out` is computed at line 3849; when `ctx.async` is truthy the result is wrapped/awaited (lines 3850–3855); when the context is synchronous and `if (_out instanceof Promise) throw new core.$ZodAsyncError();` (lines 3858–3860).
+- `$ZodAsyncError` (`packages/zod/src/v4/core/core.ts:166–168`) extends `Error` with the message `` `Encountered Promise during synchronous parse. Use .parseAsync() instead.` ``.
+- A second, top-level guard exists in `_parse` (`packages/zod/src/v4/core/parse.ts:22–28`): it sets `ctx.async: false` (line 24), runs the schema, and `if (result instanceof Promise) throw new core.$ZodAsyncError();` (lines 26–28). `_parseAsync` instead awaits the promise (lines 50–52). The transform-level check (schemas.ts:3858) fires first here, since the async transform is nested inside the object.
+- An analogous Promise guard for checks is in `packages/zod/src/v4/core/checks.ts:1038` and `:1095`, and the compiled-path analogue in `core/compile.ts:674–697, 716` (throwing `$ZodAsyncError` for thenables, with the comment at line 674 explaining a thenable must throw rather than be read as pass/bail-out).
+
+These are inferred statically from source; the test only checks that a throw occurs.
+
+## Separation of asserted vs. inferred vs. unresolved
+
+- **Asserted (limited):** the three outcomes above, with `toEqual({ id: "5" })` twice and an unparameterized `toThrow()` once.
+- **Static inference only:** that the thrown value is `$ZodAsyncError` with its specific message; that sync parsing propagates `{ async: false }`; that `_parseAsync` awaits.
+- **Unresolved arbitrary callback behavior:** the tests only exercise callbacks written with `async` function syntax. Nothing in the test file asserts what happens when a *plain synchronous* function returns a Promise by hand, what happens when an async transform calls `ctx.addIssue` inside the object, or which exact error surfaces for any callback shape — the `instanceof Promise`-based catch-all in schemas.ts:3858/parse.ts:26 suggests the behavior, but no test pins it down. The commented-out line 124 also leaves the failure payload unverified. I did not run code or tests; these gaps cannot be closed from static reading alone.

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/amounts.py": "import os\nimport sys\nfrom decimal import Decimal, Inexact, Rounded, getcontext, localcontext\n\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount\nfrom src.api import make_invoice\n\n\ndef rejects(call, value):\n    try:\n        call(value)\n    except ValueError:\n        return\n    raise AssertionError(f\"Expected ValueError for {value!r}\")\n\n\nfor value, expected in [\n    (1, \"1.00\"), (\"+12.5000\", \"12.50\"), (\".01\", \"0.01\"),\n    (\"1.\", \"1.00\"), (Decimal(\"1E+6\"), \"1000000.00\"),\n    (Decimal(\"0.010000\"), \"0.01\"), (\"1000000.0000\", \"1000000.00\"),\n]:\n    result = parse_amount(value)\n    assert result == Decimal(expected)\n    assert result.as_tuple().exponent == -2\n\nfor value in [\n    True, False, 1.2, None, [], {}, b\"1\", \"\", \" 1\", \"1 \", \"1\\n\",\n    \"1e2\", \"1_000\", \"１２\", \"+\", \".\", \"NaN\", \"Infinity\", \"-1\", \"0\",\n    0, -1, 1000001, \"1000000.01\", \"0.001\", \"1.00000000000000001\",\n    Decimal(\"NaN\"), Decimal(\"sNaN\"), Decimal(\"Infinity\"),\n    Decimal(\"-Infinity\"), Decimal(\"-0\"), Decimal(\"1E-999999999\"),\n]:\n    rejects(parse_amount, value)\n    rejects(make_invoice, [value])\n\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\nassert make_invoice([\"999999.99\", \".01\"]) == {\"total\": \"1000000.00\", \"count\": 2}\nrejects(make_invoice, [\"1000000\", \".01\"])\n\nwith localcontext() as context:\n    context.prec = 1\n    context.Emax = 1\n    context.Emin = -1\n    context.traps[Inexact] = True\n    context.traps[Rounded] = True\n    before = context.copy()\n    amounts = [Decimal(\"12.50000\"), \"0.01\", 2]\n    original = amounts.copy()\n    assert make_invoice(amounts) == {\"total\": \"14.51\", \"count\": 3}\n    assert parse_amount(\"1000000.0000\") == Decimal(\"1000000.00\")\n    assert amounts == original\n    assert getcontext().prec == before.prec\n    assert getcontext().Emax == before.Emax\n    assert getcontext().Emin == before.Emin\n    assert getcontext().traps == before.traps\n    assert getcontext().flags == before.flags\n",
+      "src/api.py": "from decimal import Decimal\n\nfrom .money import parse_amount, format_amount\n\n\ndef make_invoice(amounts):\n    total_cents = 0\n    for item in amounts:\n        amount = parse_amount(item)\n        # parse_amount always returns an exact, positive two-place Decimal.\n        total_cents += int(format_amount(amount).replace(\".\", \"\"))\n        if total_cents > 100000000:\n            raise ValueError(\"Invoice total must be at most 1000000.00\")\n    total = Decimal(f\"{total_cents // 100}.{total_cents % 100:02d}\")\n    return {\"total\": format_amount(total), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal\n\n\n_DECIMAL_STRING = re.compile(r\"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)\")\n_MAX_AMOUNT = Decimal(\"1000000.00\")\n\n\ndef parse_amount(value):\n    if isinstance(value, bool):\n        raise ValueError(\"Amount must be a Decimal, integer, or decimal string\")\n    if isinstance(value, str):\n        if _DECIMAL_STRING.fullmatch(value) is None:\n            raise ValueError(\"Amount must be a plain decimal string\")\n        amount = Decimal(value)\n    elif isinstance(value, (Decimal, int)):\n        amount = Decimal(value)\n    else:\n        raise ValueError(\"Amount must be a Decimal, integer, or decimal string\")\n\n    if not amount.is_finite() or amount <= 0 or amount > _MAX_AMOUNT:\n        raise ValueError(\"Amount must be positive and at most 1000000.00\")\n\n    # Work with the exact coefficient, not context-sensitive arithmetic.\n    # Removing fractional digits is allowed only when every removed digit is zero.\n    _, digits, exponent = amount.as_tuple()\n    shift = exponent + 2\n    if shift < 0:\n        end = len(digits) + shift\n        if end <= 0 or any(digits[end:]):\n            raise ValueError(\"Amount must be exactly representable in cents\")\n        digits = digits[:end]\n        shift = 0\n    cents = 0\n    for digit in digits:\n        cents = cents * 10 + digit\n    cents *= 10 ** shift\n    return Decimal(f\"{cents // 100}.{cents % 100:02d}\")\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/amounts.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 114,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.046494417008943856
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05509949999395758,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": false,
+      "exit_code": 1,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/workspace/.runner-acceptance.py\", line 2, in <module>\n    runpy.run_path('.acceptance.py', run_name='__main__')\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \".acceptance.py\", line 18, in <module>\n    raise AssertionError(\"invalid amount accepted: \" + repr(value))\nAssertionError: invalid amount accepted: '.1'\n",
+      "wall_s": 0.050324999989243224,
+      "check_completed": false
+    }
+  },
+  "patch_correct": false,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

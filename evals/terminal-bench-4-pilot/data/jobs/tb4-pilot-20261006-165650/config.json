@@ -1,0 +1,169 @@
+{
+    "job_name": "tb4-pilot-20261006-165650",
+    "jobs_dir": "terminal-bench-4/jobs",
+    "n_concurrent_trials": 1,
+    "environment": {
+        "type": "docker",
+        "extra_docker_compose": [
+            "terminal-bench-4/isolation.yaml"
+        ]
+    },
+    "agents": [
+        {
+            "import_path": "opencode_v2_agent:OpenCodeV2",
+            "model_name": "opencode-go/glm-5.3-flash",
+            "n_concurrent": 1,
+            "kwargs": {
+                "version": "2.0.24",
+                "variant": "high",
+                "opencode_config": {
+                    "$schema": "https://opencode.ai/config.json",
+                    "update": "disable",
+                    "share": "disabled",
+                    "snapshots": false,
+                    "websearch": false,
+                    "permissions": [
+                        {
+                            "action": "*",
+                            "resource": "*",
+                            "effect": "allow"
+                        },
+                        {
+                            "action": "websearch",
+                            "resource": "*",
+                            "effect": "deny"
+                        },
+                        {
+                            "action": "webfetch",
+                            "resource": "*",
+                            "effect": "deny"
+                        }
+                    ],
+                    "experimental": {
+                        "policies": [
+                            {
+                                "action": "provider.use",
+                                "resource": "*",
+                                "effect": "deny"
+                            },
+                            {
+                                "action": "provider.use",
+                                "resource": "opencode-go",
+                                "effect": "allow"
+                            }
+                        ]
+                    },
+                    "providers": {
+                        "opencode-go": {
+                            "settings": {
+                                "baseURL": "http://host.docker.internal:18319/glm/v1",
+                                "apiKey": "{env:TBEVAL_API_KEY}"
+                            }
+                        }
+                    }
+                }
+            },
+            "env": {
+                "TBEVAL_API_KEY": "${TBEVAL_GLM_TOKEN}"
+            }
+        },
+        {
+            "import_path": "opencode_v2_agent:OpenCodeV2",
+            "model_name": "cli_proxy_openai/devin/swe-2",
+            "n_concurrent": 1,
+            "kwargs": {
+                "version": "2.0.24",
+                "variant": "high",
+                "opencode_config": {
+                    "$schema": "https://opencode.ai/config.json",
+                    "update": "disable",
+                    "share": "disabled",
+                    "snapshots": false,
+                    "websearch": false,
+                    "permissions": [
+                        {
+                            "action": "*",
+                            "resource": "*",
+                            "effect": "allow"
+                        },
+                        {
+                            "action": "websearch",
+                            "resource": "*",
+                            "effect": "deny"
+                        },
+                        {
+                            "action": "webfetch",
+                            "resource": "*",
+                            "effect": "deny"
+                        }
+                    ],
+                    "experimental": {
+                        "policies": [
+                            {
+                                "action": "provider.use",
+                                "resource": "*",
+                                "effect": "deny"
+                            },
+                            {
+                                "action": "provider.use",
+                                "resource": "cli_proxy_openai",
+                                "effect": "allow"
+                            }
+                        ]
+                    },
+                    "providers": {
+                        "cli_proxy_openai": {
+                            "package": "@opencode/ai/providers/openai/chat",
+                            "env": [
+                                "TBEVAL_API_KEY"
+                            ],
+                            "settings": {
+                                "baseURL": "http://host.docker.internal:18319/swe/v1",
+                                "apiKey": "{env:TBEVAL_API_KEY}"
+                            },
+                            "models": {
+                                "devin/swe-2": {
+                                    "limit": {
+                                        "context": 262000,
+                                        "output": 128000
+                                    },
+                                    "capabilities": {
+                                        "tools": true,
+                                        "input": [
+                                            "text"
+                                        ],
+                                        "output": [
+                                            "text"
+                                        ]
+                                    },
+                                    "variants": [
+                                        {
+                                            "id": "high",
+                                            "settings": {
+                                                "reasoningEffort": "high"
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "env": {
+                "TBEVAL_API_KEY": "${TBEVAL_SWE_TOKEN}"
+            }
+        }
+    ],
+    "datasets": [
+        {
+            "name": "terminal-bench/terminal-bench",
+            "ref": "sha256:39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732",
+            "task_names": [
+                "terminal-bench/session-window-debug",
+                "terminal-bench/wal-recovery-ordering",
+                "terminal-bench/interleaved-vigenere"
+            ]
+        }
+    ]
+}

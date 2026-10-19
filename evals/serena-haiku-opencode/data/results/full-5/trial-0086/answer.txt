@@ -1,0 +1,20 @@
+Both `get_document` and `list_documents` now enforce tenant, owner and `deleted_at IS NULL`. The public check and a new access test both pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and filter on it along with `owner`. Both queries also require `deleted_at IS NULL`. `listing` keeps `ORDER BY id`. Every value is passed as a bound parameter. `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: passes `tenant` through to the repository. The public signatures are unchanged.
+- **`checks/test_access.py`** (new): seven `unittest` cases covering:
+  - a visible document is returned;
+  - deleted, cross-owner, cross-tenant and missing IDs all return `None`;
+  - names containing quotes work;
+  - an injection-style tenant string is treated as a literal;
+  - lists are scoped, exclude deleted records, and are ordered by id;
+  - list entries have exactly the keys `id`, `title` and `body`.
+
+**Verification**
+
+- `python3 checks/public.py`: passes before and after the change.
+- `python3 -m unittest -v checks/test_access.py`: 7 of 7 pass.
+
+The only callers of `find` and `listing` were in `service.py`, so the signature change has no other effects in the project.

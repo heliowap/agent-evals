@@ -1,0 +1,1 @@
+We mount a plain WSGI sub-application under a multi-segment prefix, like `app.mount('/api/v1', legacy_wsgi_app)`. The sub-app itself works, but the parent app's `after_request` hooks see the wrong `request.path` and `request.script_name` for those requests, which breaks our access logging. With a single-segment prefix like `/api` everything is correct. Please fix it.

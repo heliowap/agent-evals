@@ -1,0 +1,18 @@
+## Decision
+Use `first-primary` only for the checkout request that writes, propagate its bookmark, and start the next request's session with that bookmark; default browse traffic to plain `withSession()`. Treat checkout's `batch()` as all-or-nothing and make retries idempotent.
+
+## Correct the premises
+- `withSession("first-primary")` routes only the first query (read or write) to the primary; subsequent queries may use replicas. The session is not "entirely pinned". [d1-database#withsession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)
+- Bare `withSession()` equals `first-unconstrained`: its first query may go to the primary or any replica, so it does not guarantee latest data. [read-replication#start-a-session-without-constraints](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)
+- `batch()` is documented as one SQL transaction; a failing statement "aborts or rolls back the entire sequence", so earlier inserts should not remain committed. [d1-database#batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch) The same section's wording that each statement "will execute and commit" conflicts; partial-commit behaviour in every failure mode is UNVERIFIED — resolve with a staged failing batch or Cloudflare support. Retries can themselves cause inconsistency. [tutorial#step-6-add-retry-logic](https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#step-6-add-retry-logic)
+
+## Contract
+1. Checkout write: `env.DB.withSession("first-primary")`; writes always go to the primary regardless of constraint. [tutorial#1-post-apiproduct](https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#1-post-apiproduct)
+2. Return `session.getBookmark()` to the client via header/cookie. [read-replication#start-a-session-from-previous-context-bookmark](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)
+3. Later read: `env.DB.withSession(bookmark)` guarantees a version "at least as up-to-date" as that bookmark, so a nearby replica can serve it after catching up. [time-travel#bookmarks](https://developers.cloudflare.com/d1/reference/time-travel/#bookmarks)
+4. Batch header and line items with `session.batch(...)`; on failure assume nothing committed, and add idempotency keys/unique constraints before retrying.
+
+## Advertised claims
+- Supported: sequential consistency within a session, including read-my-own-writes; replicas lower read latency and raise read throughput. [read-replication#sessions-api-provides-sequential-consistency](https://developers.cloudflare.com/d1/best-practices/read-replication/#sessions-api-provides-sequential-consistency)
+- Not supported: "globally latest reads" — a replica "may be arbitrarily out of date", and even `first-primary` pins only the session's first query. [read-replication#primary-database-instance-vs-read-replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas)
+- A 100 ms maximum post-commit replica lag is UNVERIFIED; no bound is documented. Resolve via Cloudflare support/SLA or measure commit-to-visibility using `served_by_region`/`served_by_primary`. [read-replication#check-where-d1-request-was-processed](https://developers.cloudflare.com/d1/best-practices/read-replication/#check-where-d1-request-was-processed)

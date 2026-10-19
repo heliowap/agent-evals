@@ -1,0 +1,48 @@
+Based on public primary documentation for Pydantic v2 (specifically the Pydantic v2.12 migration documentation), here are the details for migrating your models:
+
+---
+
+### 1. Replacement Decorators
+* **Field validators:** `@validator` is deprecated and replaced by **`@field_validator`**.
+* **Whole-model / root validators:** `@root_validator` is deprecated and replaced by **`@model_validator`**.
+
+---
+
+### 2. Validating Items in Containers (`each_item=True`)
+* **Can `@field_validator` take `each_item=True`?**  
+  **No.** The new `@field_validator` decorator does not support the `each_item` keyword argument.
+* **Replacement item-type annotation:**  
+  Validators or constraints targeting items within generic containers are now expressed directly on the container's type argument using `typing.Annotated` with `pydantic.Field` metadata.
+  
+  For a list of nonnegative integers (integers $\ge 0$), replace the pattern with:
+  ```python
+  from typing import Annotated  # or typing_extensions.Annotated
+  from pydantic import BaseModel, Field
+
+  class MyModel(BaseModel):
+      numbers: list[Annotated[int, Field(ge=0)]]
+  ```
+  *(Alternatively, `NonNegativeInt` from `pydantic` can be used as `list[NonNegativeInt]`).*
+
+---
+
+### 3. Handling of `TypeError` Raised Inside a Validator
+* In **Pydantic v1**, raising a `TypeError` inside a validator was caught and converted automatically into a `ValidationError`.
+* In **Pydantic v2**, a `TypeError` raised inside a validator is **no longer converted into a `ValidationError`**. Instead, the raw `TypeError` propagates unhandled (unless explicitly converted to a `ValueError`, `AssertionError`, or `PydanticCustomError` inside the validator).
+
+---
+
+### 4. Retaining Legacy Post-Validation `@root_validator`
+* **Is `skip_on_failure=False` permitted?**  
+  **No.** Due to refactored validation logic in Pydantic v2, legacy `@root_validator` functions can no longer run with `skip_on_failure=False`.
+* **Required setting:**  
+  Because `skip_on_failure=False` was the default setting in v1, legacy post-validation root validators must now explicitly specify:
+  ```python
+  @root_validator(skip_on_failure=True)
+  ```
+  *(Or migrated to the v2 equivalent, `@model_validator(mode='after')`).*
+
+---
+
+### Unresolved Limitations
+* The retrieved Pydantic v2.12 migration guide details the deprecation behavior and decorator changes from v1 to v2; it does not specify a separate sub-minor change introduced strictly between v2.11 and v2.12 regarding `@field_validator` or `@root_validator` syntax beyond the standard V2 specifications.

@@ -1,0 +1,56 @@
+## The defect
+
+`parser.py` contains only this:
+
+```python
+def parse_enabled(value):
+    return bool(value)
+```
+
+`bool()` only checks whether a value is empty. It doesn't read what a string says. Any non-empty string counts as `True`, so `"false"` comes back as **`True`**. I ran it to confirm:
+
+| Input | Result | Expected |
+|---|---|---|
+| `'true'` | `True` | `True` |
+| `'false'` | **`True`** | `False` |
+| `'False'`, `'0'`, `'no'`, `'garbage'` | **`True`** | `ValueError` |
+| `''`, `None`, `0` | `False` | `ValueError` |
+
+The worst problem is that `"false"` turns a setting on. Also, the function never raises `ValueError`. Bad input is silently treated as true or false.
+
+## Recommended fix (not applied, since you asked for no changes)
+
+```python
+def parse_enabled(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected 'true' or 'false', got {value!r}")
+```
+
+This uses exact comparison, as you specified: `"True"`, `" true"`, and non-string values are all rejected. If some callers need case-insensitive input, that should be a deliberate decision.
+
+## Preventing recurrence
+
+A written rule like "don't use `bool()` on strings" won't stop this from happening again. These checks will:
+
+1. **A test that pins the exact behavior.** This is the main safeguard. The repo has no tests now, so add something like `test_parser.py`:
+   ```python
+   import pytest
+   from parser import parse_enabled
+
+   def test_valid():
+       assert parse_enabled("true") is True
+       assert parse_enabled("false") is False
+
+   @pytest.mark.parametrize("v", ["True", "FALSE", "0", "1", "no", "", " true", None, 0, 1, True])
+   def test_invalid_raises(v):
+       with pytest.raises(ValueError):
+           parse_enabled(v)
+   ```
+   The `"false"` case and the `ValueError` cases would both have caught this bug.
+2. **Run the tests automatically**, either in CI or in a pre-commit hook, so a regression can't be merged.
+3. **Optional: type hints plus a type checker.** With `def parse_enabled(value: str) -> bool` checked by mypy or pyright, callers that pass non-strings get flagged early. It won't catch the `bool("false")` mistake itself, so the test is still the main protection.
+
+I didn't create any of these since you asked for no file changes. I can add the fix, the test file and a pre-commit or CI hook if you'd like.

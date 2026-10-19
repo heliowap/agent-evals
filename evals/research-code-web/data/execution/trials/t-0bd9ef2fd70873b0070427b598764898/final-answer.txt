@@ -1,0 +1,26 @@
+## Launch: Node.js 22.0.0 (April 24, 2024)
+
+The v22 launch announcement lists require()ing ESM as a headline feature: "This release adds `require()` support for synchronous ESM graphs under the flag `--experimental-require-module`." With the flag enabled, if the module is (a) explicitly marked as ESM (nearest `package.json` has `"type": "module"`, or it has a `.mjs` extension) and (b) fully synchronous (no top-level `await`), then `require()` loads it as ESM and returns the module namespace object — synchronous, unlike dynamic `import()`. The announcement also states the project intended "to eventually enable `require(esm)` by default in the future, without the flag" (nodejs.org/en/blog/announcements/v22-release-announce).
+
+## 22.12.0 (LTS, December 3, 2024)
+
+The v22.12.0 release notes' first notable change is: "**require(esm) is now enabled by default.**" They explain that support had been available on v20.x/v22.x behind `--experimental-require-module`, and by default on v23.x, and that "[i]n this release, it is now no longer behind a flag on v22.x." The enabling commit is listed as `58d6871c45` — "(SEMVER-MINOR) **module**: unflag `--experimental-require-module`" (#55085) (nodejs.org/en/blog/release/v22.12.0; GitHub release notes for v22.12.0). The v22.12.0 CLI documentation history for `--experimental-require-module` likewise records: "v22.12.0 | This is now true by default" (nodejs.org/docs/v22.12.0/api/cli.html).
+
+## Default-on ≠ stable
+
+The same release notes explicitly say: "This feature is still experimental, and we are looking for user feedback to make more final tweaks before fully stabilizing it." So in exactly 22.12.0, require(esm) is enabled by default but is **not stable** — unflagging removed the gate, not the experimental designation. The notes add that on first encountering a native ES module via `require()`, the instance emits an experimental warning unless the `require()` comes from a path containing `node_modules`. (One wording discrepancy: the nodejs.org copy of the notes says this warning behavior applies "on v23.x", while the GitHub release copy says "on v22.x"; this does not change the experimental status.)
+
+## Top-level await error
+
+"It can, however, throw `ERR_REQUIRE_ASYNC_MODULE` if the ES module being loaded **or its dependencies** contain top-level `await`" (v22.12.0 release notes). With the feature enabled, `ERR_REQUIRE_ESM` is no longer thrown for ESM; if the feature is disabled, requiring ESM still fails as before. The v22.12.0 ESM docs match this: the CommonJS `require` "currently only supports loading synchronous ES modules (that is, ES modules that do not use top-level `await`)" (nodejs.org/docs/v22.12.0/api/esm.html).
+
+## Disabling flag and runtime check
+
+- Disabling flag: **`--no-experimental-require-module`** — "this feature can also be disabled using `--no-experimental-require-module` as a workaround" (v22.12.0 release notes; the flag is also listed in the v22.12.0 CLI docs).
+- Runtime feature check: **`process.features.require_module`** — "Users can check `process.features.require_module` to see whether `require(esm)` is enabled in the current Node.js instance" (v22.12.0 release notes). For packages, the `"module-sync"` exports condition is the documented way to detect `require(esm)` support.
+
+## Reconciliation
+
+The launch announcement's promise to eventually enable require(esm) by default was fulfilled for the v22 line in 22.12.0; the launch requirement of "fully synchronous (no top-level await)" survives as the `ERR_REQUIRE_ASYNC_MODULE` limitation. Critically, default enablement in 22.12.0 did not equal stabilization: the release notes still call the feature experimental.
+
+**Limitations:** the v22.12.0 `esm.md`/`process.md` pages could not be fully read within the evidence budget (the `esm.md` fetch stopped before its require(esm) section; `process.md` returned no visible text), so the runtime-check and flag details above rest on the 22.12.0 release notes and v22.12.0 CLI/ESM documentation snippets. No later Node release's stabilization behavior is asserted.

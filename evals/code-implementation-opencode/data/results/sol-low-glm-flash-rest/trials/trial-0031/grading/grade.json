@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/auth.cjs": "const assert = require('node:assert/strict');\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\n\nfunction fresh() {\n  const repo = new DocumentRepository([\n    { id: 'own', tenant: 'a', owner: 'ed', deleted: false, archived: false },\n    { id: 'other', tenant: 'a', owner: 'someone', deleted: false, archived: false },\n    { id: 'deleted', tenant: 'a', owner: 'ed', deleted: true, archived: false },\n    { id: 'foreign', tenant: 'b', owner: 'ed', deleted: false, archived: false },\n  ]);\n  return { repo, service: new DocumentService(repo) };\n}\n\nconst admin = { tenant: 'a', user: 'admin', role: 'admin' };\nconst editor = { tenant: 'a', user: 'ed', role: 'editor' };\nconst viewer = { tenant: 'a', user: 'v', role: 'viewer' };\n\n// not found: missing, deleted, foreign — even for admin\nfor (const actor of [admin, editor, viewer]) {\n  for (const id of ['missing', 'deleted', 'foreign']) {\n    const { repo, service } = fresh();\n    assert.throws(() => service.archive(actor, id), err => err instanceof Error && err.message === 'not found');\n    assert.deepEqual(repo.audit, []);\n    assert.equal(repo.documents.every(d => !d.archived), true);\n  }\n}\n\n// admin may archive any visible document, including one owned by someone else\n{\n  const { repo, service } = fresh();\n  service.archive(admin, 'other');\n  assert.equal(repo.documents.find(d => d.id === 'other').archived, true);\n  assert.deepEqual(repo.audit, [{ actor: 'admin', document: 'other' }]);\n}\n\n// editor may archive own document\n{\n  const { repo, service } = fresh();\n  service.archive(editor, 'own');\n  assert.equal(repo.documents.find(d => d.id === 'own').archived, true);\n  assert.deepEqual(repo.audit, [{ actor: 'ed', document: 'own' }]);\n}\n\n// editor forbidden on other's visible document\n{\n  const { repo, service } = fresh();\n  assert.throws(() => service.archive(editor, 'other'), err => err instanceof Error && err.message === 'forbidden');\n  assert.deepEqual(repo.audit, []);\n  assert.equal(repo.documents.find(d => d.id === 'other').archived, false);\n}\n\n// viewer forbidden on any visible document, even own-owned\nfor (const id of ['own', 'other']) {\n  const { repo, service } = fresh();\n  assert.throws(() => service.archive(viewer, id), err => err instanceof Error && err.message === 'forbidden');\n  assert.deepEqual(repo.audit, []);\n  assert.equal(repo.documents.find(d => d.id === id).archived, false);\n}\n\n// repeat archive: no-op, permission still enforced first even when already archived\n{\n  const { repo, service } = fresh();\n  service.archive(admin, 'other');\n  service.archive(admin, 'other');\n  assert.deepEqual(repo.audit, [{ actor: 'admin', document: 'other' }]);\n  assert.throws(() => service.archive(editor, 'other'), /forbidden/);\n  assert.throws(() => service.archive(viewer, 'other'), /forbidden/);\n  assert.deepEqual(repo.audit, [{ actor: 'admin', document: 'other' }]);\n  assert.equal(repo.documents.find(d => d.id === 'other').archived, true);\n}\n{\n  const { repo, service } = fresh();\n  service.archive(editor, 'own');\n  service.archive(editor, 'own');\n  assert.deepEqual(repo.audit, [{ actor: 'ed', document: 'own' }]);\n}\n\nconsole.log('checks/auth.cjs: ok');\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\n\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    if (!document) throw new Error('not found');\n    if (!this.isVisible(actor, document)) throw new Error('not found');\n    if (!this.isAuthorized(actor, document)) throw new Error('forbidden');\n    if (!document.archived) this.repository.archive(document, actor.user);\n  }\n\n  /** Active documents in the actor's tenant are visible. */\n  private isVisible(actor: Actor, document: Document): boolean {\n    return !document.deleted && document.tenant === actor.tenant;\n  }\n\n  /**\n   * Admins may archive any visible document; editors only ones they own;\n   * viewers never may.\n   */\n  private isAuthorized(actor: Actor, document: Document): boolean {\n    switch (actor.role) {\n      case 'admin':\n        return true;\n      case 'editor':\n        return document.owner === actor.user;\n      case 'viewer':\n        return false;\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/auth.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 113,
+    "removed_lines": 10
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5535411249729805
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0660716249840334,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06233524999697693,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

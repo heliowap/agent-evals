@@ -1,0 +1,30 @@
+diff --git a/bottle.py b/bottle.py
+index 2d013a0..9edceaf 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -2876,7 +2876,7 @@ def parse_auth(header):
+     try:
+         method, data = header.split(None, 1)
+         if method.lower() == 'basic':
+-            user, pwd = touni(base64.b64decode(tob(data))).split(':')
++            user, pwd = touni(base64.b64decode(tob(data))).split(':', 1)
+             return user, pwd
+     except (KeyError, ValueError):
+         return None
+diff --git a/test/test_environ.py b/test/test_environ.py
+index c9f2940..1c5525c 100755
+--- a/test/test_environ.py
++++ b/test/test_environ.py
+@@ -427,6 +427,12 @@ class TestRequest(unittest.TestCase):
+         del r.environ['HTTP_AUTHORIZATION']
+         self.assertEqual(r.auth, (user, None))
+ 
++    def test_auth_colon_in_password(self):
++        user, pwd = 'marc', 'se:cr:et'
++        basic = touni(base64.b64encode(tob('%s:%s' % (user, pwd))))
++        r = BaseRequest({'HTTP_AUTHORIZATION': 'basic %s' % basic})
++        self.assertEqual(r.auth, (user, pwd))
++
+     def test_remote_route(self):
+         ips = ['1.2.3.4', '2.3.4.5', '3.4.5.6']
+         r = BaseRequest({})

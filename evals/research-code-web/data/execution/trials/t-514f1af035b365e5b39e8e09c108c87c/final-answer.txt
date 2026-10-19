@@ -1,0 +1,90 @@
+### Test Locations and Exact Assertions
+
+In the Zod v4 classic test suite (`packages/zod/src/v4/classic/tests/transform.test.ts`), the three specified tests are located across lines 93–125:
+
+1. **Synchronous number-to-string transformation in an object**
+   - **Path & Line Span:** `packages/zod/src/v4/classic/tests/transform.test.ts:93–102` (`test("coercion", ...)`)
+   - **Schema & Execution:**
+     ```ts
+     const numToString = z.number().transform((n) => String(n));
+     const data = z
+       .object({
+         id: numToString,
+       })
+       .parse({ id: 5 });
+     ```
+   - **Exact Asserted Outcome:**
+     - `expect(data).toEqual({ id: "5" });` (line 101)
+
+2. **Asynchronous transformation via asynchronous parsing**
+   - **Path & Line Span:** `packages/zod/src/v4/classic/tests/transform.test.ts:104–113` (`test("async coercion", ...)`)
+   - **Schema & Execution:**
+     ```ts
+     const numToString = z.number().transform(async (n) => String(n));
+     const data = await z
+       .object({
+         id: numToString,
+       })
+       .parseAsync({ id: 5 });
+     ```
+   - **Exact Asserted Outcome:**
+     - `expect(data).toEqual({ id: "5" });` (line 112)
+
+3. **Asynchronous transformation via synchronous parsing**
+   - **Path & Line Span:** `packages/zod/src/v4/classic/tests/transform.test.ts:115–125` (`test("sync coercion async error", ...)`)
+   - **Schema & Execution:**
+     ```ts
+     const asyncNumberToString = z.number().transform(async (n) => String(n));
+     expect(() =>
+       z
+         .object({
+           id: asyncNumberToString,
+         })
+         .parse({ id: 5 })
+     ).toThrow();
+     ```
+   - **Exact Asserted Outcome:**
+     - `expect(() => ...).toThrow();` (lines 117–123)
+
+---
+
+### Assertion Error Class / Message Verification
+
+- **Does the test assert an exact error class or message?**  
+  **No.** The test only asserts a generic rejection using `.toThrow()` with no arguments (`transform.test.ts:123`). It does not verify the thrown constructor (such as `expect(...).toThrowError(core.$ZodAsyncError)`), nor does it match against any specific error message or pattern.
+
+---
+
+### Core Runtime Check Explaining Synchronous Rejection
+
+The underlying synchronous parsing engine in Zod v4 core performs a runtime check on the result of running the schema logic:
+
+- **Path & Line Span:** `packages/zod/src/v4/core/parse.ts:25–28`
+  ```ts
+  const result = schema._zod.run({ value, issues: [] }, ctx);
+  if (result instanceof Promise) {
+    throw new core.$ZodAsyncError();
+  }
+  ```
+- **Error Definition:** `packages/zod/src/v4/core/core.ts:166–170`
+  ```ts
+  export class $ZodAsyncError extends Error {
+    constructor() {
+      super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
+    }
+  }
+  ```
+
+During synchronous `parse(...)`, `_parse` executes `schema._zod.run(...)` with `{ async: false }`. When child transformations produce a `Promise`, the returned run result is an `instanceof Promise`, causing `parse` to synchronously throw `new core.$ZodAsyncError()`.
+
+---
+
+### Separation of Inference, Test Assertions, and Unresolved Limitations
+
+1. **Test-Level Evidence vs. Static Inference:**
+   - **Test Assertions:** The test suite only proves that calling `.parse({ id: 5 })` with an `async (n) => String(n)` transform throws an exception of some kind (`.toThrow()`).
+   - **Static Implementation Inference:** Inspecting `packages/zod/src/v4/core/parse.ts` and `packages/zod/src/v4/core/core.ts` reveals that the thrown error is specifically `$ZodAsyncError` with the message `"Encountered Promise during synchronous parse. Use .parseAsync() instead."`. However, this specific error class and message are an implementation inference and are completely unverified by the test itself.
+
+2. **Unresolved Limitations & Arbitrary Callback Behavior:**
+   - **Runtime vs. Static Nature:** Zod relies on a post-execution runtime check (`result instanceof Promise`) rather than static analysis of the transformer callback. 
+   - **Arbitrary Callback Logic:** The parser cannot know ahead of time whether an arbitrary callback function is asynchronous until it is called. If a callback returns a `Promise` conditionally (e.g., depending on input values or external runtime conditions), synchronous parsing only fails when an execution path actually returns a `Promise`. The test suite does not cover custom thenables, dynamically conditional promises, or non-native promise types in this scenario.

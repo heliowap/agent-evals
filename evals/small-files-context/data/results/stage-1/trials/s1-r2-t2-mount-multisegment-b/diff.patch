@@ -1,0 +1,43 @@
+diff --git a/bottle/05_app_bottle.py b/bottle/05_app_bottle.py
+index 23e8bc1..457a180 100644
+--- a/bottle/05_app_bottle.py
++++ b/bottle/05_app_bottle.py
+@@ -122,7 +122,7 @@ class Bottle:
+                 rs.body = itertools.chain(rs.body, body) if rs.body else body
+                 return rs
+             finally:
+-                request.path_shift(-1)
++                request.path_shift(-path_depth)
+ 
+         options.setdefault('skip', True)
+         options.setdefault('method', 'PROXY')
+diff --git a/test/test_mount.py b/test/test_mount.py
+index f29018a..3e8ac77 100644
+--- a/test/test_mount.py
++++ b/test/test_mount.py
+@@ -77,7 +77,24 @@ class TestAppMounting(ServerTestBase):
+         self.assertBody('WSGI /', '/test/')
+         self.assertHeader('X-Test', 'WSGI', '/test/')
+         self.assertBody('WSGI /test/bar', '/test/test/bar')
+-            
++
++    def test_mount_wsgi_multi_segment_restores_path(self):
++        seen = {}
++        def app(environ, start_response):
++            start_response('200 OK', [])
++            return 'WSGI'
++        @self.app.hook('after_request')
++        def record():
++            seen['path'] = bottle.request.path
++            seen['script_name'] = bottle.request.script_name
++        self.app.mount('/api/v1', app)
++        self.assertBody('WSGI', '/api/v1/foo/bar')
++        self.assertEqual('/api/v1/foo/bar', seen['path'])
++        self.assertEqual('/', seen['script_name'])
++        self.assertBody('WSGI', '/api/v1/')
++        self.assertEqual('/api/v1/', seen['path'])
++        self.assertEqual('/', seen['script_name'])
++
+     def test_mount_cookie(self):
+         @self.subapp.route('/cookie')
+         def test_cookie():

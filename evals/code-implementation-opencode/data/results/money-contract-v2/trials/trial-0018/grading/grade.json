@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_amounts.py": "import os\nimport sys\nimport unittest\nfrom decimal import Decimal, Inexact, Rounded, ROUND_UP, localcontext\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\nfrom src.api import make_invoice\nfrom src.money import format_amount, parse_amount\n\n\nclass AmountTests(unittest.TestCase):\n    def test_valid_amounts(self):\n        cases = [\n            (1, \"1.00\"),\n            (\"+00012.5000\", \"12.50\"),\n            (\"000.01000\", \"0.01\"),\n            (\"1000000.000\", \"1000000.00\"),\n            (Decimal(\"1E+2\"), \"100.00\"),\n            (Decimal(\"123.45\" + \"0\" * 1000), \"123.45\"),\n        ]\n        for value, expected in cases:\n            with self.subTest(value=value):\n                result = parse_amount(value)\n                self.assertEqual(result, Decimal(expected))\n                self.assertEqual(result.as_tuple().exponent, -2)\n                self.assertEqual(format_amount(result), expected)\n\n    def test_invalid_amounts(self):\n        values = [\n            True, False, 1.0, None, [], {}, object(),\n            \"\", \".1\", \"1.\", \" 1\", \"1 \", \"1\\n\", \"1e2\", \"1_0\",\n            \"١\", \"１\", \"1.٢\", \"++1\", \"+\", \"NaN\", \"Infinity\",\n            0, -1, \"-0.00\", \"-0.01\", \"0.001\", \"1.23001\",\n            \"1000000.01\", 1000001, Decimal(\"NaN\"), Decimal(\"sNaN\"),\n            Decimal(\"Infinity\"), Decimal(\"-Infinity\"), Decimal(\"0\"),\n            Decimal(\"-1\"), Decimal(\"1E-10000\"), Decimal(\"1E+10000\"),\n            Decimal(\"1.00000000000000000000001\"),\n        ]\n        for value in values:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_invoices(self):\n        self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n        amounts = [\"1.20\", Decimal(\"2.3000\"), 3]\n        original = amounts[:]\n        self.assertEqual(make_invoice(amounts), {\"total\": \"6.50\", \"count\": 3})\n        self.assertEqual(amounts, original)\n        self.assertEqual(\n            make_invoice([\"999999.99\", \"0.01\"]),\n            {\"total\": \"1000000.00\", \"count\": 2},\n        )\n        for values in (None, \"1.20\", (1, 2), {1, 2}, iter([1]), 1,\n                       [True], [0], [\"1.001\"], [1.0], [\"1000000\", \"0.01\"]):\n            with self.subTest(values=values):\n                with self.assertRaises(ValueError):\n                    make_invoice(values)\n\n    def test_independent_of_caller_context(self):\n        with localcontext() as context:\n            context.prec = 3\n            context.rounding = ROUND_UP\n            context.Emax = 2\n            context.Emin = -2\n            context.traps[Inexact] = True\n            context.traps[Rounded] = True\n            context.clear_flags()\n            before = context.copy()\n            self.assertEqual(parse_amount(\"999999.99000\"), Decimal(\"999999.99\"))\n            self.assertEqual(\n                make_invoice([\"999999.99\", \"0.01\"]),\n                {\"total\": \"1000000.00\", \"count\": 2},\n            )\n            self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n            with self.assertRaises(ValueError):\n                parse_amount(\"1.001\")\n            with self.assertRaises(ValueError):\n                make_invoice([\"1000000\", \"0.01\"])\n            self.assertEqual(context.prec, before.prec)\n            self.assertEqual(context.rounding, before.rounding)\n            self.assertEqual(context.Emax, before.Emax)\n            self.assertEqual(context.Emin, before.Emin)\n            self.assertEqual(context.traps, before.traps)\n            self.assertEqual(context.flags, before.flags)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/api.py": "from decimal import Context, Decimal, localcontext\n\nfrom .money import MAX_AMOUNT, parse_amount, format_amount\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"Amounts must be a list\")\n\n    # Each partial total is bounded by MAX_AMOUNT; adding one validated item\n    # needs at most nine digits, so this context never rounds a sum.\n    with localcontext(Context(prec=9)):\n        total = Decimal(\"0.00\")\n        for item in amounts:\n            total += parse_amount(item)\n            if total > MAX_AMOUNT:\n                raise ValueError(\"Invoice total must not exceed 1000000.00\")\n\n    return {\"total\": format_amount(total), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Context, Decimal, Inexact, InvalidOperation\n\n\n_AMOUNT_PATTERN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\")\n_CENT = Decimal(\"0.01\")\nMAX_AMOUNT = Decimal(\"1000000.00\")\n\n\ndef parse_amount(value):\n    \"\"\"Validate a positive amount and return its exact two-decimal value.\"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"Boolean values are not amounts\")\n    if isinstance(value, str):\n        if _AMOUNT_PATTERN.fullmatch(value) is None:\n            raise ValueError(\"Invalid amount syntax\")\n        amount = Decimal(value)\n    elif isinstance(value, (Decimal, int)):\n        amount = Decimal(value)\n    else:\n        raise ValueError(\"Amounts must be Decimal objects, integers, or strings\")\n\n    if not amount.is_finite() or amount <= 0 or amount > MAX_AMOUNT:\n        raise ValueError(\"Amount must be positive and at most 1000000.00\")\n\n    # Nine digits cover every allowed cent value. A separate context avoids\n    # caller precision/traps, and Inexact rejects any nonzero fractional cent.\n    try:\n        return amount.quantize(\n            _CENT, context=Context(prec=9, traps=[Inexact, InvalidOperation])\n        )\n    except (Inexact, InvalidOperation) as exc:\n        raise ValueError(\"Amount must be exactly representable in cents\") from exc\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/test_amounts.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 146,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.05108745797770098
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04508716700365767,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04903712499071844,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

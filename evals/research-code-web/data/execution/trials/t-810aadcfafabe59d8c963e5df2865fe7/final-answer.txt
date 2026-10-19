@@ -1,0 +1,37 @@
+## Answer
+
+Based on the Kubernetes v1.34 documentation's Version Skew Policy (v1-34.docs.kubernetes.io/releases/version-skew-policy/), which explicitly applies the policy **as specified by Kubernetes v1.34** only:
+
+### 1. All kube-apiserver instances at 1.34
+
+The v1.34 doc states:
+
+> "`kubectl` is supported within one minor version (older or newer) of kube-apiserver.
+> - kube-apiserver is at 1.34
+> - kubectl is supported at **1.35, 1.34, and 1.33**"
+
+**General rule:** kubectl may be skewed a maximum of **one minor version older or newer** than kube-apiserver (here, 1.33–1.35).
+
+### 2. HA cluster with kube-apiserver instances at both 1.33 and 1.34
+
+The v1.34 doc notes that skew between kube-apiserver instances narrows the supported kubectl versions:
+
+> "kube-apiserver instances are at 1.34 and 1.33
+> kubectl is supported at **1.34 and 1.33** (other versions would be more than one minor version skewed from one of the kube-apiserver components)"
+
+- **Permitted intersection:** kubectl **1.34 and 1.33**. (1.35 is one minor newer than 1.34 but two minor versions newer than the 1.33 apiserver; 1.32 would be two minors older than 1.34.)
+- **kubectl 1.35 during this window:** **Not supported** — relative to the 1.33 kube-apiserver instances, kubectl 1.35 is a two-minor-version skew, exceeding the one-minor rule.
+
+### 3. After all servers reach 1.34
+
+Once every kube-apiserver is **1.34** (no skew within the HA cluster), the single-apiserver rule applies again:
+
+> kubectl is supported at **1.35, 1.34, and 1.33**
+
+So **kubectl 1.35 becomes supported again**, since it is exactly one minor version newer than kube-apiserver 1.34.
+
+### Limitations and scope
+
+- All three cases were derived from the v1.34-pinned Version Skew Policy page (confirmed via the v1-34 search result snippet, which lists "kube-apiserver is at 1.34 → kubectl is supported at 1.35, 1.34, and 1.33" and the HA example "1.34 and 1.33 → kubectl 1.34 and 1.33"). No newer-policy versions (e.g., the 1.35/1.36/1.37 docs) were applied, per your instruction.
+- This is the version-skew policy only — no release-support (which minor branches receive patches) or vendor-managed-SKU rules were considered.
+- The policy note also states it applies to kubectl's compatibility with kube-apiserver; it does not bind a specific kubectl patch version, and cluster deployment tools may impose additional restrictions, which are outside this policy.

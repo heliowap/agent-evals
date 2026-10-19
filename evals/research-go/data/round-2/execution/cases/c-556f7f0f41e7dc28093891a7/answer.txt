@@ -1,0 +1,30 @@
+**Decision — use long-form `depends_on` on 2.18.0**
+
+```yaml
+api:
+  depends_on:
+    db: {condition: service_healthy, restart: true}
+    migrate: {condition: service_completed_successfully}
+migrate:
+  depends_on:
+    db: {condition: service_healthy}
+db:
+  restart: always
+  healthcheck: {test: [...], interval: 10s, retries: 5}
+```
+
+**Corrections to the proposal**
+- Short-form `depends_on` only guarantees dependency *started*, not ready; readiness needs `condition` ([startup order](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)). Keep the healthcheck, but express it as `service_healthy`.
+- `restart: true` restarts the dependent "after it updates the dependency service… an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies"; introduced in 2.17.0, so usable in 2.18.0 ([depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)).
+- `required: false` was **introduced in Docker Compose 2.20.0** ([depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). On 2.18.0 the telemetry proposal is invalid — upgrade, or gate telemetry with `profiles` instead.
+- `restart: always` on `db` is that service's own policy, not a Compose restart trigger for `api` ([restart](https://docs.docker.com/reference/compose-file/services/#restart)).
+
+**Separating the concerns**
+- Container startup order: guaranteed; dependencies created/started first.
+- Health/readiness: only via `service_healthy`.
+- Migration completion: only via `service_completed_successfully`; it does not re-verify DB readiness afterwards.
+- Explicit operator restart of `db`: `restart: true` restarts `api`.
+- Runtime restart (daemon policy restarting a crashed `db`): **not propagated** — documented exclusion.
+
+**The readiness promise**
+No. Compose's `depends_on` is evaluated at `up` and on Compose-controlled restarts; with `restart: true` the API can even be restarted while the DB is still unhealthy. Nothing here keeps the API "ready to serve" through later DB failures — that needs application retries/circuit-breaking, with the API's own `healthcheck` used for observability ([healthcheck](https://docs.docker.com/reference/compose-file/services/#healthcheck)). UNVERIFIED: exact 2.18.0 behavior for `stop`/`start` vs `restart`, and implicitly recreated dependencies; resolve via https://github.com/docker/compose/releases/tag/v2.18.0.

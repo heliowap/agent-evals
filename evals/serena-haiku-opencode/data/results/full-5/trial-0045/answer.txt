@@ -1,0 +1,16 @@
+Both `get_document` and `list_documents` now enforce tenant, owner, and `deleted_at IS NULL` in the SQL itself. The public check and a new security check both pass.
+
+**Changes**
+
+- **`src/repository.py`**
+  - `find(connection, tenant, owner, document_id)` filters on `id`, `tenant`, `owner`, and `deleted_at IS NULL`. It returns `None` for any row that doesn't match, so cross-tenant, cross-owner, deleted, and missing IDs look identical.
+  - `listing(connection, tenant, owner)` applies the same filters and orders by `id`. It previously filtered only on `owner`, which leaked across tenants.
+  - All values are passed as bound parameters.
+  - `decode` still returns only `id`, `title`, and `body`, so no deletion metadata is exposed.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` and `owner` through to the repository. Their signatures are unchanged.
+- **`checks/secure_access.py`** (new): covers cross-tenant, cross-owner, deleted, and missing IDs returning `None`. It also checks list scoping, ordering, exact result keys, titles containing quotes, and injection-style strings bound as values.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/secure_access.py` passes.

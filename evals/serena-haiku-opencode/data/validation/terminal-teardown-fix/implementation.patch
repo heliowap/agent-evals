@@ -1,0 +1,257 @@
+--- before/runtime.py
++++ after/runtime.py
+@@ -129,7 +129,7 @@
+     return json.loads(result['stdout'])
+ 
+ 
+-def surface(root, role, arm, filename='surface.jsonl'):
++def surface(root, role, arm, filename='surface.jsonl', until_ms=None):
+     path = root / filename
+     rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+     for row in rows:
+@@ -144,11 +144,16 @@
+             raise ValueError('Duplicate native tool names or identities')
+         if any(tool['id'] != tool['name'] or tool.get('codemode') is not False or tool.get('permission') != tool['name'] for tool in row['tools']):
+             raise ValueError('Native tools must have canonical identities, direct exposure and allowed permission actions')
+-    if any(tool['name'] not in allowed_tools(role, arm) for row in rows for tool in row['tools']):
++    allowed = set(allowed_tools(role, arm))
++    if any(tool['name'] not in allowed for row in rows for tool in row['tools']):
+         raise ValueError('Unexpected tool was exposed by native OpenCode')
+-    if not rows or {tool['name'] for tool in rows[-1]['tools']} != set(allowed_tools(role, arm)):
+-        observed = sorted(tool['name'] for tool in rows[-1]['tools']) if rows else []
+-        raise ValueError(f'Native OpenCode tool surface missing or changed: {observed}')
++    if until_ms is not None:
++        if any(type(row.get('at_ms')) not in (int, float) for row in rows):
++            raise ValueError('Native tool surface rows lack an observation time')
++        rows = [row for row in rows if row['at_ms'] <= until_ms]
++    observed = {tool['name'] for tool in rows[-1]['tools']} if rows else set()
++    if observed != allowed:
++        raise ValueError(f'Native OpenCode tool surface missing or changed: observed {sorted(observed)}; missing {sorted(allowed - observed)}')
+     return rows[-1]
+ 
+ 
+@@ -365,6 +370,13 @@
+         raise ValueError('Native assistant content has an invalid envelope')
+     if info.get('model') != candidate.identity or Path(info['location']['directory']).resolve() != work.resolve():
+         raise ValueError('Session identity or workspace mismatch')
++    activity = info['time'].get('updated') if isinstance(info.get('time'), dict) else None
++    if type(activity) not in (int, float):
++        raise ValueError('Native export lacks session activity time')
++    completed = [message['time'].get('completed') for message in messages if isinstance(message.get('time'), dict)]
++    completed += [part['time'].get('completed') for message in messages if isinstance(message.get('content'), list) for part in message['content'] if isinstance(part, dict) and isinstance(part.get('time'), dict)]
++    if any(type(value) in (int, float) and value > activity for value in completed):
++        raise ValueError('Native export session activity time precedes completed work')
+     assistants = [message for message in messages if message['type'] == 'assistant']
+     if any(message.get('model') != candidate.identity or message.get('agent') != AGENT for message in assistants):
+         raise ValueError('Assistant identity changed')
+@@ -390,7 +402,7 @@
+                 value = value.get(key) if isinstance(value, dict) else None
+             values.append(value)
+         totals[name] = sum(values) if all(type(value) in (int, float) and value >= 0 for value in values) else None
+-    return {'delivery': delivery, 'session_id': info['id'], 'observed_identity': info['model'], 'final': final,
++    return {'delivery': delivery, 'session_id': info['id'], 'observed_identity': info['model'], 'last_activity_ms': activity, 'final': final,
+             'tools': tools, 'usage': totals, 'reported_cost_usd': info.get('cost'),
+             'finishes': [{'finish': message.get('finish'), 'rawFinish': message.get('rawFinish')} for message in assistants],
+             'terminal_output_limit': terminal_limit, 'intermediate_output_limits': len(limited) - int(terminal_limit),
+--- before/bench.py
++++ after/bench.py
+@@ -217,7 +217,7 @@
+         parsed = runtime.parse_session(data, configuration.candidate, work, case.role, configuration.arm)
+         requests = runtime.read_requests(root / 'observations.jsonl')
+         transport = runtime.verify_requests(configuration.candidate, requests, parsed['session_id'])
+-        tools = runtime.surface(artifacts, case.role, configuration.arm, 'timed-surface.jsonl')
++        tools = runtime.surface(artifacts, case.role, configuration.arm, 'timed-surface.jsonl', parsed['last_activity_ms'])
+         runtime.save(artifacts / 'surface.json', tools)
+         if configuration.arm == 'serena':
+             mcp = result['mcp']
+--- before/mcp_bridge.py
++++ after/mcp_bridge.py
+@@ -75,6 +75,10 @@
+                     raise ValueError('MCP response must be an object')
+                 with lock:
+                     request = pending.pop(str(response.get('id')), None)
++                if request and request['method'] == 'initialize' and isinstance(response.get('result'), dict):
++                    result = response['result']
++                    capabilities = result.get('capabilities') if isinstance(result.get('capabilities'), dict) else {}
++                    response = {**response, 'result': {**result, 'capabilities': {key: value for key, value in capabilities.items() if key == 'tools'}}}
+                 if request and request['method'] == 'tools/list' and 'result' in response:
+                     tools = response['result'].get('tools', [])
+                     names = [tool.get('name') for tool in tools]
+--- before/test_bench.py
++++ after/test_bench.py
+@@ -135,7 +135,7 @@
+ 
+     def session(self, work):
+         candidate = CONFIGURATIONS[0].candidate
+-        return candidate, {'info': {'id': 's1', 'model': candidate.identity, 'location': {'directory': str(work)}},
++        return candidate, {'info': {'id': 's1', 'model': candidate.identity, 'location': {'directory': str(work)}, 'time': {'created': 5, 'updated': 20}},
+                            'messages': [{'type': 'user'}, {'type': 'assistant', 'agent': 'navigator', 'model': candidate.identity,
+                            'finish': 'stop', 'content': [{'type': 'text', 'text': '{}'}], 'tokens': {}}, {'type': 'idle', 'outcome': 'succeeded'}]}
+ 
+@@ -143,7 +143,8 @@
+         with tempfile.TemporaryDirectory() as folder:
+             work = Path(folder)
+             candidate, data = self.session(work)
+-            self.assertEqual(runtime.parse_session(data, candidate, work, 'exploration', 'native')['delivery'], 'completed')
++            parsed = runtime.parse_session(data, candidate, work, 'exploration', 'native')
++            self.assertEqual((parsed['delivery'], parsed['last_activity_ms']), ('completed', 20))
+             data['messages'][1]['content'].append({'type': 'tool', 'name': 'bash'})
+             with self.assertRaises(ValueError):
+                 runtime.parse_session(data, candidate, work, 'exploration', 'native')
+@@ -157,6 +158,23 @@
+         for value in ({}, {'data': [{'name': 'serena', 'status': {'status': 'failed'}}]}, {'data': [{'name': 'other', 'status': {'status': 'connected'}}]}):
+             with self.assertRaises(ValueError):
+                 runtime.validate_mcp_status(value)
++
++    def test_export_without_session_activity_time_is_rejected(self):
++        with tempfile.TemporaryDirectory() as folder:
++            work = Path(folder)
++            candidate, data = self.session(work)
++            for time in (None, {}, {'updated': '20'}, {'updated': True}):
++                with self.subTest(time=time):
++                    data['info']['time'] = time
++                    with self.assertRaisesRegex(ValueError, 'session activity time'):
++                        runtime.parse_session(data, candidate, work, 'exploration', 'native')
++            data['info']['time'] = {'updated': 20}
++            data['messages'][1]['time'] = {'created': 6, 'completed': 19}
++            data['messages'][1]['content'][0]['time'] = {'created': 7, 'completed': 21}
++            with self.assertRaisesRegex(ValueError, 'session activity time'):
++                runtime.parse_session(data, candidate, work, 'exploration', 'native')
++            data['messages'][1]['content'][0]['time']['completed'] = 18
++            self.assertEqual(runtime.parse_session(data, candidate, work, 'exploration', 'native')['last_activity_ms'], 20)
+ 
+     def test_export_invalid_envelope(self):
+         for value in ([], {}, {'info': {}, 'messages': [None]}):
+@@ -225,9 +243,31 @@
+             rows = [json.loads(line) for line in (root / 'log.jsonl').read_text().splitlines()]
+             self.assertEqual(sum(row['event'] == 'rejected' for row in rows), 1)
+ 
++    def test_initialize_advertises_only_the_fixed_tools_protocol(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            fake = root / 'fake.py'
++            initialized = {'capabilities': {'experimental': {}, 'prompts': {'listChanged': False}, 'resources': {'listChanged': False, 'subscribe': False},
++                                            'tools': {'listChanged': False}}, 'instructions': 'Read the manual', 'protocolVersion': '2025-11-25',
++                           'serverInfo': {'name': 'Serena', 'version': '2'}}
++            fake.write_text("import sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if 'id' not in r: continue\n print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':" + repr(initialized) + "}),flush=True)\n")
++            command = [sys.executable, '-B', str(bench.ROOT / 'mcp_bridge.py'), '--work', str(root), '--role', 'exploration', '--log', str(root / 'log.jsonl'), '--', sys.executable, '-B', str(fake)]
++            client = mcp_bridge.Client(command, root, {'PATH': '/usr/bin:/bin'}, timeout=5)
++            try:
++                self.assertEqual(client.initialize['result'], {'capabilities': {'tools': {'listChanged': False}}, 'instructions': 'Read the manual',
++                                                               'protocolVersion': '2025-11-25', 'serverInfo': {'name': 'Serena', 'version': '2'}})
++                self.assertEqual(client.request('prompts/list')['error']['message'], 'MCP operation is outside fixed protocol')
++            finally:
++                client.close()
++
+ 
+ class FailureRegressionTests(unittest.TestCase):
+     def failed_stage(self, stage):
++        saved = self.trial(stage)
++        self.assertEqual((saved['status'], saved['passed']), ('infra_error', False))
++        return saved
++
++    def trial(self, stage):
+         with tempfile.TemporaryDirectory() as folder:
+             base = Path(folder)
+             out = base / 'out'
+@@ -235,10 +275,12 @@
+             case = cases.BY_ID['route']
+             frozen = {'inventory': {'route': {'fixture': cases.build(case, base / 'baseline')}}}
+             row = bench.schedule(('route',), 1, 1)[0]
+-            candidate = CONFIGURATIONS[0].candidate
++            if stage == 'teardown':
++                row['configuration'] = 'haiku-medium-serena'
++            candidate = next(item for item in CONFIGURATIONS if item.id == row['configuration']).candidate
+             parsed = {'delivery': 'completed', 'session_id': 'unit-session', 'observed_identity': candidate.identity,
+                       'usage': {}, 'finishes': [], 'terminal_output_limit': False, 'intermediate_output_limits': 0,
+-                      'tools': [], 'error_events': [], 'final': '{}', 'reported_cost_usd': None}
++                      'tools': [], 'error_events': [], 'final': '{}', 'reported_cost_usd': None, 'last_activity_ms': 20}
+             args = type('Args', (), {'database': base / 'unused.db', 'binary': 'unused', 'docker': 'unused', 'image': 'unused'})()
+             with ExitStack() as stack:
+                 stack.enter_context(patch('bench.time.monotonic', side_effect=count()))
+@@ -249,9 +291,21 @@
+                 export = stack.enter_context(patch('bench.runtime.export_session', return_value={}))
+                 stack.enter_context(patch('bench.runtime.parse_session', return_value=parsed))
+                 stack.enter_context(patch('bench.runtime.verify_requests', return_value={'request_count': 1}))
+-                stack.enter_context(patch('bench.runtime.surface', return_value={'tools': []}))
++                if stage != 'teardown':
++                    stack.enter_context(patch('bench.runtime.surface', return_value={'tools': []}))
+                 grade = stack.enter_context(patch('bench.cases.grade'))
+-                if stage == 'invoke':
++                if stage == 'teardown':
++                    surface = DirectSurfaceTests()
++                    def finish_then_teardown(root, work, configuration, case, args, env, container):
++                        (root / 'mcp.jsonl').write_text('')
++                        (root / 'surface.jsonl').write_text(''.join(json.dumps({'event': 'surface', 'at_ms': at_ms, 'tools': tools}) + '\n'
++                                                                    for at_ms, tools in ((10, surface.tools(arm='serena')), (30, surface.tools()))))
++                        return {'wall_s': 0.5, 'session_id': 'unit-session', 'reason': None}
++                    invoke.side_effect = finish_then_teardown
++                    stack.enter_context(patch('bench.runtime.mcp_summary', return_value={'bridge_errors': 0, 'rejected_calls': 0, 'catalog_ready_s': 0.1}))
++                    stack.enter_context(patch('bench.runtime.reconcile_mcp'))
++                    grade.return_value = {'passed': True}
++                elif stage == 'invoke':
+                     def fail_readiness(root, work, configuration, case, args, env, container):
+                         runtime.save(root / 'discovery-receipt.json', {'outcome': 'blocked', 'phase': 'readiness', 'model_inference_calls': 0})
+                         (root / 'mcp-status.jsonl').write_text('{"row_count":0}\n')
+@@ -264,7 +318,9 @@
+                     grade.side_effect = ValueError('unit-grading-failure')
+                 result = bench.run_trial(row, out, base / 'private', args, frozen)
+             saved = json.loads((out / row['id'] / 'result.json').read_text())
+-            self.assertEqual((result['status'], saved['status'], saved['passed']), ('infra_error', 'infra_error', False))
++            self.assertEqual(result['status'], saved['status'])
++            if stage == 'teardown':
++                self.assertEqual(json.loads((out / row['id'] / 'surface.json').read_text())['at_ms'], 10)
+             if stage == 'invoke':
+                 artifacts = out / row['id']
+                 self.assertEqual(json.loads((artifacts / 'discovery-receipt.json').read_text()),
+@@ -280,6 +336,10 @@
+     def test_grading_failure_preserves_elapsed_stage(self):
+         saved = self.failed_stage('grading')
+         self.assertEqual((saved['export_s'], saved['grading_s']), (1, 1))
++
++    def test_teardown_catalog_does_not_fail_completed_serena_trial(self):
++        saved = self.trial('teardown')
++        self.assertEqual((saved['status'], saved['passed']), ('completed', True))
+ 
+     def test_invoke_readiness_failure_preserves_trial_evidence(self):
+         saved = self.failed_stage('invoke')
+@@ -332,6 +392,39 @@
+ 
+     def save_surface(self, root, tools):
+         (root / 'surface.jsonl').write_text(json.dumps({'event': 'surface', 'tools': tools}) + '\n')
++
++    def save_timed_surface(self, root, rows):
++        (root / 'surface.jsonl').write_text(''.join(json.dumps({'event': 'surface', 'at_ms': at_ms, 'tools': tools}) + '\n' for at_ms, tools in rows))
++
++    def test_surface_ignores_catalog_unloaded_after_session_activity(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            self.save_timed_surface(root, [(10, self.tools(arm='serena')), (30, self.tools())])
++            self.assertEqual(runtime.surface(root, 'exploration', 'serena', until_ms=20)['at_ms'], 10)
++            with self.assertRaisesRegex(ValueError, "changed: observed \\['glob', 'grep', 'read'\\]; missing \\['serena_find_referencing_symbols'"):
++                runtime.surface(root, 'exploration', 'serena')
++
++    def test_surface_rejects_catalog_lost_before_session_activity(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            self.save_timed_surface(root, [(10, self.tools(arm='serena')), (15, self.tools()), (30, self.tools(arm='serena'))])
++            with self.assertRaisesRegex(ValueError, "changed: observed \\['glob', 'grep', 'read'\\]"):
++                runtime.surface(root, 'exploration', 'serena', until_ms=20)
++
++    def test_surface_after_session_activity_still_rejects_unexpected_tools(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            extra = [*self.tools(arm='serena'), {'name': 'bash', 'id': 'bash', 'codemode': False, 'permission': 'bash'}]
++            self.save_timed_surface(root, [(10, self.tools(arm='serena')), (30, extra)])
++            with self.assertRaisesRegex(ValueError, 'Unexpected tool'):
++                runtime.surface(root, 'exploration', 'serena', until_ms=20)
++
++    def test_surface_activity_bound_requires_observation_times(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            self.save_surface(root, self.tools(arm='serena'))
++            with self.assertRaisesRegex(ValueError, 'observation time'):
++                runtime.surface(root, 'exploration', 'serena', until_ms=20)
+ 
+     def test_exploration_baseline_matches_observed_native_catalog(self):
+         observed = json.loads((bench.ROOT / 'native-catalog-fixture.json').read_text())

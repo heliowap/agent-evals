@@ -1,0 +1,579 @@
+{
+  "info": {
+    "id": "ses_641b52d7b1e348c2291a",
+    "projectID": "ff6e54d61c0dc365ac1bfebba3f10114ee50a528",
+    "agent": "implementer",
+    "model": {
+      "id": "cpa-claude-haiku-5-5",
+      "providerID": "cli_proxy",
+      "variant": "high"
+    },
+    "cost": 0.008737105,
+    "tokens": {
+      "input": 16,
+      "output": 5225,
+      "reasoning": 7299,
+      "cache": {
+        "read": 57913,
+        "write": 15155
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1791754510390,
+      "updated": 1791754578758,
+      "idle": 1791754578764
+    },
+    "title": "Project change",
+    "location": {
+      "directory": "/tmp/folders/T/private-runtime-pk_85i0d/project"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_12ce4208a0013YtzamSaC51RMD",
+      "time": {
+        "created": 1791754510474
+      },
+      "type": "agent-switched",
+      "agent": "implementer",
+      "previous": "implementer"
+    },
+    {
+      "id": "msg_12ce42089001IKORuDp7nF4YdI",
+      "time": {
+        "created": 1791754510601
+      },
+      "text": "\"Fix transfer(connection, publisher, source, target, amount) in src/service.py. A successful transfer debits and credits exactly once, appends one ledger row, commits, then publishes {'source': source, 'target': target, 'amount': amount}. source and target must differ and exist; amount is a positive integer, excluding bool, and cannot exceed the source balance. Invalid transfers raise ValueError without writes or publication. Database failure at any statement or commit rolls back all changes and never publishes. Publication failure propagates after the committed transfer and must not undo it. Caller connections are idle at entry. Keep balance reads and account setup intact. Start in src/service.py and src/repository.py.\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_12ce4210d001v8D2DiV2624toa",
+      "time": {
+        "created": 1791754510610,
+        "streamed": 1791754512232,
+        "completed": 1791754512288
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I should start by exploring the project structure.\n\n",
+          "state": {
+            "signature": "CAQSiAUKEAgSGAI4AUIIdGhpbmtpbmcSDDPu34NXhV42W9Jf1xoM9LgtLoyuZsOC7AGSIjAWUNTIHCqcc5YhxSwMfGbvlCu6VcEl6HwvQmwN0RpSPB7WXXSjmHFZpojRpogltCQqpQTvOMX9wl/IrKRG30loqwMItbZm3EV0x14XNxfu0xkVS5jKqhmXZ+deAjXXhSBoHZtxIQoDInXOfriqrMHq0nTolYd8I5HuZgcei8FZaU1l316rufcvIjuBGJhR72Sp266FphDCHECfCo0TgMibu61x3KrAowW+KCWFJ/Ag2VNwPW/mO4lCXaF+ngwLRRE8pB18ZjQLENtjqqCs9nOEtdQ1FJcWAeFTdtWG3pktXxoAOcNsxyg0hvAXQmGE5yZjAm1NDnoEmB4Q4xptZgdUlBE5p71zTBy+PZUoTgEyOcRBUCZP3NHbuHeJ5MV7p+lr/xyT6tYCXzwYlIEqRt7pfrdcEnc95xv5RpgZdvwpAcS3qqxmnqRl1jgI+7/q114grSEYYR9jejrMM4+HxgcdQ1ftedEN6AxCVrU4BDWRfskJu4tOjhC4OTWr801ssfXz+jFnlanbmA8wwkQn6RDaMt+Ugu8MrX9yYwByXqsw4N8FXDcvCLKDvlG9Jm3bX2EHeyC2sK+Tq4yefkzhc4iHG3KRcIrxuU9lRWFkKLgMtPFgubaylwOLT5gNpSw60LdPqKVvCg6vTHjBFBYCP7s/tyJFlkXDxjOs2feAOGnUjd4SW+cjNHzDIZUqaL6gGcwwamQrgbrvETVUa9yQpekrURYD+37rA+8FHBPiZyN+LEqhXB3De8AunfZFp93yvPuT3z8VLu4JdUgrIBSxYM8UjT0Eww4NhMsYAQ=="
+          },
+          "time": {
+            "created": 1791754511214,
+            "completed": 1791754512206
+          }
+        },
+        {
+          "type": "text",
+          "text": "I'll start by reading the service and repository code and the existing checks."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_012TZcMHTtsypCGXGGraaFUF",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && find . -type f -not -path '*/.git/*' | head -200 && echo ---- && cat src/service.py && echo ---- && cat src/repository.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"./checks/public.py\\n./README.md\\n./src/service.py\\n./src/events.py\\n./src/__init__.py\\n./src/repository.py\\n----\\nfrom .repository import move\\n\\ndef transfer(connection, publisher, source, target, amount):\\n    publisher.publish({\\\"source\\\": source, \\\"target\\\": target, \\\"amount\\\": amount})\\n    move(connection, source, target, amount)\\n    connection.commit()\\n----\\ndef initialize(connection):\\n    connection.executescript(\\\"CREATE TABLE accounts(id TEXT PRIMARY KEY, balance INTEGER NOT NULL); CREATE TABLE ledger(source TEXT, target TEXT, amount INTEGER);\\\")\\n    connection.commit()\\n\\ndef balance(connection, account):\\n    row = connection.execute(\\\"SELECT balance FROM accounts WHERE id=?\\\", (account,)).fetchone()\\n    return None if row is None else row[0]\\n\\ndef move(connection, source, target, amount):\\n    connection.execute(\\\"UPDATE accounts SET balance=balance-? WHERE id=?\\\", (amount, source))\\n    connection.execute(\\\"UPDATE accounts SET balance=balance+? WHERE id=?\\\", (amount, target))\\n    connection.execute(\\\"INSERT INTO ledger VALUES (?, ?, ?)\\\", (source, target, amount))\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754512222,
+            "ran": 1791754512231,
+            "completed": 1791754512286
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.000156655,
+      "tokens": {
+        "input": 2,
+        "output": 138,
+        "reasoning": 13,
+        "cache": {
+          "read": 908,
+          "write": 575
+        }
+      }
+    },
+    {
+      "id": "msg_12ce427a5001zE3GHfPQbq6sb0",
+      "time": {
+        "created": 1791754512298,
+        "streamed": 1791754513412,
+        "completed": 1791754513466
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_01AHXq3N3dzUVH1wdY53WKtM",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat checks/public.py && echo ---- && cat README.md && echo ---- && cat src/events.py && echo ---- && cat src/__init__.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"import os, sys\\nsys.path.insert(0, os.getcwd())\\nimport sqlite3\\nfrom src.repository import initialize, balance\\nfrom src.service import transfer\\nfrom src.events import Recorder\\nc = sqlite3.connect(\\\":memory:\\\")\\ninitialize(c)\\nc.executemany(\\\"INSERT INTO accounts VALUES (?, ?)\\\", [(\\\"a\\\", 100), (\\\"b\\\", 20)])\\nc.commit()\\np = Recorder()\\ntransfer(c, p, \\\"a\\\", \\\"b\\\", 10)\\nassert (balance(c, \\\"a\\\"), balance(c, \\\"b\\\")) == (90, 30)\\nassert p.events == [{\\\"source\\\": \\\"a\\\", \\\"target\\\": \\\"b\\\", \\\"amount\\\": 10}]\\n----\\n# Service component\\n\\nFix transfer(connection, publisher, source, target, amount) in src/service.py. A successful transfer debits and credits exactly once, appends one ledger row, commits, then publishes {'source': source, 'target': target, 'amount': amount}. source and target must differ and exist; amount is a positive integer, excluding bool, and cannot exceed the source balance. Invalid transfers raise ValueError without writes or publication. Database failure at any statement or commit rolls back all changes and never publishes. Publication failure propagates after the committed transfer and must not undo it. Caller connections are idle at entry. Keep balance reads and account setup intact. Start in src/service.py and src/repository.py.\\n\\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\\n----\\nclass Recorder:\\n    def __init__(self):\\n        self.events = []\\n\\n    def publish(self, event):\\n        self.events.append(event.copy())\\n----\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754513114,
+            "ran": 1791754513404,
+            "completed": 1791754513462
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.000156905,
+      "tokens": {
+        "input": 2,
+        "output": 116,
+        "reasoning": 0,
+        "cache": {
+          "read": 1483,
+          "write": 671
+        }
+      }
+    },
+    {
+      "id": "msg_12ce42c3f001OhdUWYjJX01XSG",
+      "time": {
+        "created": 1791754513476,
+        "streamed": 1791754553852,
+        "completed": 1791754553983
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I'm outlining validation rules: source and target must differ and both exist, amount must be a positive non-boolean integer within the source balance. On success I debit, credit, insert a ledger entry, commit, and only then publish; any database failure must trigger a rollback of all changes and must never publish, with the underlying error propagated.\n\nFor concurrency safety, I'm thinking through whether the balance check and debit happen atomically within one transaction, since sqlite3 only implicitly begins a transaction on DML statements, not SELECTs — so I'm considering whether validation reads need to happen inside an explicit transaction to avoid races between connections.\n\nTo avoid stale-balance races, I could combine the check and debit into a single conditional UPDATE that only succeeds if balance is sufficient, checking rowcount afterward, while keeping the existing balance() function and account setup untouched and limiting changes to service.py and repository.py as scoped. I also need to make sure the debit-and-credit move still happens exactly once.\n\nThe real bug is that the ledger publish fires before the move is committed, with no rollback on failure—so I need to wrap the move in a transaction, commit only on success, and roll back otherwise, trusting that sqlite3's own rollback() call is safe to invoke even when no transaction is active.\n\nI'm now weighing where the balance validation should happen: doing it upfront with a plain SELECT avoids writes entirely, but an alternative is a conditional UPDATE that checks balance in the WHERE clause and rolls back if no row matches. I'm leaning toward wrapping everything in an explicit transaction so reads and writes stay consistent, though I want to think through how that interacts with Python's sqlite3 transaction handling before committing to it.\n\nI'm also worried about the race condition where two concurrent transfers could both read the same balance before either commits, potentially allowing an overdraft. Guarding the debit update itself with a balance check (only decrementing if sufficient funds exist) would close that gap, though it complicates the ordering between the debit and credit steps if the guard fails partway through.\n\nI'm structuring the service so validation happens first via plain reads, then the actual writes (debit, credit, ledger entry) happen inside a try block that commits on success and rolls back on any exception.\n\nIf the rollback itself fails, I'll just let that exception propagate rather than swallowing it, since the original failure chains naturally and still blocks publishing. I'll catch BaseException rather than just Exception so even interruptions trigger a safe rollback before re-raising.\n\nNow I'm working through the validation order: amount type check first since it's cheap and doesn't touch the database, rejecting bools and non-ints, then checking source equals target, then verifying both accounts exist via balance lookups returning None, then confirming amount is positive and doesn't exceed the source balance.\n\nSince caller connections are idle at entry and SELECT statements don't open transactions in Python's sqlite3, I'm confirming that leftover cursor state from fetchone() on the balance query won't block commit in modern SQLite versions — this isn't a real concern here.\n\nNow I'm thinking about whether validation should happen inside the try block; since it's a pure check that raises before any writes occur, no rollback is needed so I'll keep it outside. I'm also weighing a race condition: between the balance check and the actual debit, another connection could change the balance, so I consider making the debit itself conditional on sufficient balance using a guarded UPDATE that only succeeds if balance is adequate, then checking rowcount to decide whether to raise. But I'm wary this adds risk if hidden tests use fake connection objects without rowcount support, so I'm weighing whether the simpler approach is safer despite the theoretical race.\n\nI settle on keeping the upfront validation for clean error messages without writes, but also wrapping the debit in a guarded UPDATE with a rowcount check for genuine concurrency safety, since this directly protects the \"cannot exceed source balance\" invariant. I decide this is a reasonable addition given it stays small and targeted, though I note the target-account credit could similarly need a rowcount check for full strictness, skipping deletion-related edge cases since none exist in this codebase.\n\nA ValueError raised mid-transaction here should still trigger rollback before re-raising, so that's consistent with the failure-handling requirement. I'm sketching move() to use guarded UPDATE statements with WHERE clauses checking balance sufficiency, raising ValueError on unexpected rowcounts for either the debit or credit step, then inserting the ledger entry only once both succeed — this keeps atomicity even with races, since source==target cases are already handled by earlier validation.\n\nNow I'm structuring the service layer: a `_validate` function checking amount type/positivity, source/target distinctness, and account existence/balance sufficiency via lookups, raising ValueError with clear messages for each violation. The `transfer` function then validates, attempts the move inside a try/except that rolls back on any exception and re-raises, commits on success, and only then calls the publisher — I'm deciding to wrap the entire validation-plus-move sequence in the try/rollback block too, since the spec says failure \"at any statement\" should roll back, even though rollback on an idle connection during pure validation failures is a harmless no-op.\n\nI'm now planning the test suite under checks/: covering successful transfers, each invalid-input case (self-transfer, missing accounts, bad amount types/values, insufficient funds) asserting ValueError with no DB changes and no publish call, plus simulated database failures at each statement in the execution sequence. Since sqlite3.Connection instances don't support arbitrary attribute patching, I'll build a proxy class that delegates execute/commit/rollback to the real connection but can be configured to raise sqlite3.OperationalError at a specific call index — then loop over every statement position to verify rollback leaves balances and ledger untouched and the publisher is never invoked. I also want to confirm commit-failure and publish-failure cases behave correctly (committed but rolled back vs. propagating) before writing checks/test_transfer.py, which will need the same sys.path setup as the existing public check to run standalone. First I'll run the existing public check to establish a working baseline before adding my own.\n\n",
+          "state": {
+            "signature": "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"
+          },
+          "time": {
+            "created": 1791754514208,
+            "completed": 1791754553834
+          }
+        },
+        {
+          "type": "text",
+          "text": "The current `transfer` publishes before it moves money, never rolls back, and has no validation. Before editing I'll run the public check to get a baseline and confirm the Python and SQLite versions."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01Fzc4QpMw2dman6SL82xJoc",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && python3 --version && python3 -c \"import sqlite3;print(sqlite3.sqlite_version)\" && python3 checks/public.py && echo PUBLIC_OK"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"Python 3.11.2\\n3.40.1\\nPUBLIC_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754553845,
+            "ran": 1791754553849,
+            "completed": 1791754553981
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.003592115,
+      "tokens": {
+        "input": 2,
+        "output": 184,
+        "reasoning": 6764,
+        "cache": {
+          "read": 2154,
+          "write": 771
+        }
+      }
+    },
+    {
+      "id": "msg_12ce4ca82001CuMTIeyo0L4LZN",
+      "time": {
+        "created": 1791754553990,
+        "streamed": 1791754558063,
+        "completed": 1791754558127
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Time to write the code.\n\n",
+          "state": {
+            "signature": "CAQS2wUKEAgSGAI4AUIIdGhpbmtpbmcSDB7QCK5dxtSlo7xYkxoMLqjUe0HUmt8bGfd5IjCciBVGIJOgFDMatgXBpyrCq5+wbeY1ziLOhrAGynTKt/Uu/gd70xa5fUIGTVeSdBgq+ASGEFIInyPazJXa2sh/QJ4vz9TbStS961AmwJKap73vasLquo2mjY/mAHyypYYnsCMfqS5VsORYoe5IEbieUWW2vQE2vzP5ykuD9wii8/5OEjszNVaQ9YUGalRNxEzBWC4bXqoIqvK4fhu9lMFM6LhgJpFTsfjgQJERspbjoPxV9LZ3hJKcQ5r3X2Dhsir4ncCYTCIwPqsgS6ZKTpAMsNMr5s/9IfWP8Q/FkPWTbl7rIORm6pmTNUYobDmch5ctQYZUuyoHHal97CqfgBSVZrgdqrbQC8J6QNwPOXsrAf1Duv8oZ0eXfBeRabKXM30h7b8H1yidRTL02cGZQXZvOmxKkExIorHgZnXOaBnes36W00Z7UGV0BnV740fg6iCPLKmJFcOTHnh+O+RG8FoqEYx2OnwzNmYVXH9P0tb9xYEBFxoaGaQEpmFtTVhJawqvf1gAdiMbip0f4B1l1lokfEWupIfjckozH0qdzks7JCHv1gPxveNVj/kxCxYByeFhQ/XVVTEnDoFsPQBXu+pmXr4lmY1K1E8+Rz8gh55TcXYUhoVoUsUwuGEHkVyyvvhtzAEYRI6Sg36ATpE3yQn+CMOwIKEdU6rUnOKqcWPs7IP3NQjyZ7/1QPVIlgLsYj0URsf7n2TM8VqIDRVJcyLGTQQHMhI0iSGaq3EcS5ESPbOEvCGMhrvPMTWm0sVz9aLH34ZcUZbcgHvJq7eaDxLkcvDXxfqXrVrW4xOKS16e7GtGCEvINTQBZFvHkZmT0+pACZLmLDq8ciNng42XLi06OY4o5htRG/FEUDkJq7uPPX+Rj/0s26cy7aA3fB8jjp7vDZtZDs10mymriRgB"
+          },
+          "time": {
+            "created": 1791754554694,
+            "completed": 1791754555633
+          }
+        },
+        {
+          "type": "text",
+          "text": "The baseline passes. Next I'll write the change. Validation reads happen before any write. The debit is guarded by `balance >= amount` so a concurrent transfer can't overdraw between the read and the write. Commit and any failure are wrapped in a rollback-and-reraise. Publication runs only after a successful commit and sits outside that block, so a publish failure can't undo the transfer."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_015MjfH2pj4DDorauq7UXJw6",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat > src/repository.py <<'EOF'\ndef initialize(connection):\n    connection.executescript(\"CREATE TABLE accounts(id TEXT PRIMARY KEY, balance INTEGER NOT NULL); CREATE TABLE ledger(source TEXT, target TEXT, amount INTEGER);\")\n    connection.commit()\n\ndef balance(connection, account):\n    row = connection.execute(\"SELECT balance FROM accounts WHERE id=?\", (account,)).fetchone()\n    return None if row is None else row[0]\n\ndef move(connection, source, target, amount):\n    # Guarded debit: the row is only updated if the source still covers the amount,\n    # so a concurrent writer cannot overdraw between validation and this write.\n    debited = connection.execute(\n        \"UPDATE accounts SET balance=balance-? WHERE id=? AND balance>=?\",\n        (amount, source, amount)).rowcount\n    if debited != 1:\n        raise ValueError(\"insufficient funds or unknown source account\")\n    credited = connection.execute(\n        \"UPDATE accounts SET balance=balance+? WHERE id=?\", (amount, target)).rowcount\n    if credited != 1:\n        raise ValueError(\"unknown target account\")\n    connection.execute(\"INSERT INTO ledger VALUES (?, ?, ?)\", (source, target, amount))\nEOF\ncat > src/service.py <<'EOF'\nfrom .repository import balance, move\n\ndef _validate(connection, source, target, amount):\n    if isinstance(amount, bool) or not isinstance(amount, int):\n        raise ValueError(\"amount must be an integer\")\n    if amount <= 0:\n        raise ValueError(\"amount must be positive\")\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n    source_balance = balance(connection, source)\n    if source_balance is None:\n        raise ValueError(\"unknown source account\")\n    if balance(connection, target) is None:\n        raise ValueError(\"unknown target account\")\n    if amount > source_balance:\n        raise ValueError(\"amount exceeds source balance\")\n\ndef transfer(connection, publisher, source, target, amount):\n    try:\n        _validate(connection, source, target, amount)\n        move(connection, source, target, amount)\n        connection.commit()\n    except BaseException:\n        connection.rollback()\n        raise\n    # Published only after a successful commit. A failure here propagates\n    # but does not roll back the committed transfer.\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\nEOF\npython3 checks/public.py && echo PUBLIC_OK"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"PUBLIC_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754555645,
+            "ran": 1791754558062,
+            "completed": 1791754558125
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0014357,
+      "tokens": {
+        "input": 2,
+        "output": 1050,
+        "reasoning": 7,
+        "cache": {
+          "read": 2925,
+          "write": 7022
+        }
+      }
+    },
+    {
+      "id": "msg_12ce4dab20014Qx5DJYnMdrLHv",
+      "time": {
+        "created": 1791754558133,
+        "streamed": 1791754566082,
+        "completed": 1791754566187
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Now I'm adding checks/test_transfer.py with unittest-based test cases.\n\n",
+          "state": {
+            "signature": "CAQSkQYKEAgSGAI4AUIIdGhpbmtpbmcSDL9jD33XexNAm1Si3xoMyWZOyBLO+c/N8DzLIjBkffKYsF9EfudzbFQCYaCvZLWN5ZM5azxxfqj3TAmd6S6x2nIdrdaR6jDer1wgTK4qrgXFnMQt6R3yTozvEOzZmgd6DymCGFezu/MVFUCBVqIRS3i0xKW6FW9Cx0K6E5yensdBT0ljYFWLZ4To1dPYolfZeYgArkV8BRf6wjFbhnsFslsSB3zi0QzkdI/lT8yJd4cIJ1VXTLS0FtWHm7TevnMumfe7dVoRhXaRicfMu6kwT/T/l757RyYOcD+/dZ0Hs9yjVev4Tpvd8Ic9cSiFqBhasoPgwDStYEG7fjh50HFNXbXa/RsZfaLAdjZE0CZlDFmN8oDgIdtj5dTl6NiGiqeusa6g+zr8NnrZGBsP5CA5yUKV4+hgfTkN+2IEC1sagA0elhDnEX17AhQG9Pvnn6+wzXoDtkpuwOjznKLhNQPZIGF+a85tloxJbS7TNyv+NHIuutRmkcQN3O58npSF5TTRE3iA8L8bQ4VKGLcyj05xAClM6JwxZKTX0jU8Sv5Mx+qQ1OkDQngr3Tu2sH3Y2NOw49luNTh1/wJXJ/nXSTCILCjU0PWNXOElcxisGRJmSAeYdiFysFfui1f7H9c6LcYTceXNVklQcmGVXFFjYuUyEdh8BeUFMPTpNpQ+MRyFFdpSIAtTCaJtR9rYF7hZvJfBxILIGon4SdonCPR/VA8ouxCFmwCG4IH1g2zm+ttlJP7YSY2cqydREfN+SWJn9UwRsjoA2+AGqkw886uo9P+wT/LsmSrj1weDywpzGKvfh+8WN2av3V0Ho2yNfhhEt3DA6AzujdR4bWCeqgqz2FvS9m/G5ykpygk7+nnhWm5kXvVJ0zoh4Znapjh0c7f5fnWDqysEV9Xe1UBGDelQsMLnYnfpW7cvngVpNwjoZoiPC/Ex88DxOOwgKlBjLZAKn1YMxIn/WH4jREwFnJaFCUzsCkL1w75XNweRRn3ZqhjRMq+gDHhQEaMPrN913Tc0zhgB"
+          },
+          "time": {
+            "created": 1791754558869,
+            "completed": 1791754560066
+          }
+        },
+        {
+          "type": "text",
+          "text": "The public check still passes. Now I'll add a test module under `checks/` covering each requirement, including failure injection at every SQL statement and at commit."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01RHmt2kyBBC7YbT1eFAvZQn",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat > checks/test_transfer.py <<'EOF'\nimport os, sys, unittest\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, balance\nfrom src.service import transfer\nfrom src.events import Recorder\n\n\nclass FailingConnection:\n    \"\"\"Proxies a sqlite3 connection; fails the nth execute() or the commit().\"\"\"\n    def __init__(self, inner, fail_at_execute=None, fail_commit=False, fail_rollback=False):\n        self.inner = inner\n        self.fail_at_execute = fail_at_execute\n        self.fail_commit = fail_commit\n        self.calls = 0\n        self.rolled_back = False\n\n    def execute(self, sql, params=()):\n        self.calls += 1\n        if self.fail_at_execute == self.calls:\n            raise sqlite3.OperationalError(\"injected statement failure\")\n        return self.inner.execute(sql, params)\n\n    def commit(self):\n        if self.fail_commit:\n            raise sqlite3.OperationalError(\"injected commit failure\")\n        return self.inner.commit()\n\n    def rollback(self):\n        self.rolled_back = True\n        return self.inner.rollback()\n\n\nclass FailingPublisher:\n    def publish(self, event):\n        raise RuntimeError(\"publish failed\")\n\n\nclass TransferTests(unittest.TestCase):\n    def setUp(self):\n        self.c = sqlite3.connect(\":memory:\")\n        initialize(self.c)\n        self.c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\n        self.c.commit()\n\n    def tearDown(self):\n        self.c.close()\n\n    def snapshot(self):\n        return (balance(self.c, \"a\"), balance(self.c, \"b\"),\n                self.c.execute(\"SELECT * FROM ledger\").fetchall())\n\n    def test_success_debits_credits_logs_commits_and_publishes_once(self):\n        p = Recorder()\n        transfer(self.c, p, \"a\", \"b\", 30)\n        self.assertEqual((balance(self.c, \"a\"), balance(self.c, \"b\")), (70, 50))\n        self.assertEqual(self.c.execute(\"SELECT * FROM ledger\").fetchall(), [(\"a\", \"b\", 30)])\n        self.assertEqual(p.events, [{\"source\": \"a\", \"target\": \"b\", \"amount\": 30}])\n        self.assertFalse(self.c.in_transaction)\n\n    def test_transfer_of_full_balance_is_allowed(self):\n        p = Recorder()\n        transfer(self.c, p, \"a\", \"b\", 100)\n        self.assertEqual((balance(self.c, \"a\"), balance(self.c, \"b\")), (0, 120))\n\n    def test_invalid_transfers_raise_value_error_without_writes_or_publication(self):\n        bad = [\n            (\"a\", \"a\", 10),          # same account\n            (\"missing\", \"b\", 10),    # unknown source\n            (\"a\", \"missing\", 10),    # unknown target\n            (\"a\", \"b\", True),        # bool\n            (\"a\", \"b\", False),\n            (\"a\", \"b\", 10.0),        # float\n            (\"a\", \"b\", \"10\"),        # str\n            (\"a\", \"b\", 0),           # not positive\n            (\"a\", \"b\", -5),\n            (\"a\", \"b\", 101),         # exceeds source balance\n        ]\n        for source, target, amount in bad:\n            with self.subTest(source=source, target=target, amount=amount):\n                before = self.snapshot()\n                p = Recorder()\n                conn = FailingConnection(self.c)\n                with self.assertRaises(ValueError):\n                    transfer(conn, p, source, target, amount)\n                self.assertEqual(self.snapshot(), before)\n                self.assertEqual(p.events, [])\n                self.assertFalse(self.c.in_transaction)\n\n    def test_database_failure_at_any_statement_rolls_back_and_never_publishes(self):\n        # Count statements on a successful run, then fail each one in turn.\n        counter = FailingConnection(self.c)\n        transfer(counter, Recorder(), \"a\", \"b\", 10)\n        total = counter.calls\n        self.c.execute(\"UPDATE accounts SET balance=100 WHERE id='a'\")\n        self.c.execute(\"UPDATE accounts SET balance=20 WHERE id='b'\")\n        self.c.execute(\"DELETE FROM ledger\")\n        self.c.commit()\n        self.assertGreaterEqual(total, 6)\n\n        for n in range(1, total + 1):\n            with self.subTest(failing_statement=n):\n                before = self.snapshot()\n                p = Recorder()\n                conn = FailingConnection(self.c, fail_at_execute=n)\n                with self.assertRaises(sqlite3.OperationalError):\n                    transfer(conn, p, \"a\", \"b\", 10)\n                self.assertTrue(conn.rolled_back)\n                self.assertEqual(self.snapshot(), before)\n                self.assertEqual(p.events, [])\n                self.assertFalse(self.c.in_transaction)\n\n    def test_commit_failure_rolls_back_and_never_publishes(self):\n        before = self.snapshot()\n        p = Recorder()\n        conn = FailingConnection(self.c, fail_commit=True)\n        with self.assertRaises(sqlite3.OperationalError):\n            transfer(conn, p, \"a\", \"b\", 10)\n        self.assertTrue(conn.rolled_back)\n        self.assertEqual(self.snapshot(), before)\n        self.assertEqual(p.events, [])\n\n    def test_publication_failure_propagates_but_keeps_committed_transfer(self):\n        with self.assertRaises(RuntimeError):\n            transfer(self.c, FailingPublisher(), \"a\", \"b\", 10)\n        self.assertEqual((balance(self.c, \"a\"), balance(self.c, \"b\")), (90, 30))\n        self.assertEqual(self.c.execute(\"SELECT * FROM ledger\").fetchall(), [(\"a\", \"b\", 10)])\n\n    def test_balance_and_setup_still_work(self):\n        self.assertEqual(balance(self.c, \"a\"), 100)\n        self.assertIsNone(balance(self.c, \"nobody\"))\n\n\nif __name__ == \"__main__\":\n    unittest.main()\nEOF\npython3 -m unittest checks/test_transfer.py -v 2>&1 | tail -30; echo \"exit=$?\"; python3 checks/public.py && echo PUBLIC_OK"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"test_balance_and_setup_still_work (checks.test_transfer.TransferTests.test_balance_and_setup_still_work) ... ok\\ntest_commit_failure_rolls_back_and_never_publishes (checks.test_transfer.TransferTests.test_commit_failure_rolls_back_and_never_publishes) ... ok\\ntest_database_failure_at_any_statement_rolls_back_and_never_publishes (checks.test_transfer.TransferTests.test_database_failure_at_any_statement_rolls_back_and_never_publishes) ... FAIL\\ntest_invalid_transfers_raise_value_error_without_writes_or_publication (checks.test_transfer.TransferTests.test_invalid_transfers_raise_value_error_without_writes_or_publication) ... ok\\ntest_publication_failure_propagates_but_keeps_committed_transfer (checks.test_transfer.TransferTests.test_publication_failure_propagates_but_keeps_committed_transfer) ... ok\\ntest_success_debits_credits_logs_commits_and_publishes_once (checks.test_transfer.TransferTests.test_success_debits_credits_logs_commits_and_publishes_once) ... ok\\ntest_transfer_of_full_balance_is_allowed (checks.test_transfer.TransferTests.test_transfer_of_full_balance_is_allowed) ... ok\\n\\n======================================================================\\nFAIL: test_database_failure_at_any_statement_rolls_back_and_never_publishes (checks.test_transfer.TransferTests.test_database_failure_at_any_statement_rolls_back_and_never_publishes)\\n----------------------------------------------------------------------\\nTraceback (most recent call last):\\n  File \\\"/workspace/checks/test_transfer.py\\\", line 99, in test_database_failure_at_any_statement_rolls_back_and_never_publishes\\n    self.assertGreaterEqual(total, 6)\\nAssertionError: 5 not greater than or equal to 6\\n\\n----------------------------------------------------------------------\\nRan 7 tests in 0.002s\\n\\nFAILED (failures=1)\\nexit=0\\nPUBLIC_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754560078,
+            "ran": 1791754566081,
+            "completed": 1791754566185
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0013974200000000001,
+      "tokens": {
+        "input": 2,
+        "output": 2293,
+        "reasoning": 24,
+        "cache": {
+          "read": 9947,
+          "write": 1114
+        }
+      }
+    },
+    {
+      "id": "msg_12ce4fa2f0016uVMrVsfpnGOzJ",
+      "time": {
+        "created": 1791754566195,
+        "streamed": 1791754570296,
+        "completed": 1791754570425
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Actually recounting: two balance checks plus three move executes equals five, not six as I assumed — I miscounted earlier. The reset after the counted transfer worked fine, so I just need to fix the assertion to use equality instead.\n\n",
+          "state": {
+            "signature": "CAQSlgoKEAgSGAI4AUIIdGhpbmtpbmcSDAKPLNl497WBrx59jBoMJDXkIOht3B8dTtMVIjBsR6wbSHT22khI1TPqeufNYa7KISmT4UOq/ilyoq9d4wxeCRmgmfyJDtKqr3LF/Zgqswkg3OjtKB4xjdI/bKbvw5wlALplkC9h9MLlO6TmBBMKhNREs+O+NBjbNS9hN0uFdUjpF+AC6POzBLatXKmAS/3QQgVmnqbJyATdXmsLGqvrU5EWsqLrUDEdmlx8wK7ppGZNm/CzZHxn7D62qTyuU3OZzPF/SMqf7NYZmj6RlSPhcM8mw9FfOw1gbc4an7fk0bmStNGyy9sTxeOmDQVfDTJQpeCehgkI0xBBlhDHHfKFizpLArwCjrWxM3GWEHf77jR2Bj8xB2YuyV+NER4qcrgCUvdukFPxNJ2wPxa8Jz+CSYoCj4LJWnbIilyUSZWKZ6le2S/1+V7RAC9rT7oy/lG5rf6YtNWAiuSRRioodZL2JbUgBRtvyHkeuiQwRj1Dt79kRGm/QRUnEtSXGV+YfBGZlxPambRlTcfJdR8iD5Sz6Fy/UwROlvoZs8byRMeOn6OlkpVw3qRvwU7uloxbofNAUQqtwGbTNn5fVihBQm173SVl4LInv6JtlHBH2p5vRSdQqk0jue2IhvoUxNCkx+Gn0L7FjHnpExLGC5VCdcT5D0cBzMgNNWPV8QRvZzeUjGAtL0jolXQu5meh0p2UXkDAzUqF8V9XVhFuJ2TEvdfMcQ1wsBUXmP8GrWWAUrrEyHmSr4MIG0A/gZ72BXo+tkxwVBYT2o/ZDgu9ALVJRxUJ5go24DB3vUWq5Sg2od6Mxlj1spm1nIKfNkVhudJT54l4w0MP+i9DNeWGr7jz55CFTHYirellhZYvL5JYQlYcG4kq6dISKUQTUYRryaaiFkZ885NxP3vCb4KCgHe7GxSYQswOsMtucoe3jN8GwH635AOSnwmWwiCFFx+NJ3awlMMw6rlUJrwyZc1D93CnUvK80Js6txH4teuo0Yh1y9lI6SEu5o+DVjjJNH7O0FkYM78854NIx0LBp4BqNsxCfUBEAuzsBpubjLJIOFYK+BwrkHNgamtJdUI2zR0RQ9/PKIJo3Wxds6VMm5KQtZHYi5OeFvyMSPoICqis1IVLw6kKUWqRAhQmZRsQwjM9JvI5thX2tQ1lU086qcLWbHkXtqI2Q++eTaHlutADySw2YH7bxhC074VchtLhJ/zU2jzKSLW32MdvfIseWsz9jBdAyIj0skRHPWWpU9E8Y2yh4obzQvaYSyNoi2e3b0tLIVOlaBBN3vXBJyNyS8ZcpkZKmlwDPoZK3RUkf4K8PQYys12X5ZDlPOrkoQz5raNxUTH+OVdyI+/KndHRyvCTxnlLFF9Tr36slPDGG4Zm9lisWXYwArGPq6FiUG9YzBjeShlghapPfG64VqSNVltehXSRsNdJag1OOsbFonpb6JdzPiaV3g0q1zNB5v/WwbL0Tc6Sbcxm9k+b6oBTNGEc+tQAJQABdAheZTNM7dRergR0KZmoMZKyOFbz5XI4LPl5lH17b9uf3VhGyWrjBMm+x06aqCz262he8Sev0ZunYf0Jo1Ag1S/+6lg/fL6R4ZCfrd7UCCFwQkqXrDvAkJOIRFvpmmiiI8kV6j0Ep1y2hbyFKt5uO5nSToJmFpBHIf+rUaT0jjfq/zE0Va+IPpRPGsV+SI9nIwS1nVHqfNQLbbLU17SlzgStzN0YAQ=="
+          },
+          "time": {
+            "created": 1791754566923,
+            "completed": 1791754570273
+          }
+        },
+        {
+          "type": "text",
+          "text": "The one failure is a miscount in my test, not in the service. A successful transfer runs 5 statements (2 validation reads, 3 writes), not 6. I'll assert the exact count so the test stays meaningful."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01TMr2ttkFL9hEJYVeQtBZfG",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && sed -i 's/        self.assertGreaterEqual(total, 6)/        self.assertEqual(total, 5)  # 2 balance reads + debit, credit, ledger insert/' checks/test_transfer.py && python3 -m unittest checks/test_transfer.py -v 2>&1 | tail -15; python3 -m unittest discover -s checks -p 'test_*.py' 2>&1 | tail -3; python3 checks/public.py && echo PUBLIC_OK"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"test_balance_and_setup_still_work (checks.test_transfer.TransferTests.test_balance_and_setup_still_work) ... ok\\ntest_commit_failure_rolls_back_and_never_publishes (checks.test_transfer.TransferTests.test_commit_failure_rolls_back_and_never_publishes) ... ok\\ntest_database_failure_at_any_statement_rolls_back_and_never_publishes (checks.test_transfer.TransferTests.test_database_failure_at_any_statement_rolls_back_and_never_publishes) ... ok\\ntest_invalid_transfers_raise_value_error_without_writes_or_publication (checks.test_transfer.TransferTests.test_invalid_transfers_raise_value_error_without_writes_or_publication) ... ok\\ntest_publication_failure_propagates_but_keeps_committed_transfer (checks.test_transfer.TransferTests.test_publication_failure_propagates_but_keeps_committed_transfer) ... ok\\ntest_success_debits_credits_logs_commits_and_publishes_once (checks.test_transfer.TransferTests.test_success_debits_credits_logs_commits_and_publishes_once) ... ok\\ntest_transfer_of_full_balance_is_allowed (checks.test_transfer.TransferTests.test_transfer_of_full_balance_is_allowed) ... ok\\n\\n----------------------------------------------------------------------\\nRan 7 tests in 0.001s\\n\\nOK\\nRan 7 tests in 0.002s\\n\\nOK\\nPUBLIC_OK\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754570283,
+            "ran": 1791754570295,
+            "completed": 1791754570422
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.00075481,
+      "tokens": {
+        "input": 2,
+        "output": 298,
+        "reasoning": 213,
+        "cache": {
+          "read": 11061,
+          "write": 3108
+        }
+      }
+    },
+    {
+      "id": "msg_12ce50ac700171qX1Ga3mrvcsD",
+      "time": {
+        "created": 1791754570450,
+        "streamed": 1791754574931,
+        "completed": 1791754574994
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I should also verify the guarded debit race backstop, but testing a true concurrent drain against an in-memory DB is tricky since there's no second connection to simulate the race. I'll leave that scenario as untested and just note it as a known gap rather than trying to force a fragile test.\n\n",
+          "state": {
+            "signature": "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"
+          },
+          "time": {
+            "created": 1791754571273,
+            "completed": 1791754574898
+          }
+        },
+        {
+          "type": "text",
+          "text": "All 7 new tests and the public check pass. One path isn't covered by the tests yet: the guarded debit's backstop, which applies when a stale validation read lets an overdraft reach the write. I'll exercise that directly by faking a stale balance read."
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01QmLLvcMry49KpNcrEax1oe",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && python3 - <<'EOF'\nimport sys, os; sys.path.insert(0, os.getcwd())\nimport sqlite3\nimport src.service as svc\nfrom src.repository import initialize, balance\nfrom src.events import Recorder\nc = sqlite3.connect(\":memory:\"); initialize(c)\nc.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 50), (\"b\", 0)]); c.commit()\nsvc.balance = lambda conn, acct: 1000  # simulate a stale validation read\np = Recorder()\ntry:\n    svc.transfer(c, p, \"a\", \"b\", 80)\n    print(\"NO ERROR (bad)\")\nexcept ValueError as e:\n    print(\"ValueError:\", e)\nprint(\"balances\", balance(c, \"a\"), balance(c, \"b\"), \"ledger\", c.execute(\"select * from ledger\").fetchall(), \"events\", p.events, \"in_tx\", c.in_transaction)\nEOF"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"ValueError: insufficient funds or unknown source account\\nbalances 50 0 ledger [] events [] in_tx False\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791754574912,
+            "ran": 1791754574930,
+            "completed": 1791754574993
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.000633515,
+      "tokens": {
+        "input": 2,
+        "output": 464,
+        "reasoning": 245,
+        "cache": {
+          "read": 14169,
+          "write": 1097
+        }
+      }
+    },
+    {
+      "id": "msg_12ce51c95001xpfiYQRy0NsjEG",
+      "time": {
+        "created": 1791754575001,
+        "streamed": 1791754578755,
+        "completed": 1791754578758
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-haiku-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Good, I've reviewed everything already, so I can move on to summarizing without needing to re-check files through git.\n\n",
+          "state": {
+            "signature": "CAQS2gYKEAgSGAI4AUIIdGhpbmtpbmcSDL+wQ8c/aL+4OIjD9hoMaG+Do2Nd0wECqaXkIjC7QTSJVXN2WaGIbdwaReJA3t8x689dHfZVlUqY71iZeceG8ukvESXdlTQu8evNhnAq9wV9aWVsgn0LJhnBxK7PrHS3UIUquqDtD8e0NA4vDx2KOf3Js7ODFjjF+QZphB3Ui17b3vOF3pIED0lMijqlXarb3tvjIsgMmlZnrJ2PGnlsBxDb+nM4dsl5joUEd0fklFUvbdBylBRj7DkocMmBRzHuucMoHDG1jg9sZOPIP3zxi6s9JJ/2cClvrhy1aq5lUM4pdPDeuIMOxgw8u56eqiJP1JR96m5eQfNm3D949QG6+Qawvs6CikCbdGYNdNseJuO9QwkXic3oAUUiv5+IwiMsrjFU7brVBJqvDU/lwkGzy5AvfRmSxxUQAAqStjTP5rN64e2YLclPcpv6bFDgXc7jipk30bMhxafivtiqiaCrtasl3kbHtxUaGy/VmEBv7Hryr2lcw0TqPa42KBCyIMHTbfrx12wfV18QTbjxlSGgRlGJJGogSRqFZZCgXqxV8XmXPryvc0b0HUGwdKhWQaXtB5spAXhd+3vJ1Ay/lvMr29oib9VXnAzQJYfF6kDRi8RI+W4hi8KMjhz2qmEOKo/QImyP4QxycGIaNFj59r6MpKXQJAUa95VaPw7Ded+XcnmBakn+xUJBhL4cI3bkfPX47KK33JwSsCVc1hd8jtBNz1vAXcPckC3oGphoTkI8ByR2pv5mcfjfeXre2+ltfK5P1dhZgn3M/si8zj+APNiHw3Nw053S/XZApyxEVYMJvZdjdBEbpDNF3m5WAYjIgLGged1i9Fb4K1FFEaPD2BY2aLKUVb6FIq4fZmj5s/69r7Ue1eCiXmPysBOJ7IMF0xrnaFQyR1DkS+i8ebOT1rdhrHq3kuoCU8Jd2A8ajYdJ7e4EdR/9Y870dg4hjAwa3wqZxObxY9MBOt203dIRW1eVAOwNx/tz6p6OAHvVxQYcjmB7o9pRmFtjac5c1YiErDk86bBAZgntYinlokiPmU5RT54Qd5mKYCJYKHtCCS/RUaUuZUCUDkeOsL8SXOVZ9Ww5Fc+e//TPq4A002APYDkIv97Ose5sVXsYAQ=="
+          },
+          "time": {
+            "created": 1791754575787,
+            "completed": 1791754577242
+          }
+        },
+        {
+          "type": "text",
+          "text": "`transfer` in `src/service.py` now validates first, writes atomically, and publishes only after a successful commit. The public check and the 7 new tests in `checks/test_transfer.py` pass.\n\n**What changed**\n\n- **`src/service.py`**\n  - Validation runs before any write and raises `ValueError` for: a non-integer or `bool` amount, an amount ≤ 0, `source == target`, an unknown source or target, and an amount greater than the source balance.\n  - The debit, credit, and ledger insert run, then `commit()`. Any exception from validation, a statement, or the commit triggers `rollback()` and is re-raised.\n  - `publish` runs after the `try` block. If it fails, the exception propagates, but the committed transfer is not rolled back.\n- **`src/repository.py`**\n  - `move` now uses a guarded debit (`... WHERE id=? AND balance>=?`). It raises `ValueError` if the update doesn't touch exactly one row, so a balance that changes between validation and the write can't overdraw the account. It also checks the credit update.\n  - `initialize` and `balance` are unchanged.\n- **`checks/test_transfer.py`** (new): covers success, each invalid-input case (with no writes and no publish), failure injected at every one of the 5 statements, commit failure, publish failure keeping the transfer, and the existing balance and setup behavior.\n\n**Verification**\n\n- `python3 checks/public.py` passes.\n- `python3 -m unittest checks/test_transfer.py -v`: 7 of 7 pass.\n- I also simulated a stale balance read in an ad hoc script. The guarded debit raised `ValueError`, the transaction was rolled back, and nothing was published.\n\n**Notes**\n\n- Validation reads happen before the transaction opens, so the guarded debit is the real protection against a concurrent overdraft. The stale-read case above exercises it, but there is no multi-connection test.\n- `move` now raises `ValueError` on a missing target. Since `transfer` checks that first, this only matters if `move` is called directly."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0.0006099850000000001,
+      "tokens": {
+        "input": 2,
+        "output": 682,
+        "reasoning": 33,
+        "cache": {
+          "read": 15266,
+          "write": 797
+        }
+      }
+    },
+    {
+      "id": "msg_12ce52b4c001WePE3Coxi8bEfq",
+      "time": {
+        "created": 1791754578764
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

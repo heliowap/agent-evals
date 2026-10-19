@@ -1,0 +1,80 @@
+Based on the inspected files from the assigned Zod v4 codebase, here is the trace of a string schema's synchronous transformation from the public classic builder to execution, along with the evidence obtained.
+
+---
+
+### 1. Public Builder to Schema Representation
+* **Public Builder Method**: 
+  In `packages/zod/src/v4/classic/schemas.ts` (lines 245–247):
+  ```ts
+  transform(tx) {
+    return pipe(this, transform(tx));
+  }
+  ```
+  Calling `.transform(fn)` on a classic schema (such as `z.string()`, declared at lines 617–619 and inheriting prototype methods from `ZodType`, lines 131–132, 245–247) delegates to `pipe(this, transform(tx))`.
+* **Transform Representation**:
+  The standalone helper `transform(fn)` is defined in `packages/zod/src/v4/classic/schemas.ts` (lines 2291–2298):
+  ```ts
+  export function transform<I = unknown, O = I>(
+    fn: (input: I, ctx: core.$RefinementCtx) => O
+  ): ZodTransform<Awaited<O>, I> {
+    return new ZodTransform({
+      type: "transform",
+      transform: fn as any,
+    }) as any;
+  }
+  ```
+  The transformation is represented as an instance of `ZodTransform` initialized with definition `{ type: "transform", transform: fn }`, composed into a pipeline via `pipe(in_, out)` (`packages/zod/src/v4/classic/schemas.ts`, lines 2555–2559).
+
+---
+
+### 2. Execution Order and Carrying the Transformed Value
+* **Parsing & Transformation Order**:
+  Because `.transform(...)` wraps the schema inside a `pipe(this, transform(tx))`, the input schema (e.g. `z.string()`) represents the `in_` stage, and the `ZodTransform` instance represents the `out` stage. The input parsing and check validations must run and pass first before the piped transformation step receives the value.
+* **Transform Execution**:
+  The parse function for `ZodTransform` is defined in `packages/zod/src/v4/classic/schemas.ts` (lines 2257–2287):
+  ```ts
+  inst._zod.parse = (payload, _ctx) => {
+    if (_ctx.direction === "backward") {
+      throw new core.$ZodEncodeError(inst.constructor.name);
+    }
+
+    (payload as core.$RefinementCtx).addIssue = (issue) => {
+      if (typeof issue === "string") {
+        payload.issues.push(util.issue(issue, payload.value, def));
+      } else {
+        const _issue = issue as any;
+        if (_issue.fatal) _issue.continue = false;
+        _issue.code ??= "custom";
+        if (!("input" in _issue)) _issue.input = payload.value;
+        _issue.inst ??= inst;
+        payload.issues.push(util.issue(_issue));
+      }
+    };
+
+    const output = def.transform(payload.value, payload);
+    if (output instanceof Promise) {
+      return output.then((output) => {
+        payload.value = output;
+        return payload;
+      });
+    }
+    payload.value = output;
+    return payload;
+  };
+  ```
+* **Carrying the Transformed Value**:
+  In synchronous transformation execution (`packages/zod/src/v4/classic/schemas.ts`, lines 2278, 2285–2286):
+  1. `def.transform(payload.value, payload)` is invoked synchronously with `payload.value` and the refinement context `payload`.
+  2. The returned result is assigned directly back to `payload.value = output`.
+  3. `payload` is returned onward to subsequent pipeline steps or caller resolution.
+
+---
+
+### 3. Direction and Exceptions Evidenced
+* **Encoding Exception**:
+  If parsed in the backward direction (`_ctx.direction === "backward"`), `ZodTransform` throws `new core.$ZodEncodeError(inst.constructor.name)` (`packages/zod/src/v4/classic/schemas.ts`, lines 2258–2260).
+
+---
+
+### Unresolved Limitations
+Due to tool budget constraints during exploration, the internal pipe-abort checks inside the core pipe execution runner (such as `packages/zod/src/v4/core/schemas.ts` or `packages/zod/src/v4/core/parse.ts`) determining which specific input issue flags (e.g. fatal/non-continuable issues) stop the pipe before passing to `out`, as well as any specific issue-code exceptions evaluated during pipe aborting, were not directly read and remain unresolved.

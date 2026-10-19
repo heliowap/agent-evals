@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/lease.cjs": "const assert = require('node:assert/strict');\nconst { EventService } = require('../.build/service');\nfunction make(values, o = {}) {\n  const s = { opens: 0, closes: 0, reads: 0 };\n  const source = { open: async () => { s.opens++; return {\n    read: async () => { s.reads++; if (o.readFail && s.reads === o.readFail) throw new Error('read'); return values.length ? values.shift() : null; },\n    close: async () => { s.closes++; if (o.closeFail) throw new Error('close'); } }; } };\n  return { s, svc: new EventService(source, o.mapper) };\n}\nasync function main() {\n  // unopened generator\n  let m = make(['a']); m.svc.stream(); await m.svc.stream().return(); assert.deepEqual(m.s, { opens: 0, closes: 0, reads: 0 });\n  // no read ahead, break closes once\n  m = make(['a', 'b', 'c']);\n  for await (const v of m.svc.stream()) { assert.equal(v, 'A'); break; }\n  assert.deepEqual(m.s, { opens: 1, closes: 1, reads: 1 });\n  // exhaustion\n  m = make(['a']); const out = []; for await (const v of m.svc.stream()) out.push(v);\n  assert.deepEqual(out, ['A']); assert.deepEqual(m.s, { opens: 1, closes: 1, reads: 2 });\n  // read failure, with and without close failure\n  m = make(['a'], { readFail: 1 }); await assert.rejects(m.svc.stream().next(), /read/); assert.equal(m.s.closes, 1);\n  m = make(['a'], { readFail: 1, closeFail: true }); await assert.rejects(m.svc.stream().next(), /read/); assert.equal(m.s.closes, 1);\n  // mapper failure\n  const bad = () => { throw new Error('map'); };\n  m = make(['a'], { mapper: bad }); await assert.rejects(m.svc.stream().next(), /map/); assert.equal(m.s.closes, 1);\n  m = make(['a'], { mapper: bad, closeFail: true }); await assert.rejects(m.svc.stream().next(), /map/); assert.equal(m.s.closes, 1);\n  // injected throw\n  m = make(['a', 'b']); let g = m.svc.stream(); await g.next();\n  await assert.rejects(g.throw(new Error('inj')), /inj/); assert.equal(m.s.closes, 1);\n  m = make(['a', 'b'], { closeFail: true }); g = m.svc.stream(); await g.next();\n  await assert.rejects(g.throw(new Error('inj')), /inj/); assert.equal(m.s.closes, 1);\n  // close failure alone propagates\n  m = make(['a'], { closeFail: true }); await assert.rejects((async () => { for await (const _ of m.svc.stream()); })(), /close/);\n  m = make(['a', 'b'], { closeFail: true }); g = m.svc.stream(); await g.next(); await assert.rejects(g.return(), /close/); assert.equal(m.s.closes, 1);\n}\nmodule.exports = main();\n",
+      "src/service.ts": "import { Source } from './source';\nimport { mapEvent } from './mapper';\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    const lease = await this.source.open();\n    let failed = false;\n    try {\n      for (;;) {\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      failed = true;\n      throw error;\n    } finally {\n      try {\n        await lease.close();\n      } catch (closeError) {\n        if (!failed) throw closeError;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/lease.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 61,
+    "removed_lines": 14
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.4849097910046112
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05045079201227054,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04564083300647326,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

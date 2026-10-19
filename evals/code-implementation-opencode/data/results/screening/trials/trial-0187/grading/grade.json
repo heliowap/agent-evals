@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/patch.cjs": "const assert = require('node:assert/strict');\nconst { ProfileService } = require('../.build/service');\nconst mk = () => new ProfileService({ displayName: 'before', tags: ['old'] });\nconst bad = (input) => {\n  const s = mk();\n  assert.throws(() => s.patch(input), /^Error: invalid profile$/, JSON.stringify(input));\n  assert.deepEqual(s.profile, { displayName: 'before', tags: ['old'] });\n};\n\n// Valid cases\nlet s = mk();\nassert.deepEqual(s.patch({}), { displayName: 'before', tags: ['old'] });\nassert.deepEqual(s.patch(Object.create(null)), { displayName: 'before', tags: ['old'] });\nassert.deepEqual(s.patch({ displayName: '  Ann  ' }), { displayName: 'Ann', tags: ['old'] });\nassert.deepEqual(s.patch({ displayName: null }), { displayName: null, tags: ['old'] });\nassert.deepEqual(s.patch({ displayName: 'x'.repeat(40) }).displayName, 'x'.repeat(40));\nassert.deepEqual(s.patch({ tags: [] }), { displayName: 'x'.repeat(40), tags: [] });\nassert.deepEqual(s.patch({ tags: [' a ', 'b', 'c', 'd', 'e'.repeat(12)] }).tags, ['a', 'b', 'c', 'd', 'e'.repeat(12)]);\nassert.deepEqual(s.patch({ tags: null }).tags, []);\n\n// Input not mutated, caller array not reused, returned value detached from storage\ns = mk();\nconst tags = [' x '];\nconst input = { displayName: ' n ', tags };\nconst out = s.patch(input);\nassert.deepEqual(input, { displayName: ' n ', tags: [' x '] });\nassert.notEqual(s.profile.tags, tags);\ntags.push('y');\nout.tags.push('z');\nassert.deepEqual(s.profile.tags, ['x']);\n\n// Invalid cases leave storage unchanged\nfor (const v of [null, undefined, 1, 'x', true, [], [1], new Date(), new (class P {})()]) bad(v);\nbad({ extra: 1 });\nbad({ displayName: 'ok', extra: undefined });\nbad({ [Symbol('s')]: 1 });\nbad({ displayName: '' });\nbad({ displayName: '   ' });\nbad({ displayName: 'x'.repeat(41) });\nbad({ displayName: 5 });\nbad({ displayName: undefined });\nbad({ tags: undefined });\nbad({ tags: 'a' });\nbad({ tags: [1] });\nbad({ tags: [''] });\nbad({ tags: ['  '] });\nbad({ tags: ['a', ' a'] });\nbad({ tags: ['a', 'b', 'c', 'd', 'e', 'f'] });\nbad({ tags: ['x'.repeat(13)] });\nbad({ tags: [, 'a'] }); // sparse\nbad({ displayName: 'valid', tags: [1] }); // atomic: valid name not applied\nbad(Object.defineProperty({}, 'displayName', { get: () => 'x', enumerable: true }));\nconsole.log('patch checks passed');\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst ALLOWED_KEYS = new Set<PropertyKey>(['displayName', 'tags']);\nconst MAX_DISPLAY_NAME = 40;\nconst MAX_TAGS = 5;\nconst MAX_TAG_LENGTH = 12;\n\nfunction invalid(): never {\n  throw new Error('invalid profile');\n}\n\n/** Reads an own data property without invoking getters; accessors are rejected. */\nfunction readOwn(input: object, key: string): { present: false } | { present: true; value: unknown } {\n  const descriptor = Object.getOwnPropertyDescriptor(input, key);\n  if (descriptor === undefined) return { present: false };\n  if (!('value' in descriptor)) invalid();\n  return { present: true, value: descriptor.value };\n}\n\nfunction parseDisplayName(value: unknown): string | null {\n  if (value === null) return null;\n  if (typeof value !== 'string') invalid();\n  const trimmed = value.trim();\n  if (trimmed.length < 1 || trimmed.length > MAX_DISPLAY_NAME) invalid();\n  return trimmed;\n}\n\nfunction parseTags(value: unknown): string[] {\n  if (value === null) return [];\n  if (!Array.isArray(value)) invalid();\n  const length = value.length;\n  if (length > MAX_TAGS) invalid();\n  const result: string[] = [];\n  const seen = new Set<string>();\n  for (let i = 0; i < length; i++) {\n    const item = readOwn(value, String(i));\n    if (!item.present || typeof item.value !== 'string') invalid();\n    const trimmed = item.value.trim();\n    if (trimmed.length === 0 || trimmed.length > MAX_TAG_LENGTH || seen.has(trimmed)) invalid();\n    seen.add(trimmed);\n    result.push(trimmed);\n  }\n  return result;\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) invalid();\n  const proto = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) invalid();\n  for (const key of Reflect.ownKeys(input)) if (!ALLOWED_KEYS.has(key)) invalid();\n\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n  const rawName = readOwn(input, 'displayName');\n  if (rawName.present) displayName = { kind: 'set', value: parseDisplayName(rawName.value) };\n  const rawTags = readOwn(input, 'tags');\n  if (rawTags.present) tags = { kind: 'set', value: parseTags(rawTags.value) };\n  return { displayName, tags };\n}\n",
+      "src/service.ts": "import { Profile } from './types';\nimport { parseProfile } from './parser';\nexport class ProfileService {\n  constructor(readonly profile: Profile) {}\n  patch(input: unknown): Profile {\n    // Parse and validate everything before touching storage so failures leave it unchanged.\n    const parsed = parseProfile(input);\n    if (parsed.displayName.kind === 'set') this.profile.displayName = parsed.displayName.value;\n    if (parsed.tags.kind === 'set') this.profile.tags = [...parsed.tags.value];\n    return { displayName: this.profile.displayName, tags: [...this.profile.tags] };\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/patch.cjs",
+      "src/parser.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 124,
+    "removed_lines": 26
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.4984420830151066
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05664504098240286,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04508204199373722,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

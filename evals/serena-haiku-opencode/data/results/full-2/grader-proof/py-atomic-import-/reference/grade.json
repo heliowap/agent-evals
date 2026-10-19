@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict) or set(payload) != {\"contacts\"}:\n        raise ValueError(\"invalid import envelope\")\n    return import_contacts(connection, payload[\"contacts\"])\n",
+      "src/service.py": "from .repository import put_contact\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, list):\n        raise ValueError(\"contacts must be a list\")\n    clean, seen = [], set()\n    for row in rows:\n        if not isinstance(row, dict) or set(row) != {\"email\", \"name\"}:\n            raise ValueError(\"invalid contact\")\n        if not all(isinstance(row[key], str) for key in (\"email\", \"name\")):\n            raise ValueError(\"contact fields must be strings\")\n        email, name = row[\"email\"].strip().lower(), row[\"name\"].strip()\n        if email.count(\"@\") != 1 or not all(email.split(\"@\")) or any(ch.isspace() for ch in email) or not name:\n            raise ValueError(\"invalid contact values\")\n        if email in seen:\n            raise ValueError(\"duplicate email\")\n        seen.add(email)\n        clean.append((email, name))\n    inserted = updated = 0\n    with connection:\n        for email, name in clean:\n            exists = connection.execute(\"SELECT 1 FROM contacts WHERE email=?\", (email,)).fetchone()\n            put_contact(connection, email, name)\n            if exists:\n                updated += 1\n            else:\n                inserted += 1\n    return {\"inserted\": inserted, \"updated\": updated}\n"
+    },
+    "changed_files": [
+      "src/api.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 42,
+    "removed_lines": 16
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.0995848749880679
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.08641849999548867,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.07561091601382941,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

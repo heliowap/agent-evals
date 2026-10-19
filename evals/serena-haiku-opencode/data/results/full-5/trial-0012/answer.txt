@@ -1,0 +1,22 @@
+`parse_amount` no longer uses floats. `src/money.py` and `src/api.py` now apply the same rules, and both `checks/public.py` and the new unit tests pass.
+
+**Implementation**
+
+- **`src/money.py`**
+  - `amount_cents(value)` does all validation and returns an integer number of cents. It works only with integers, `Decimal` constructors, and comparisons, so it never reads or changes the global decimal context and never modifies its input.
+  - It accepts non-bool `int`, `Decimal`, and strings matching an optionally signed plain decimal (no whitespace, no exponent). Everything else raises `ValueError`, including `bool` and `float`.
+  - It rejects non-finite values, zero, negatives, values above `1000000.00`, and any positive value below one cent or with a nonzero digit beyond the cent place. Trailing zeros are allowed.
+  - `parse_amount` returns `Decimal` with exponent -2. `format_amount` is unchanged.
+- **`src/api.py`**
+  - `make_invoice` copies the input with `list(...)`, sums the validated cent values as integers, and raises `ValueError` as soon as the running total exceeds `1000000.00`.
+  - It returns `{"total": "<two decimals>", "count": N}`; an empty list gives `0.00`.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `checks/test_money_rules.py` (run with `python3 -m unittest`, since pytest isn't installed) covers accepted and rejected inputs, exact trailing-zero handling, the total limit, input non-mutation, and that the decimal context configuration is unchanged. All 7 tests pass.
+
+**Judgment calls**
+
+- Plain decimals like `.5` and `5.` are accepted as well-formed. Say if you want those rejected.
+- The context test compares configuration fields (precision, rounding, exponent limits, traps), not status flags, since flags are set by any earlier operation in the process.

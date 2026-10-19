@@ -1,0 +1,16 @@
+Both starting pages are in. Now I'll follow the documentation links to the CLI flag reference and the worker_threads page to check the inheritance and wildcard semantics.
+
+**Decision: do not deploy as proposed, and do not certify tenant isolation.**
+
+Node's docs say the Permission Model "does not protect against malicious code," is a "seat belt" for trusted code, and is "**not**... a security boundary against intentional misuse or a compromised process" (https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model; https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md#permission-model-boundaries-permission). The policy trusts the code it runs, which "inherits all the privileges of the execution user," and treats untrusted users' code as an application-level issue (SECURITY.md#the-nodejs-threat-model). Customer uploads are untrusted, so the only tenant boundary can be OS-level (separate users, seccomp/AppArmor, VMs) — the docs' own recommendation (permissions.html#process_debugprocess-and-cross-process-inspector-activation).
+
+**Assumptions requiring change**
+- `/srv/jobs/*.js`: after `*` all characters are ignored, so it behaves as `/srv/jobs/*` — read access to the entire tree, including other tenants' uploads (permissions.html#file-system-permissions). Grant exact per-job files instead.
+- Relative symlinks: "Symbolic links will be followed even to locations outside of the set of paths that access has been granted to. Relative symbolic links may allow access to arbitrary files and directories." Granted paths must contain none (permissions.html#limitations-and-known-issues); resolve realpaths before launch.
+- Pre-opened fd: "Using existing file descriptors via the node:fs module bypasses the Permission Model," and `drop()` does not revoke open descriptors (permissions.html#permission-model-constraints). Treat the fd as fully privileged; never hand it to amalgamated tenants.
+- `--env-file`: read before the model initializes, therefore "not subject to the rules of the Permission Model," and it applies Node-configuring variables such as `NODE_OPTIONS` (cli.html#--env-filefile). Whether that unlocks further privileges is UNVERIFIED.
+- Workers: version-matched sources conflict. permissions.html says "The model does not inherit to a worker thread"; SECURITY.md says workers "inherit the permission restrictions of their parent process." Do not rely on assumed inheritance; resolve via release tests/issues.
+- Ungated: `node:sqlite` file access; `process._debugProcess()` (SIGUSR1) (same permission sections).
+- Staging: `--permission-audit` needs no `--allow-*` flags; if both flags are passed, enforce mode wins (cli.html#--permission-audit).
+
+**Fit use:** blast-radius reduction and audit-mode grant discovery for trusted application code — never sole isolation for hostile code.

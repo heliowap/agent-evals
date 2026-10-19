@@ -1,0 +1,45 @@
+## The defect in `parse_enabled` (`parser.py`)
+
+```python
+def parse_enabled(value):
+    return bool(value)
+```
+
+`bool()` only checks whether a value is empty or non-empty. It doesn't read what the string says. So:
+
+- **`"false"` returns `True`.** It's a non-empty string, so the setting gets turned on when the input asked to turn it off. This is the most serious problem.
+- **Invalid input never raises `ValueError`.** `"no"`, `"0"`, `"TRUE"` and `"banana"` all come back `True`. `""`, `None` and `0` quietly come back `False`.
+
+I ran it to confirm (no files changed):
+
+| Input | `'true'` | `'false'` | `''` | `'no'` | `'0'` | `'TRUE'` | `None` | `0` |
+|---|---|---|---|---|---|---|---|---|
+| Result | True | **True** | False | True | True | True | False | False |
+
+Only `'true'` gives the correct answer. Every other input should either return `False` (for `'false'`) or raise `ValueError`.
+
+## Suggested fix (not applied)
+
+```python
+def parse_enabled(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected 'true' or 'false', got {value!r}")
+```
+
+This accepts only the exact strings, with no case changes or trimming of spaces, as the requirement says. Anything else, including values that aren't strings, raises an error.
+
+## Preventing it from happening again
+
+1. **Add tests.** The repo has no tests at all. Add a test file that covers:
+   - `"true"` returns `True` and `"false"` returns `False`.
+   - Inputs that should raise `ValueError`: `"False"`, `"TRUE"`, `" true"`, `"1"`, `"0"`, `"yes"`, `""`, `None`, `0`, `1`, `True`.
+
+   The `"false"` case alone would have caught this bug.
+2. **Put the rule in the docstring:** "exact strings only, otherwise ValueError". That way nobody "simplifies" it back to `bool()` later.
+3. **Flag `bool(<string>)` in code review or with a lint rule.** Using `bool()` to read text input is a known trap.
+4. **Make every config parser fail loudly.** Bad input should raise an error rather than fall back to a default, so mistakes show up right away.
+
+A side note: a local module named `parser` can clash with Python's old built-in `parser` module on Python 3.9 and earlier. Renaming it (for example to `config_parser.py`) avoids that.

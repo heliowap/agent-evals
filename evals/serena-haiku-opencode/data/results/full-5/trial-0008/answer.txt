@@ -1,0 +1,17 @@
+`parse_amount` and `make_invoice` now use exact integer-cent validation instead of floats. `python3 checks/public.py` passes, and the 10 new tests in `checks/test_money.py` pass.
+
+**What changed**
+
+- **`src/money.py`**
+  - `amount_to_cents(value)` is the single validator. It accepts `Decimal`, non-bool `int`, and plain strings matching `[+-]?` followed by digits with an optional fraction. It rejects everything else with `ValueError`, including floats, bools, other types, NaN/Infinity, zero, negatives, values over 1000000.00, and any nonzero amount below the cent.
+  - Trailing zeros are stripped exactly, so `"1.2000"` is accepted and `"1.001"` is rejected without rounding.
+  - `parse_amount` returns a `Decimal` with exponent -2. `format_amount` is unchanged.
+- **`src/api.py`**
+  - `make_invoice` copies the input with `list()`, sums the validated cents, and rejects totals over 1000000.00. An empty list returns `{"total": "0.00", "count": 0}`.
+- **`checks/test_money.py`** (new): covers accepted and rejected inputs, the cent boundary, the total limit, input non-mutation, and that the global decimal context and its flags are unchanged.
+
+**Choices to review**
+
+- Strings like `"7."` and `".25"` are accepted as plain decimals. If you want only `digits.digits`, the regex is a one-line change.
+- The spec's "reject other types" is implemented as `ValueError`, not `TypeError`, to match the stated contract.
+- The validator only uses integer arithmetic and the `Decimal` constructor, so no context-dependent operation runs.

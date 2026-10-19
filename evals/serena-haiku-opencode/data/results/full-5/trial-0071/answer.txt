@@ -1,0 +1,16 @@
+`get_document` and `list_documents` now only return documents that match the tenant and owner and have `deleted_at IS NULL`. Both `checks/public.py` and a new `checks/test_access.py` pass (6 tests).
+
+**Changes**
+
+- **`src/repository.py`**
+  - `find(connection, tenant, owner, document_id)` filters with `tenant=? AND owner=? AND id=? AND deleted_at IS NULL`.
+  - `listing(connection, tenant, owner)` filters with `tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id`.
+  - All values are passed as bound parameters, so names containing quotes or SQL-like text are treated as plain values.
+  - `decode` still returns only `id`, `title` and `body`, so no deletion metadata is exposed.
+- **`src/service.py`**
+  - `get_document` and `list_documents` take `tenant` and `owner` and pass them through to the repository.
+  - Both return `None` or an empty list for unavailable records, without distinguishing cross-tenant, cross-owner, deleted and missing IDs.
+- **`checks/test_access.py`** (new)
+  - Covers visible records, each hidden case returning `None`, quoted and injection-style owner names, list filtering and ordering, and the exact result field set.
+
+`checks/public.py` and `README.md` are unchanged. Running the checks created `__pycache__` directories in `src/` and `checks/`.

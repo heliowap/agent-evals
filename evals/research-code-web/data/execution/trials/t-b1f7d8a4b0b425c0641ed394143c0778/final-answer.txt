@@ -1,0 +1,22 @@
+### Assessment of CVE-2024-35195 for Requests 2.31.0
+
+#### 1. Applicability to the Described Scenario
+**CVE-2024-35195 directly affects this scenario.** 
+According to the maintainer security advisory published for the `psf/requests` repository (`GHSA-9wx4-h78v-vm56`), the vulnerability affects all versions of Requests prior to `2.32.0` (indicated as `< 2.32.0`), which includes version `2.31.0`. The advisory precisely describes this operational pattern: when using a `requests.Session`, if the initial request to a given host/origin disables TLS certificate verification (`verify=False`), the session's internal handling fails to enforce certificate verification on subsequent calls to that same origin.
+
+#### 2. Reliability of Restoring Certificate Verification (`verify=True`)
+In Requests 2.31.0, passing `verify=True` on the subsequent request **does not reliably restore certificate verification**. 
+Because the initial connection created without TLS verification is placed into the session’s connection pool, subsequent requests directed to the same origin reuse that existing pooled connection. The session ignores the change to `verify=True` and continues to communicate without verifying the TLS certificate, leaving the request exposed to potential man-in-the-middle (MitM) attacks.
+
+#### 3. Duration / Persistence of the Problematic Behavior
+The advisory specifies that the unverified behavior **persists for the entire lifecycle/lifetime of the underlying connection in the session's connection pool**. Until that specific pooled connection is closed or evicted from the pool (for example, if the connection is dropped, timed out, or explicitly closed), any subsequent requests reusing it will bypass TLS certificate verification.
+
+#### 4. Minimum Patched Release Stated by the Maintainer Advisory
+The maintainer security advisory states that the minimum patched release resolving this issue is **`2.32.0`** (specifying affected versions as `< 2.32.0` and remediation as `requests>=2.32.0`).
+
+#### 5. Advisory-Documented Mitigations (Without Upgrading)
+For installations running versions `< 2.32.0` that cannot immediately upgrade, the maintainer advisory documents the following mitigations:
+* **Call `.close()` on the `Session` object** to clear existing connections if `verify=False` has been used before making requests that require verification.
+* **Avoid setting `verify=False` on the first request to a host** when operating through a `requests.Session` (for example, by separating unverified requests into a dedicated session or one-off request calls).
+
+*(Limitations note: Public advisory details reflect the official PSF advisory GHSA-9wx4-h78v-vm56; specific connection-pool eviction timing in unpatched environments depends on the underlying urllib3 connection pool timeouts and socket state).*

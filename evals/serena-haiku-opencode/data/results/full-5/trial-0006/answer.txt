@@ -1,0 +1,21 @@
+I replaced the float-based parsing in `src/money.py` and updated `src/api.py.make_invoice` to use the same rules. The public check and a new 24-test suite both pass.
+
+**`src/money.py`**
+- `amount_to_cents(value)` does all validation and returns an exact integer number of cents. `parse_amount` wraps it and returns a `Decimal` with exponent -2.
+- Accepted inputs: `Decimal`, `int` (not `bool`), and strings matching `[+-]?[0-9]+(\.[0-9]+)?`. Strings are matched with `fullmatch` and an ASCII-only pattern, so whitespace, underscores, exponents, and Unicode digits are rejected.
+- Everything else raises `ValueError`: floats, bools, other types, non-finite values, zero, negatives, values over 1000000.00, and values with a nonzero fractional cent. Nothing is rounded.
+- Huge exponents such as `1E+999999999` are rejected before any large arithmetic happens.
+- No `float` and no arithmetic on `Decimal` values, so the global context is never consulted. Results and formatting don't depend on the caller's precision or rounding settings.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies the input with `list()`, validates each item with `amount_to_cents`, sums in integer cents, and rejects totals over 1000000.00.
+- It returns `{"total": "<two decimals>", "count": N}`. An empty list gives `{"total": "0.00", "count": 0}`.
+
+**Checks**
+- `checks/test_money_rules.py` covers accepted and rejected inputs, the 1000000.00 limit at both item and total level, and the exponent. It also checks that the global context is unchanged, that results are the same under a low-precision `ROUND_DOWN` context, and that the caller's list is not mutated.
+- Run it with `python3 -m unittest discover -s checks -p 'test_*.py'`.
+
+**Choices you may want to review**
+- `".5"` and `"5."` are rejected. I read "plain decimal" as digits, with an optional fraction that has at least one digit after the point. Relaxing this is a one-line regex change.
+- A non-iterable argument to `make_invoice` (such as `None`) raises `TypeError` from `list()`, not `ValueError`. The `ValueError` rule applies to the amounts themselves.

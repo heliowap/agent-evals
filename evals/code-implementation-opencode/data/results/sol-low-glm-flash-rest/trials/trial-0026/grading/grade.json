@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/security.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nc.executemany(\n    \"INSERT INTO documents VALUES (?,?,?,?,?,?)\",\n    [\n        (1, \"t\", \"o\", \"A\", \"a-body\", None),\n        (2, \"t2\", \"o\", \"B\", \"b-body\", None),\n        (3, \"t\", \"o2\", \"C\", \"c-body\", None),\n        (4, \"t\", \"o\", \"D\", \"d-body\", \"2026-01-01\"),\n        (5, \"t\", \"o\", \"E\", \"e-body\", None),\n    ],\n)\nc.commit()\n\n# Only tenant+owner matching, non-deleted documents are accessible.\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"A\", \"body\": \"a-body\"}\nassert get_document(c, \"t\", \"o\", 2) is None\nassert get_document(c, \"t\", \"o\", 3) is None\nassert get_document(c, \"t\", \"o\", 4) is None\nassert get_document(c, \"t\", \"o\", 99) is None\nassert get_document(c, \"t2\", \"o\", 2) == {\"id\": 2, \"title\": \"B\", \"body\": \"b-body\"}\n\n# Lists are scoped, exclude deleted, ordered by id, and expose only id/title/body.\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"A\", \"body\": \"a-body\"},\n    {\"id\": 5, \"title\": \"E\", \"body\": \"e-body\"},\n]\nassert list_documents(c, \"t2\", \"o\") == [{\"id\": 2, \"title\": \"B\", \"body\": \"b-body\"}]\nassert list_documents(c, \"nope\", \"nope\") == []\nfor d in list_documents(c, \"t\", \"o\"):\n    assert set(d.keys()) == {\"id\", \"title\", \"body\"}\n\n# Tenant/owner values containing quotes work via bound parameters.\nqt = \"t'; DROP TABLE documents;--\"\nqo = 'o\"r'\nc.execute(\"INSERT INTO documents VALUES (6, ?, ?, 'Q', 'q-body', NULL)\", (qt, qo))\nc.commit()\nassert get_document(c, qt, qo, 6) == {\"id\": 6, \"title\": \"Q\", \"body\": \"q-body\"}\nassert list_documents(c, qt, qo) == [{\"id\": 6, \"title\": \"Q\", \"body\": \"q-body\"}]\nassert c.execute(\"SELECT COUNT(*) FROM documents\").fetchone()[0] == 6\n\nprint(\"security checks passed\")\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/security.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 77,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.05872929099132307
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05775570901460014,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.058286999992560595,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,21 @@
+I replaced the float-based parsing in `src/money.py` and made `make_invoice` in `src/api.py` apply the same rules. `python3 checks/public.py` passes, and so does the new check file I added, `checks/amount_rules.py`.
+
+**`src/money.py`**
+- `amount_to_cents(value)` validates an amount and returns integer cents. It accepts `Decimal`, `int` (not `bool`), and plain decimal `str`. It rejects everything else, including floats, with `ValueError`.
+- Strings are matched against a strict regex: optional sign, digits, optional fraction. Whitespace, exponents, underscores and non-ASCII digits are rejected.
+- Decimals are converted from their exact sign/digit/exponent tuple using integer arithmetic only. The decimal context is never consulted, so nothing is rounded and no global state is touched. Non-finite values are rejected. Trailing zeros below the cent are dropped, and any remaining digit below the cent raises `ValueError`.
+- Zero, negatives, and values over `1000000.00` are rejected. A guard rejects huge exponents before any large power is computed.
+- `parse_amount` returns a `Decimal` with exponent -2 via `cents_to_amount`.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies the input into a list, so the caller's sequence is never touched and iterators work too.
+- Each item goes through `amount_to_cents`. The integer sum is checked against `1000000.00`, and an empty list gives `{"total": "0.00", "count": 0}`.
+- The old code seeded the sum with `parse_amount("0")`, which the new zero rule would have rejected. It now sums integer cents, so no seed value is needed.
+
+**Verification**
+- `checks/amount_rules.py` covers accepted and rejected inputs, exact exponents, the API limits and empty lists. It confirms the caller's list and the global context are unchanged. It also runs under `prec=2` with the `Inexact` trap enabled.
+
+**Judgment calls**
+- `"1."` and `".5"` are accepted as plain decimals. If you want only `digits.digits` forms, the regex is the one place to tighten.
+- `1000000.00` is accepted, and anything above it is rejected.

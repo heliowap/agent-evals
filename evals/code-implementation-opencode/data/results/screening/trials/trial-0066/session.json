@@ -1,0 +1,269 @@
+{
+  "info": {
+    "id": "ses_19ce3a796a2b83efd453",
+    "projectID": "9ea6163fc02dcc85305585d732de26added5d87d",
+    "agent": "implementer",
+    "model": {
+      "id": "cpa-claude-sonnet-5-5",
+      "providerID": "cli_proxy",
+      "variant": "high"
+    },
+    "cost": 0.0463391,
+    "tokens": {
+      "input": 8,
+      "output": 2860,
+      "reasoning": 557,
+      "cache": {
+        "read": 7356,
+        "write": 4567
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1791685134637,
+      "updated": 1791685161419,
+      "idle": 1791685161421
+    },
+    "title": "Project change",
+    "location": {
+      "directory": "/tmp/folders/T/private-runtime-jodp9a2o/project"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_128c18986001pIHJAphBU5YKbz",
+      "time": {
+        "created": 1791685134726
+      },
+      "type": "agent-switched",
+      "agent": "implementer",
+      "previous": "implementer"
+    },
+    {
+      "id": "msg_128c18985001CMX448oo3nY4tG",
+      "time": {
+        "created": 1791685134843
+      },
+      "text": "\"Fix transfer(connection, publisher, source, target, amount) in src/service.py. A successful transfer debits and credits exactly once, appends one ledger row, commits, then publishes {'source': source, 'target': target, 'amount': amount}. source and target must differ and exist; amount is a positive integer, excluding bool, and cannot exceed the source balance. Invalid transfers raise ValueError without writes or publication. Database failure at any statement or commit rolls back all changes and never publishes. Publication failure propagates after the committed transfer and must not undo it. Caller connections are idle at entry. Keep balance reads and account setup intact. Start in src/service.py and src/repository.py.\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_128c189ff001Riy6xtyEz862WH",
+      "time": {
+        "created": 1791685134851,
+        "streamed": 1791685138409,
+        "completed": 1791685138461
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-sonnet-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_01QYp54Rxoxf8CwPFPtzuNHs",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && ls -R . | grep -v pyc | head -50 && cat src/service.py src/repository.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\".:\\nREADME.md\\nchecks\\nsrc\\n\\n./checks:\\npublic.py\\n\\n./src:\\n__init__.py\\nevents.py\\nrepository.py\\nservice.py\\nfrom .repository import move\\n\\ndef transfer(connection, publisher, source, target, amount):\\n    publisher.publish({\\\"source\\\": source, \\\"target\\\": target, \\\"amount\\\": amount})\\n    move(connection, source, target, amount)\\n    connection.commit()\\ndef initialize(connection):\\n    connection.executescript(\\\"CREATE TABLE accounts(id TEXT PRIMARY KEY, balance INTEGER NOT NULL); CREATE TABLE ledger(source TEXT, target TEXT, amount INTEGER);\\\")\\n    connection.commit()\\n\\ndef balance(connection, account):\\n    row = connection.execute(\\\"SELECT balance FROM accounts WHERE id=?\\\", (account,)).fetchone()\\n    return None if row is None else row[0]\\n\\ndef move(connection, source, target, amount):\\n    connection.execute(\\\"UPDATE accounts SET balance=balance-? WHERE id=?\\\", (amount, source))\\n    connection.execute(\\\"UPDATE accounts SET balance=balance+? WHERE id=?\\\", (amount, target))\\n    connection.execute(\\\"INSERT INTO ledger VALUES (?, ?, ?)\\\", (source, target, amount))\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791685137793,
+            "ran": 1791685138396,
+            "completed": 1791685138457
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0025173,
+      "tokens": {
+        "input": 2,
+        "output": 98,
+        "reasoning": 0,
+        "cache": {
+          "read": 908,
+          "write": 577
+        }
+      }
+    },
+    {
+      "id": "msg_128c19824001qDHLAm8pweVm5g",
+      "time": {
+        "created": 1791685138473,
+        "streamed": 1791685139918,
+        "completed": 1791685139972
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-sonnet-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "toolu_011BDHhYo75cvK6kSwqnY4j8",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat checks/public.py src/events.py README.md src/__init__.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"import os, sys\\nsys.path.insert(0, os.getcwd())\\nimport sqlite3\\nfrom src.repository import initialize, balance\\nfrom src.service import transfer\\nfrom src.events import Recorder\\nc = sqlite3.connect(\\\":memory:\\\")\\ninitialize(c)\\nc.executemany(\\\"INSERT INTO accounts VALUES (?, ?)\\\", [(\\\"a\\\", 100), (\\\"b\\\", 20)])\\nc.commit()\\np = Recorder()\\ntransfer(c, p, \\\"a\\\", \\\"b\\\", 10)\\nassert (balance(c, \\\"a\\\"), balance(c, \\\"b\\\")) == (90, 30)\\nassert p.events == [{\\\"source\\\": \\\"a\\\", \\\"target\\\": \\\"b\\\", \\\"amount\\\": 10}]\\nclass Recorder:\\n    def __init__(self):\\n        self.events = []\\n\\n    def publish(self, event):\\n        self.events.append(event.copy())\\n# Service component\\n\\nFix transfer(connection, publisher, source, target, amount) in src/service.py. A successful transfer debits and credits exactly once, appends one ledger row, commits, then publishes {'source': source, 'target': target, 'amount': amount}. source and target must differ and exist; amount is a positive integer, excluding bool, and cannot exceed the source balance. Invalid transfers raise ValueError without writes or publication. Database failure at any statement or commit rolls back all changes and never publishes. Publication failure propagates after the committed transfer and must not undo it. Caller connections are idle at entry. Keep balance reads and account setup intact. Start in src/service.py and src/repository.py.\\n\\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791685139652,
+            "ran": 1791685139907,
+            "completed": 1791685139968
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.002615,
+      "tokens": {
+        "input": 2,
+        "output": 89,
+        "reasoning": 0,
+        "cache": {
+          "read": 1485,
+          "write": 629
+        }
+      }
+    },
+    {
+      "id": "msg_128c19e0e0011h36HBOF6r8ghI",
+      "time": {
+        "created": 1791685139992,
+        "streamed": 1791685155491,
+        "completed": 1791685155572
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-sonnet-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I'm thinking about whether validation reads need explicit transaction control—since connections are idle at entry with no implicit transaction, I may need to wrap the check-and-write in BEGIN IMMEDIATE to avoid race conditions.\n\nFor the actual write, I'll use a conditional UPDATE with a balance>=? clause and check rowcount for safety, raising ValueError on validation failures after rolling back. Amount validation should enforce int type (excluding bool), positive value, and distinct source/target accounts, with any DB exception during the transaction triggering a rollback before re-raising.\n\n",
+          "state": {
+            "signature": "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"
+          },
+          "time": {
+            "created": 1791685141180,
+            "completed": 1791685148259
+          }
+        },
+        {
+          "type": "tool",
+          "id": "toolu_01NW5nhtELY6GY8jbhmmgYwe",
+          "name": "terminal",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "cd /workspace && cat > src/service.py <<'EOF'\nfrom .repository import balance, move\n\n\ndef _validate_amount(amount):\n    if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n\n\ndef transfer(connection, publisher, source, target, amount):\n    _validate_amount(amount)\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n\n    try:\n        # Take the write lock up front so validation and writes are atomic.\n        connection.execute(\"BEGIN IMMEDIATE\")\n        source_balance = balance(connection, source)\n        if source_balance is None or balance(connection, target) is None:\n            raise ValueError(\"unknown account\")\n        if amount > source_balance:\n            raise ValueError(\"insufficient funds\")\n        move(connection, source, target, amount)\n        connection.commit()\n    except BaseException:\n        try:\n            connection.rollback()\n        except Exception:\n            pass\n        raise\n\n    # Committed; a publication failure propagates without undoing the transfer.\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\nEOF\npython3 - <<'EOF'\nimport re\np='src/repository.py'\ns=open(p).read()\ni=s.index(\"def move\")\ns=s[:i]+'''def move(connection, source, target, amount):\n    debit = connection.execute(\n        \"UPDATE accounts SET balance=balance-? WHERE id=? AND balance>=?\",\n        (amount, source, amount),\n    )\n    if debit.rowcount != 1:\n        raise ValueError(\"source missing or insufficient funds\")\n    credit = connection.execute(\"UPDATE accounts SET balance=balance+? WHERE id=?\", (amount, target))\n    if credit.rowcount != 1:\n        raise ValueError(\"target missing\")\n    connection.execute(\"INSERT INTO ledger VALUES (?, ?, ?)\", (source, target, amount))\n'''\nopen(p,'w').write(s)\nEOF\ncat > checks/transfer.py <<'EOF'\nimport os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, balance\nfrom src.service import transfer\n\n\nclass Rec:\n    def __init__(self, fail=False):\n        self.events, self.fail = [], fail\n\n    def publish(self, e):\n        if self.fail:\n            raise RuntimeError(\"pub\")\n        self.events.append(e)\n\n\ndef setup():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\n    c.commit()\n    return c\n\n\ndef state(c):\n    return balance(c, \"a\"), balance(c, \"b\"), c.execute(\"SELECT count(*) FROM ledger\").fetchone()[0]\n\n\nc = setup(); p = Rec()\ntransfer(c, p, \"a\", \"b\", 100)\nassert state(c) == (0, 120, 1) and len(p.events) == 1 and not c.in_transaction\n\nfor args in [(\"a\", \"a\", 1), (\"a\", \"x\", 1), (\"x\", \"b\", 1), (\"a\", \"b\", 0), (\"a\", \"b\", -1),\n             (\"a\", \"b\", True), (\"a\", \"b\", 1.0), (\"a\", \"b\", \"1\"), (\"a\", \"b\", 101)]:\n    c = setup(); p = Rec()\n    try:\n        transfer(c, p, *args)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(args)\n    assert state(c) == (100, 20, 0) and not p.events and not c.in_transaction, args\n\n# publication failure keeps the committed transfer\nc = setup()\ntry:\n    transfer(c, Rec(fail=True), \"a\", \"b\", 5)\nexcept RuntimeError:\n    pass\nelse:\n    raise AssertionError\nassert state(c) == (95, 25, 1) and not c.in_transaction\nc.rollback(); assert state(c) == (95, 25, 1)\n\n# database failure at each statement rolls back and does not publish\nfor bad in [\"UPDATE accounts SET balance=balance-\", \"UPDATE accounts SET balance=balance+\", \"INSERT INTO ledger\"]:\n    c = setup()\n    c.set_trace_callback(None)\n    c.execute(\"CREATE TRIGGER t BEFORE INSERT ON ledger BEGIN SELECT RAISE(ABORT,'x'); END\") if bad.startswith(\"INSERT\") else None\n    c.commit()\n\n    class Conn:\n        def __init__(self, real): self.real = real\n        def execute(self, sql, params=()):\n            if sql.startswith(bad):\n                raise sqlite3.OperationalError(\"boom\")\n            return self.real.execute(sql, params)\n        def commit(self): return self.real.commit()\n        def rollback(self): return self.real.rollback()\n    p = Rec()\n    try:\n        transfer(Conn(c), p, \"a\", \"b\", 5)\n    except sqlite3.Error:\n        pass\n    else:\n        raise AssertionError(bad)\n    assert state(c) == (100, 20, 0) and not p.events and not c.in_transaction, bad\n\n# commit failure\nc = setup()\nclass CommitFail:\n    def __init__(self, real): self.real = real\n    def execute(self, *a): return self.real.execute(*a)\n    def commit(self): raise sqlite3.OperationalError(\"commit\")\n    def rollback(self): return self.real.rollback()\np = Rec()\ntry:\n    transfer(CommitFail(c), p, \"a\", \"b\", 5)\nexcept sqlite3.OperationalError:\n    pass\nassert state(c) == (100, 20, 0) and not p.events\nprint(\"ok\")\nEOF\npython3 checks/public.py && python3 checks/transfer.py"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"output\":\"ok\\n\",\"exit_code\":0,\"signal\":null,\"cancelled\":false,\"timeout\":false,\"truncated\":false}"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1791685148262,
+            "ran": 1791685155490,
+            "completed": 1791685155570
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_use",
+      "cost": 0.0278129,
+      "tokens": {
+        "input": 2,
+        "output": 2019,
+        "reasoning": 557,
+        "cache": {
+          "read": 2114,
+          "write": 735
+        }
+      }
+    },
+    {
+      "id": "msg_128c1daf7001a4MncuHObn4Plp",
+      "time": {
+        "created": 1791685155579,
+        "streamed": 1791685161418,
+        "completed": 1791685161419
+      },
+      "type": "assistant",
+      "agent": "implementer",
+      "model": {
+        "id": "cpa-claude-sonnet-5-5",
+        "providerID": "cli_proxy",
+        "variant": "high"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "I fixed `transfer` in `src/service.py` and `move` in `src/repository.py`. `checks/public.py` passes, and so does a new `checks/transfer.py`.\n\n**What `transfer` does now:**\n- **Validation:** It checks the amount (a positive `int`, not `bool`) and that `source` and `target` differ, all before touching the database. Unknown accounts and amounts above the source balance also raise `ValueError`. No writes happen and nothing is published in any of these cases.\n- **Atomicity:** It opens the transaction with `BEGIN IMMEDIATE`, so the balance checks and the writes happen under one write lock. That stops a concurrent writer from changing the source balance between the check and the debit.\n- **Order of operations:** It runs `move()`, then commits, then publishes the event.\n- **Database failure:** Any exception from a statement or from the commit triggers a rollback and is re-raised. In that case nothing is published.\n- **Publication failure:** The publish call runs after the commit and outside the rollback handling. A publish error propagates, and the committed transfer stays.\n\n**What `move` does now:**\n- The debit is a guarded update (`balance>=?`).\n- Both updates check that exactly one row changed.\n- Either guard raises `ValueError` if it fails, which the service then rolls back.\n- `balance` and `initialize` are unchanged.\n\nThe old code published before writing and had no validation or rollback.\n\n`checks/transfer.py` covers these cases:\n- a successful transfer, including draining the whole balance;\n- each invalid input;\n- a publish failure that leaves the transfer in place;\n- injected failures at each of the three statements and at commit, each rolled back with no publish.\n\nIt also confirms the connection is idle afterwards.\n\nI didn't test `BEGIN IMMEDIATE` with a connection opened with `autocommit=False` (Python 3.12+). That mode is always inside a transaction. It also conflicts with the \"idle at entry\" assumption."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "end_turn",
+      "cost": 0.0133939,
+      "tokens": {
+        "input": 2,
+        "output": 654,
+        "reasoning": 0,
+        "cache": {
+          "read": 2849,
+          "write": 2626
+        }
+      }
+    },
+    {
+      "id": "msg_128c1f1cd001dUYaCTtq4MvpDb",
+      "time": {
+        "created": 1791685161421
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}

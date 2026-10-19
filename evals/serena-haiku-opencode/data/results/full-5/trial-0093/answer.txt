@@ -1,0 +1,23 @@
+`parse_amount` no longer goes through `float`. The public check and a new unittest suite both pass (10 tests).
+
+**`src/money.py`**
+- `amount_to_cents(value)` validates an input and returns an integer number of cents. It is the single source of the rules.
+  - **Decimal:** non-finite, zero, negative, and out-of-range values are rejected. The exponent is checked before any string conversion, so inputs like `1E-1000000000` fail fast.
+  - **int:** `bool` is rejected explicitly. Other ints must be 1 to 1000000.
+  - **str:** must match `[+-]?[0-9]+(\.[0-9]+)?` exactly, so no whitespace, exponents, or `.5`/`5.` forms.
+  - **Other types, including floats:** rejected with `ValueError`.
+  - **Cents:** digits beyond the second fractional place must all be zero, so trailing zeros are fine and no fractional cent is rounded.
+- `cents_to_amount` and `parse_amount` return a `Decimal` with exponent -2, built through the `Decimal(str)` constructor, which is exact and doesn't depend on the context.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies the input with `list()`, sums in integer cents, and raises `ValueError` if the running total passes 1000000.00. An empty list returns `{"total": "0.00", "count": 0}`.
+
+**Checks**
+- `checks/test_amounts.py` covers accepted and rejected inputs, exponent -2 output, the total cap, mixed input types, no mutation of the caller's list, and unchanged global context. It also runs under an altered context (prec=2, ROUND_DOWN) to confirm results stay exact.
+- I verified that `format(Decimal, "f")` without a precision is exact even under that altered context.
+
+**Interpretation choices**
+- Plain decimal strings require digits before the point, so `.5` and `5.` are rejected.
+- `"+3.1"` is accepted because the spec allows an optional sign.
+- All rejections raise `ValueError`, including wrong types, to match the spec.

@@ -1,0 +1,27 @@
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path('~/VSCode/Lab/evals/research-eval-design-20261007T184125Z')
+TEMP = Path('/tmp/folders/T/opencode')
+p = argparse.ArgumentParser()
+p.add_argument('stage', choices=['review', 'adjudication'])
+p.add_argument('job', type=int)
+p.add_argument('session_id')
+a = p.parse_args()
+launch = ROOT / f'controller-work/agent-grading/{a.stage}/job-{a.job:03d}-launch.json'
+if launch.exists():
+    assert json.loads(launch.read_text())['actual_session_id'] == a.session_id
+else:
+    subprocess.run([sys.executable, '-B', str(TEMP / 'research-grade-launch-receipt.py'),
+                    'record', '--stage', a.stage, '--job', str(a.job),
+                    '--session-id', a.session_id], cwd=ROOT, check=True)
+subprocess.run([sys.executable, '-B', str(TEMP / 'capture-native-grade.py'),
+                '--stage', a.stage, '--job', str(a.job),
+                '--session-id', a.session_id], cwd=ROOT, check=True)
+subprocess.run([sys.executable, '-B', str(TEMP / 'grade-research-jobs.py'),
+                'submit', '--stage', a.stage, '--job', str(a.job),
+                '--source', str(ROOT / f'controller-work/agent-grading/{a.stage}/raw/job-{a.job:03d}.json'),
+                '--session-id', a.session_id], cwd=ROOT, check=True)

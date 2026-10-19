@@ -1,0 +1,133 @@
+{
+  "id": "trial-0070",
+  "configuration": "haiku-high-native",
+  "effort": "high",
+  "arm": "native",
+  "case": "py-document-scope",
+  "role": "implementation",
+  "rep": 5,
+  "position": 2,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/test_service_access.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\ndef make_db():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    rows = [\n        (1, \"acme\", \"alice\", \"A1\", \"body1\", None),\n        (2, \"acme\", \"alice\", \"A2 deleted\", \"body2\", \"2026-01-01T00:00:00\"),\n        (3, \"acme\", \"bob\", \"B1\", \"body3\", None),\n        (4, \"globex\", \"alice\", \"G1\", \"body4\", None),\n        (5, \"acme\", \"alice\", \"O'Brien \\\"quoted\\\" name\", \"x'; DROP TABLE documents; --\", None),\n        (6, \"acme\", \"alice\", \"A6\", \"body6\", None),\n    ]\n    c.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\n    c.commit()\n    return c\n\nc = make_db()\n\n# get_document: accessible record returns exactly id, title, body\nassert get_document(c, \"acme\", \"alice\", 1) == {\"id\": 1, \"title\": \"A1\", \"body\": \"body1\"}\n\n# unavailable records all return None, indistinguishably\nassert get_document(c, \"acme\", \"alice\", 2) is None      # deleted\nassert get_document(c, \"acme\", \"alice\", 3) is None      # cross-owner\nassert get_document(c, \"acme\", \"alice\", 4) is None      # cross-tenant\nassert get_document(c, \"acme\", \"alice\", 99) is None     # missing\nassert get_document(c, \"other\", \"alice\", 1) is None     # wrong tenant\nassert get_document(c, \"acme\", \"carol\", 1) is None      # wrong owner\n\n# names with quotes and injection-like text are bound safely\nassert get_document(c, \"acme\", \"alice\", 5) == {\"id\": 5, \"title\": \"O'Brien \\\"quoted\\\" name\", \"body\": \"x'; DROP TABLE documents; --\"}\nassert get_document(c, \"acme\", \"alice\", \"1 OR 1=1\") is None\nassert get_document(c, \"acme' OR '1'='1\", \"alice\", 3) is None\nassert list_documents(c, \"acme' OR '1'='1\", \"alice\") == []\nassert list_documents(c, \"acme\", \"alice' OR '1'='1\") == []\n\n# list_documents: only own tenant+owner, not deleted, ordered by id, no deletion metadata\nlst = list_documents(c, \"acme\", \"alice\")\nassert lst == [\n    {\"id\": 1, \"title\": \"A1\", \"body\": \"body1\"},\n    {\"id\": 5, \"title\": \"O'Brien \\\"quoted\\\" name\", \"body\": \"x'; DROP TABLE documents; --\"},\n    {\"id\": 6, \"title\": \"A6\", \"body\": \"body6\"},\n], lst\nassert all(set(d) == {\"id\", \"title\", \"body\"} for d in lst)\n\n# empty result for unknown tenant/owner\nassert list_documents(c, \"nobody\", \"alice\") == []\nassert list_documents(c, \"acme\", \"nobody\") == []\n\nprint(\"ok\")\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+        "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+      },
+      "changed_files": [
+        "checks/test_service_access.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 84,
+      "removed_lines": 20
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.044659291044808924
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.045995166001375765,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.046077582985162735,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 21.197948207962327,
+  "preparation_s": 1.3891665419796482,
+  "export_s": 0.37667570798657835,
+  "grading_s": 0.29870866698911414,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "used": false,
+    "tool_calls": 0,
+    "useful_successful_calls": 0,
+    "errors": 0,
+    "catalog_ready_s": null
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 5,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_11bf9822e81cbac812f4",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "high"
+  },
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 2998,
+    "reasoning_tokens": 970,
+    "cached_input_tokens": 12086,
+    "cache_write_tokens": 5403
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 4,
+  "error_events": [],
+  "reported_cost_usd": 0.002781235,
+  "total_trial_s": 23.411742917029187
+}

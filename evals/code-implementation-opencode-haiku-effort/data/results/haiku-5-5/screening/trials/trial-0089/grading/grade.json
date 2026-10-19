@@ -1,0 +1,60 @@
+{
+  "scope": {
+    "files": {
+      "checks/exporter_checks.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\n# CSV: header-only when empty, LF endings, standard quoting, id,name header\nassert export_csv([]) == \"id,name\\n\"\nassert export_csv([{\"id\": 1, \"name\": \"Alice\"}]) == \"id,name\\n1,Alice\\n\"\nassert export_csv([{\"id\": 1, \"name\": 'a,\"b\"\\nc'}]) == 'id,name\\n1,\"a,\"\"b\"\"\\nc\"\\n'\nassert \"\\r\" not in export_csv([{\"id\": 1, \"name\": \"x\"}])\n\n# Normalization: only id/name, None and missing -> '', others stringified, order kept\nrows = [{\"name\": None, \"id\": 2, \"extra\": 9}, {\"id\": None}, {\"id\": 3.5, \"name\": True}]\nassert export_csv(rows) == \"id,name\\n2,\\n,\\n3.5,True\\n\"\nassert export_json(rows) == '[{\"id\":\"2\",\"name\":\"\"},{\"id\":\"\",\"name\":\"\"},{\"id\":\"3.5\",\"name\":\"True\"}]'\n\n# JSON: no ASCII escaping, compact separators\nassert export_json([{\"id\": 1, \"name\": \"héllo\"}]) == '[{\"id\":\"1\",\"name\":\"héllo\"}]'\nassert export_json([]) == \"[]\"\n\n# One-shot iterables work and inputs are not mutated\nsrc = [{\"id\": 1, \"name\": \"A\", \"x\": 1}]\nsnapshot = [dict(r) for r in src]\ngen = (r for r in src)\nassert export_csv(gen) == \"id,name\\n1,A\\n\"\nassert src == snapshot\nassert export_json(iter(src)) == '[{\"id\":\"1\",\"name\":\"A\"}]'\n\n# export_rows entry point and dispatcher\nassert export_rows([{\"id\": 1, \"name\": \"A\"}], \"csv\") == \"id,name\\n1,A\\n\"\nassert export_rows([{\"id\": 1, \"name\": \"A\"}], \"json\") == '[{\"id\":\"1\",\"name\":\"A\"}]'\nassert export([], \"csv\") == \"id,name\\n\"\nassert export([], \"json\") == \"[]\"\n\n# Unsupported formats raise ValueError, including unhashable ones, and do not consume rows\nfor bad in (\"xml\", \"CSV\", \"\", None, [\"csv\"]):\n    try:\n        export_rows(iter([{\"id\": 1}]), bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(f\"expected ValueError for {bad!r}\")\n    try:\n        export(iter([{\"id\": 1}]), bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(f\"dispatcher: expected ValueError for {bad!r}\")\n\nprint(\"exporter checks PASSED\")\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Reduce each row to (id, name) strings, preserving input order.\n\n    Missing or None values become ''; other values are stringified. Each row\n    is read once and never modified, and a one-shot iterable is consumed once.\n    \"\"\"\n    return [\n        tuple(\"\" if row.get(key) is None else str(row[key]) for key in _FIELDS)\n        for row in rows\n    ]\n\n\ndef _serialize_csv(records):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(_FIELDS)\n    writer.writerows(records)\n    return buffer.getvalue()\n\n\ndef _serialize_json(records):\n    payload = [dict(zip(_FIELDS, record)) for record in records]\n    return json.dumps(payload, ensure_ascii=False, separators=(\",\", \":\"))\n\n\ndef export_rows(rows, format):\n    \"\"\"Export rows as 'csv' or 'json'. Raises ValueError for other formats.\"\"\"\n    # Check the format before touching rows so a one-shot iterable is left\n    # untouched on error. Use == (not a dict lookup) so unhashable formats\n    # also raise ValueError.\n    if format == \"csv\":\n        return _serialize_csv(_normalize(rows))\n    if format == \"json\":\n        return _serialize_json(_normalize(rows))\n    raise ValueError(\"unsupported format\")\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/exporter_checks.py",
+      "src/csv_exporter.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 104,
+    "removed_lines": 18
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.043709291028790176
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04451454197987914,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.045133084000553936,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04798724997090176,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

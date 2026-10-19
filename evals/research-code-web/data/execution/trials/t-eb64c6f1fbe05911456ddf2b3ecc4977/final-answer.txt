@@ -1,0 +1,83 @@
+Based on the inspected implementation in the Zod repository snapshot, here is the trace of a string schema's synchronous transformation from the public classic API builder to execution.
+
+---
+
+### 1. How the Transformation is Represented and Constructed
+
+1. **Classic Schema Builder**:
+   * Calling `.transform(tx)` on an existing schema (such as `z.string()`) invokes the prototype method defined in `packages/zod/src/v4/classic/schemas.ts:245-247`:
+     ```ts
+     transform(tx) {
+       return pipe(this, transform(tx));
+     }
+     ```
+   * It delegates to the standalone `transform(fn)` helper in `packages/zod/src/v4/classic/schemas.ts:2291-2298`:
+     ```ts
+     export function transform<I = unknown, O = I>(
+       fn: (input: I, ctx: core.$RefinementCtx) => O
+     ): ZodTransform<Awaited<O>, I> {
+       return new ZodTransform({
+         type: "transform",
+         transform: fn as any,
+       }) as any;
+     }
+     ```
+   * The transformation step itself is an instance of `ZodTransform`, initialized with core and classic metadata (`core.$ZodTransform.init(inst, def)` and `ZodType.init(inst, def)`) in `packages/zod/src/v4/classic/schemas.ts:2250-2254`.
+   * The chained schema is represented as a pipeline: `pipe(this, transform(tx))`.
+
+---
+
+### 2. Execution Order: Input Parsing vs. Transformation
+
+Because `.transform(tx)` constructs `pipe(this, transform(tx))`:
+* **Input Parsing Occurs First**: The incoming input is processed by the upstream schema (`this`, the string schema) to perform type checking, string validations, checks, etc.
+* **Transformation Occurs Second**: Once the upstream stage passes, the payload is handed to the `ZodTransform` stage. Its parsing logic is executed in `packages/zod/src/v4/classic/schemas.ts:2257-2287`:
+  1. Direction check: If parsing backwards (`_ctx.direction === "backward"`), it throws `new core.$ZodEncodeError(inst.constructor.name)` (lines 2258–2260).
+  2. Context setup: A refinement context callback `payload.addIssue` is attached (lines 2262–2276).
+  3. Execution: `const output = def.transform(payload.value, payload)` is executed (line 2278).
+
+---
+
+### 3. Issues Stopping the Pipe and Issue-Code Exceptions
+
+* In pipeline evaluation across steps:
+  * When an upstream schema encounters validation failures, issues are appended to `payload.issues`.
+  * In Zod's pipeline semantics, execution along a pipe halts if an unrecoverable/fatal issue occurs or if issues accumulate that prevent continuing down the pipe.
+  * In the transform stage specifically (`packages/zod/src/v4/classic/schemas.ts:2269-2270`):
+    * If an issue is marked with `fatal: true`, it sets `_issue.continue = false;`.
+    * **Issue code exception / default**: If no issue code is specified when adding an issue, the code defaults via `_issue.code ??= "custom";` (line 2270).
+
+---
+
+### 4. How the Returned Transformed Value is Carried Onward
+
+In `packages/zod/src/v4/classic/schemas.ts:2278-2286`:
+* The transform function is called with the current payload value:
+  ```ts
+  const output = def.transform(payload.value, payload);
+  ```
+* For synchronous execution (where `!(output instanceof Promise)`):
+  ```ts
+  payload.value = output;
+  return payload;
+  ```
+  *(For async execution, `output.then(...)` mutates `payload.value = output;` and resolves to `payload`, lines 2279–2283).*
+* The mutation directly overwrites `payload.value` with `output`. Because the parsing pipeline threads the same `payload` object across chained stages, subsequent schemas or callers receive the updated `payload.value`.
+
+---
+
+### 5. Summary of Implementation Paths & Line Spans
+
+* **Classic Builder Prototype Method (`transform`)**:
+  * `packages/zod/src/v4/classic/schemas.ts:245-247`
+* **Classic Standalone `transform` Factory**:
+  * `packages/zod/src/v4/classic/schemas.ts:2291-2298`
+* **`ZodTransform` Schema Definition & Execution Logic (`_zod.parse`)**:
+  * `packages/zod/src/v4/classic/schemas.ts:2250-2289`
+  * AddIssue handler & issue code handling: lines 2262–2276
+  * Invocation and `payload.value` forwarding: lines 2278–2286
+
+---
+
+### Unresolved Limitations
+* Because the command tool budget reached its final step without opening `packages/zod/src/v4/core/compile.ts` or `packages/zod/src/v4/core/parse.ts`, internal JIT compilation / low-level core pipeline runner loops for pipe iteration could not be directly cited down to their exact line numbers in `packages/zod/src/v4/core/`. All citations reflect the classic schema runner paths inspected in `packages/zod/src/v4/classic/schemas.ts`.

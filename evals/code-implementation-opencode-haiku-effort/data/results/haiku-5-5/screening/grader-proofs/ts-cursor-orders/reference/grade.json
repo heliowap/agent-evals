@@ -1,0 +1,45 @@
+{
+  "scope": {
+    "files": {
+      "src/handler.ts": "import { OrderRepository } from './repository';\nimport { ListRequest, Page } from './types';\nexport class OrderHandler {\n  constructor(private readonly repository: OrderRepository) {}\n  list(request: ListRequest): Page {\n    if (!request.tenant || !Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {\n      throw new Error('invalid request');\n    }\n    let rows = this.repository.list(request.tenant);\n    if (request.cursor !== undefined) {\n      const parts = request.cursor.split('|');\n      const date = parts[0];\n      const id = parts[1];\n      if (parts.length !== 2 || !date || !id) throw new Error('invalid request');\n      rows = rows.filter(row => row.createdAt > date || (row.createdAt === date && row.id > id));\n    }\n    const items = rows.slice(0, request.limit);\n    const last = items[items.length - 1];\n    return { items, nextCursor: rows.length > request.limit && last ? last.createdAt + '|' + last.id : null };\n  }\n}\n"
+    },
+    "changed_files": [
+      "src/handler.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 1,
+    "added_lines": 21,
+    "removed_lines": 11
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5300350410107058
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05272899998817593,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04713150000316091,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

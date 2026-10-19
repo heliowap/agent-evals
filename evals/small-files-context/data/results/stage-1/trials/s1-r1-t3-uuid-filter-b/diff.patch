@@ -1,0 +1,109 @@
+diff --git a/bottle/02_helpers.py b/bottle/02_helpers.py
+index 75bfbc9..a4ea2a2 100644
+--- a/bottle/02_helpers.py
++++ b/bottle/02_helpers.py
+@@ -4,7 +4,7 @@
+ ###############################################################################
+ 
+ import base64, calendar, email.utils, functools, hmac, itertools, \
+-    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib
++    mimetypes, os, re, tempfile, threading, time, warnings, weakref, hashlib, uuid
+ 
+ from types import FunctionType
+ from datetime import date as datedate, datetime, timedelta
+diff --git a/bottle/04_routing.py b/bottle/04_routing.py
+index 9676427..bfc2e04 100644
+--- a/bottle/04_routing.py
++++ b/bottle/04_routing.py
+@@ -62,6 +62,9 @@ class Router:
+                                 None, None),
+             'int': lambda conf: (r'-?\d+', int, lambda x: str(int(x))),
+             'float': lambda conf: (r'-?[\d.]+', float, lambda x: str(float(x))),
++            'uuid': lambda conf: (r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
++                                  r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
++                                  uuid.UUID, lambda x: str(uuid.UUID(str(x)))),
+             'path': lambda conf: (r'.+?', None, None)
+         }
+ 
+diff --git a/test/test_router.py b/test/test_router.py
+index 9762b10..96f1c7e 100755
+--- a/test/test_router.py
++++ b/test/test_router.py
+@@ -2,6 +2,7 @@
+ 
+ import unittest
+ import bottle
++import uuid
+ import warnings
+ 
+ 
+@@ -74,6 +75,39 @@ class TestRouter(unittest.TestCase):
+         self.assertRaises(bottle.HTTPError, self.match, '/object/')
+         self.assertRaises(bottle.HTTPError, self.match, '/object/.')
+ 
++    def testUuidFilter(self):
++        lower = uuid.UUID('12345678-1234-5678-1234-567812345678')
++        upper = uuid.UUID('ABCDEF01-2345-6789-ABCD-EF0123456789')
++        self.assertMatches('/item/<id:uuid>', '/item/12345678-1234-5678-1234-567812345678', id=lower)
++        self.assertMatches('/item/<id:uuid>', '/item/ABCDEF01-2345-6789-ABCD-EF0123456789', id=upper)
++        self.assertMatches('/item/<id:uuid>', '/item/abcdef01-2345-6789-aBcD-eF0123456789', id=upper)
++        self.assertIsInstance(self.match('/item/12345678-1234-5678-1234-567812345678')[1]['id'], uuid.UUID)
++
++    def testUuidFilterRejects(self):
++        self.add('/item/<id:uuid>', 'handler')
++        for path in ('/item/', '/item/12345678-1234-5678-1234-56781234567',
++                     '/item/12345678-1234-5678-1234-5678123456789',
++                     '/item/12345678123412341234567812345678',
++                     '/item/{12345678-1234-5678-1234-567812345678}',
++                     '/item/urn:uuid:12345678-1234-5678-1234-567812345678',
++                     '/item/12345678-1234-5678-1234-56781234567g',
++                     '/item/12345678-1234-5678-1234-567812345678/',
++                     '/item/not-a-uuid'):
++            with self.assertRaises(bottle.HTTPError) as cm:
++                self.match(path)
++            self.assertEqual(404, cm.exception.status_code, path)
++
++    def testBuildUuidFilter(self):
++        add, build = self.add, self.r.build
++        add('/item/<id:uuid>', 'handler', name='uuidroute')
++
++        u = uuid.UUID('ABCDEF01-2345-6789-ABCD-EF0123456789')
++        self.assertEqual('/item/abcdef01-2345-6789-abcd-ef0123456789', build('uuidroute', id=u))
++        self.assertEqual('/item/abcdef01-2345-6789-abcd-ef0123456789', build('uuidroute', id=str(u)))
++
++        # ValueError: badly formed hexadecimal UUID string
++        self.assertRaises(ValueError, build, 'uuidroute', id='not-a-uuid')
++
+     def testPathFilter(self):
+         self.assertMatches('/<id:path>/:f', '/a/b', id='a', f='b')
+         self.assertMatches('/<id:path>', '/a', id='a')
+diff --git a/test/test_wsgi.py b/test/test_wsgi.py
+index 1310a4f..5f6cbfc 100755
+--- a/test/test_wsgi.py
++++ b/test/test_wsgi.py
+@@ -1,6 +1,7 @@
+ # -*- coding: utf-8 -*-
+ from __future__ import with_statement
+ import bottle
++import uuid
+ from .tools import ServerTestBase, chdir
+ from bottle import tob, touni, HTTPResponse
+ 
+@@ -503,6 +504,17 @@ class TestDecorators(ServerTestBase):
+         bottle.request.environ['SCRIPT_NAME'] = 'app/'
+         self.assertEqual('/app/a/xxx/c', bottle.url('named', b='xxx'))
+ 
++    def test_uuid_route(self):
++        """ WSGI: uuid filter passes uuid.UUID to the callback and builds URLs """
++        @bottle.route('/item/<id:uuid>', name='uuidnamed')
++        def item(id):
++            return '%s:%s' % (type(id).__name__, id)
++        u = '12345678-1234-5678-1234-567812345678'
++        self.assertBody('UUID:' + u, '/item/' + u)
++        self.assertStatus(404, '/item/not-a-uuid')
++        bottle.request.environ['SCRIPT_NAME'] = ''
++        self.assertEqual('/item/' + u, bottle.app().get_url('uuidnamed', id=uuid.UUID(u)))
++
+     def test_autoroute(self):
+         app = bottle.Bottle()
+         def a(): pass

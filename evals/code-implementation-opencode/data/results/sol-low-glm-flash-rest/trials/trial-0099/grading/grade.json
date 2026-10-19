@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "files": {
+      "checks/import_contacts.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, list_contacts\nfrom src.api import handle_add, handle_import\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\n\n# empty batch -> zero counts, no writes\nassert handle_import(c, {\"contacts\": []}) == {\"inserted\": 0, \"updated\": 0}\nassert list_contacts(c) == []\n\n# insert + update, existing counted as updated even if name unchanged\nassert handle_import(c, {\"contacts\": [\n    {\"email\": \"  Alice@Example.COM \", \"name\": \" Alice \"},\n    {\"email\": \"bob@x\", \"name\": \"Bob\"},\n]}) == {\"inserted\": 2, \"updated\": 0}\nassert list_contacts(c) == [(\"alice@example.com\", \"Alice\"), (\"bob@x\", \"Bob\")]\n\nassert handle_import(c, {\"contacts\": [\n    {\"email\": \"ALICE@example.com\", \"name\": \"Alice\"},\n    {\"email\": \"bob@x\", \"name\": \"Bobby\"},\n    {\"email\": \"carol@x\", \"name\": \"Carol\"},\n]}) == {\"inserted\": 1, \"updated\": 2}\nassert list_contacts(c) == [(\"alice@example.com\", \"Alice\"), (\"bob@x\", \"Bobby\"), (\"carol@x\", \"Carol\")]\n\n# existing API preserved\nassert handle_add(c, {\"email\": \"dave@x\", \"name\": \"Dave\"}) == {\"ok\": True}\n\ndef expect_value_error(conn, payload, state):\n    before = list_contacts(conn)\n    try:\n        handle_import(conn, payload)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(\"expected ValueError for %r\" % (payload,))\n    assert list_contacts(conn) == before, \"state changed after failure\"\n\nbad = [\n    None,\n    {\"contacts\": \"no\"},\n    {\"contact\": []},\n    {\"contacts\": [], \"extra\": 1},\n    {\"contacts\": [\"not-an-object\"]},\n    {\"contacts\": [{\"email\": \"a@b\"}]},\n    {\"contacts\": [{\"email\": \"a@b\", \"name\": \"A\", \"extra\": 1}]},\n    {\"contacts\": [{\"email\": 1, \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"a@b\", \"name\": 5}]},\n    {\"contacts\": [{\"email\": \"a b@c\", \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"a@b c\", \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"@b\", \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"a@\", \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"a@b@c\", \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"  @b  \", \"name\": \"A\"}]},\n    {\"contacts\": [{\"email\": \"a@b\", \"name\": \"   \"}]},\n    {\"contacts\": [{\"email\": \"a@b\", \"name\": \"\"}]},\n    {\"contacts\": [{\"email\": \"a@b\", \"name\": \"A\"}, {\"email\": \"A@B\", \"name\": \"C\"}]},\n    {\"contacts\": [{\"email\": \"dave@x\", \"name\": \"New\"}], \"bad\": 1},\n]\n\nfor payload in bad:\n    expect_value_error(c, payload, None)\n\n# atomicity across valid row + db failure: reuse duplicate email via repository trigger\nc2 = sqlite3.connect(\":memory:\")\ninitialize(c2)\nassert handle_import(c2, {\"contacts\": [{\"email\": \"a@b\", \"name\": \"A\"}]}) == {\"inserted\": 1, \"updated\": 0}\nbefore = list_contacts(c2)\n\nimport src.repository as repo\noriginal = repo.get_contact_name\ncalls = {\"n\": 0}\ndef flaky(conn, email):\n    calls[\"n\"] += 1\n    if calls[\"n\"] == 2:\n        raise sqlite3.OperationalError(\"boom\")\n    return original(conn, email)\nrepo.get_contact_name = flaky\nimport src.service as service\nservice.get_contact_name = flaky\ntry:\n    handle_import(c2, {\"contacts\": [{\"email\": \"x@y\", \"name\": \"X\"}, {\"email\": \"z@y\", \"name\": \"Z\"}]})\nexcept sqlite3.OperationalError:\n    pass\nelse:\n    raise AssertionError(\"expected database failure to propagate\")\nassert list_contacts(c2) == before, \"partial write happened\"\nservice.get_contact_name = original\nrepo.get_contact_name = original\n\nprint(\"import checks ok\")\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict):\n        raise ValueError(\"payload must be an object\")\n    if set(payload) != {\"contacts\"}:\n        raise ValueError(\"payload must have exactly a contacts field\")\n    contacts = payload[\"contacts\"]\n    if not isinstance(contacts, list):\n        raise ValueError(\"contacts must be a list\")\n    return import_contacts(connection, contacts)\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\ndef get_contact_name(connection, email):\n    row = connection.execute(\"SELECT name FROM contacts WHERE email = ?\", (email,)).fetchone()\n    return row[0] if row is not None else None\n\ndef insert_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts (email, name) VALUES (?, ?)\", (email, name))\n\ndef update_contact_name(connection, email, name):\n    connection.execute(\"UPDATE contacts SET name = ? WHERE email = ?\", (name, email))\n",
+      "src/service.py": "from .repository import (\n    put_contact,\n    get_contact_name,\n    insert_contact,\n    update_contact_name,\n)\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef _validate_batch(rows):\n    if not isinstance(rows, list):\n        raise ValueError(\"rows must be a list of contact objects\")\n    contacts = []\n    seen = set()\n    for row in rows:\n        if not isinstance(row, dict):\n            raise ValueError(\"each row must be an object\")\n        if set(row) != {\"email\", \"name\"}:\n            raise ValueError(\"each row must have exactly email and name fields\")\n        email = row[\"email\"]\n        name = row[\"name\"]\n        if not isinstance(email, str) or not isinstance(name, str):\n            raise ValueError(\"email and name must be strings\")\n        email = email.strip()\n        name = name.strip()\n        if email.count(\"@\") != 1:\n            raise ValueError(\"email must contain exactly one @\")\n        local, domain = email.split(\"@\")\n        if not local or not domain:\n            raise ValueError(\"email must have nonempty sides\")\n        if any(char.isspace() for char in email):\n            raise ValueError(\"email must not contain whitespace\")\n        email = email.lower()\n        if not name:\n            raise ValueError(\"name must be nonempty\")\n        if email in seen:\n            raise ValueError(\"duplicate email in batch\")\n        seen.add(email)\n        contacts.append((email, name))\n    return contacts\n\ndef import_contacts(connection, rows):\n    contacts = _validate_batch(rows)\n    inserted = 0\n    updated = 0\n    with connection:\n        for email, name in contacts:\n            if get_contact_name(connection, email) is None:\n                insert_contact(connection, email, name)\n                inserted += 1\n            else:\n                update_contact_name(connection, email, name)\n                updated += 1\n    return {\"inserted\": inserted, \"updated\": updated}\n"
+    },
+    "changed_files": [
+      "checks/import_contacts.py",
+      "src/api.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 183,
+    "removed_lines": 25
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.051713666995055974
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.053224457980832085,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0528954170003999,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,53 @@
+diff --git a/bottle/13_http_utils.py b/bottle/13_http_utils.py
+index 6cb2298..56cb808 100644
+--- a/bottle/13_http_utils.py
++++ b/bottle/13_http_utils.py
+@@ -42,7 +42,7 @@ def parse_auth(header):
+     try:
+         method, data = header.split(None, 1)
+         if method.lower() == 'basic':
+-            user, pwd = touni(base64.b64decode(tob(data))).split(':')
++            user, pwd = touni(base64.b64decode(tob(data))).split(':', 1)
+             return user, pwd
+     except (KeyError, ValueError):
+         return None
+diff --git a/test/test_auth.py b/test/test_auth.py
+index d3592f6..14a3e62 100644
+--- a/test/test_auth.py
++++ b/test/test_auth.py
+@@ -1,5 +1,7 @@
+ # -*- coding: utf-8 -*-
++import base64
+ import bottle
++from bottle import tob, touni
+ from .tools import ServerTestBase
+ 
+ class TestBasicAuth(ServerTestBase):
+@@ -10,3 +12,10 @@ class TestBasicAuth(ServerTestBase):
+         def test(): return {}
+         self.assertStatus(401)
+         self.assertHeader('Www-Authenticate', 'Basic realm="private"')
++
++    def test_password_with_colon(self):
++        @bottle.route('/')
++        @bottle.auth_basic(lambda u, p: u == 'marc' and p == 'se:cr:et')
++        def test(): return 'ok'
++        basic = touni(base64.b64encode(tob('marc:se:cr:et')))
++        self.assertEqual(self.urlopen('/', env={'HTTP_AUTHORIZATION': 'Basic ' + basic})['code'], 200)
+diff --git a/test/test_environ.py b/test/test_environ.py
+index b8dbd81..8fb7f4d 100644
+--- a/test/test_environ.py
++++ b/test/test_environ.py
+@@ -427,6 +427,12 @@ class TestRequest(unittest.TestCase):
+         del r.environ['HTTP_AUTHORIZATION']
+         self.assertEqual(r.auth, (user, None))
+ 
++    def test_auth_password_with_colon(self):
++        user, pwd = 'marc', 'se:cr:et'
++        basic = touni(base64.b64encode(tob('%s:%s' % (user, pwd))))
++        r = BaseRequest({'HTTP_AUTHORIZATION': 'basic %s' % basic})
++        self.assertEqual(r.auth, (user, pwd))
++
+     def test_remote_route(self):
+         ips = ['1.2.3.4', '2.3.4.5', '3.4.5.6']
+         r = BaseRequest({})

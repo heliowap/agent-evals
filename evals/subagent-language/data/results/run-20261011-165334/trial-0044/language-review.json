@@ -1,0 +1,44 @@
+[
+  {
+    "thread_id": "01a12cc9-e2e3-79b1-896c-c7cef8c4b276",
+    "kind": "spawn_agent",
+    "text": null,
+    "language": "unobservable",
+    "observability": "encrypted"
+  },
+  {
+    "thread_id": "01a12cc9-e2e3-79b1-896c-c7cef8c4b276",
+    "kind": "spawn_agent",
+    "text": null,
+    "language": "unobservable",
+    "observability": "encrypted"
+  },
+  {
+    "thread_id": "01a12cca-40c7-7552-b1f5-10dc6aae9447",
+    "kind": "send_message",
+    "text": null,
+    "language": "unobservable",
+    "observability": "encrypted"
+  },
+  {
+    "thread_id": "01a12cca-40c7-7552-b1f5-10dc6aae9447",
+    "kind": "send_message",
+    "text": null,
+    "language": "unobservable",
+    "observability": "encrypted"
+  },
+  {
+    "thread_id": "01a12cca-276f-70a3-b1aa-9e29d52cf7c2",
+    "kind": "subagent_final",
+    "text": "A causa mais sustentada é **C2: quebra de compatibilidade no consumidor `recibos`**. O componente a reverter é **`recibos`, da versão 8 para a versão 7, nas instâncias ainda atualizadas**.\n\nEvidências cronológicas e contrafactuais:\n\n- Às 14:05, `recibos` foi atualizado para a versão 8, que exige `customer_id`, embora o produtor continue cumprindo o contrato vigente com `cliente_id`.\n- As rejeições locais começaram às 14:06, antes do alerta agregado das 14:08, e apontam exatamente o campo `customer_id` ausente.\n- Às 14:16, uma instância revertida para a versão 7 aceitou dez mensagens de teste no formato vigente, usando o mesmo banco e a mesma rede. Isso sustenta que a versão do consumidor determina o comportamento.\n- `notificacoes`, sem atualização, manteve consumo e confirmações normais em Q3.\n- Q4 estava vazia desde 13:50: sua ausência de erros não demonstra que `recibos` versão 8 funciona.\n\n**C1 é menos sustentada:** o banco foi verificado às 14:12, com conexões disponíveis e sem aumento de latência ou falhas de leitura/escrita. A versão 7 também funcionou usando o mesmo banco.\n\n**C3 é menos sustentada:** a única falha de DNS registrada ocorreu às 14:04 em uma sonda de laboratório que não compartilha o resolvedor de produção. A reversão funcionou usando a mesma rede, e Q3 operou normalmente.\n\nA alteração visual do painel às 13:40 não mudou a agregação; o painel agrega filas e arredonda taxas, portanto não determina o início nem a abrangência do defeito. Reverter o produtor carece de suporte: ele segue o contrato vigente, e a reversão afetaria clientes operando normalmente.\n\nAs filas efetivamente afetadas são **Q1 e Q2**, nessa ordem, com **42 + 17 = 59 mensagens distintas**. Os IDs individuais dessas mensagens não constam destes dois arquivos. As mensagens estão íntegras na fila de falhas; logo, **`perda_confirmada` deve ser `false`**, sem prometer recuperação integral antes da validação. Após reverter `recibos`, validar uma amostra e reprocessar as mensagens das filas afetadas preservando IDs originais e respectivas chaves de idempotência.",
+    "language": null,
+    "observability": "readable"
+  },
+  {
+    "thread_id": "01a12cca-40c7-7552-b1f5-10dc6aae9447",
+    "kind": "subagent_final",
+    "text": "- `causa`: `C2`; `reverter`: `recibos`.\n- `reprocessar`: `[\"Q1\", \"Q2\"]`, seguindo a ordem do registro. Não há prioridade adicional documentada.\n- São **59 mensagens afetadas**: 42 em Q1 e 17 em Q2. Q3 e Q4 não exigem reprocessamento.\n- `perda_confirmada`: `false`. Todas as 59 rejeitadas estão íntegras na fila de falhas, com IDs e payloads disponíveis.\n- Recuperação: reverter as instâncias restantes de `recibos` para v7, validar uma amostra e reprocessar preservando a chave de idempotência por ID.\n- Limites: o reprocessamento completo não foi validado; retenção não garante recuperação integral. Não descontar as dez mensagens de teste das 59, pois sua relação não está documentada.\n- A exigência de `customer_id` na v8 é incompatível com `cliente_id` do produtor. Banco saudável, DNS de laboratório isolado e sucesso da amostra após reversão sustentam C2 e a reversão de `recibos`.",
+    "language": null,
+    "observability": "readable"
+  }
+]

@@ -1,0 +1,17 @@
+`import_contacts` is implemented in `src/service.py` and exposed through `src/api.py.handle_import`. `python3 checks/public.py` passes, and the new checks pass (7 tests).
+
+**What changed**
+
+- **`src/repository.py`**: added `contact_exists(connection, email)`, which the batch import uses to decide between inserted and updated. Existing functions are unchanged.
+- **`src/service.py`**:
+  - `_normalize_row` rejects non-dict rows, rows with missing or extra fields, non-string values, and emails that are not exactly one `@` with nonempty sides and no whitespace. It also rejects blank names. It returns the trimmed name and the trimmed, lowercased email.
+  - `import_contacts` requires a list, normalizes and validates every row first, and raises `ValueError` on duplicate normalized emails. Only after the whole batch validates does it write, inside `with connection:`. That block commits on success and rolls back on any exception, so a database failure leaves the table unchanged.
+  - It returns `{'inserted': N, 'updated': N}`, counting an existing email as updated even when its name is the same. An empty batch returns zeros.
+  - `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the `contacts` key and a list value, raises `ValueError` otherwise, and returns the summary from `import_contacts`. `handle_add` is unchanged.
+- **`checks/import_contacts_check.py`** (new): stdlib `unittest` covering normalization, counts, each rejection case with the table verified unchanged, rollback when a write fails mid-batch, and envelope validation. Run it with `python3 checks/import_contacts_check.py`.
+
+**Interpretation choices**
+
+- The API also rejects extra top-level keys in the envelope, not just a missing `contacts` key.
+- `import_contacts` accepts only a list for `rows`, not any iterable.

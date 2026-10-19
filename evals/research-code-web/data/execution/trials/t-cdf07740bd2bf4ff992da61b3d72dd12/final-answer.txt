@@ -1,0 +1,81 @@
+### Test Location
+
+The test of a non-chained group invoking a default child command when no subcommand is selected is located in:
+- **`tests/test_commands.py`**, lines **279–300** (`def test_invoked_subcommand(runner):`).
+
+In this test, the group is declared with `@click.group(invoke_without_command=True)` (defaulting to `chain=False`). In the group callback `cli(ctx)`, it checks `if ctx.invoked_subcommand is None:`, echoes `"no subcommand, use default"`, and calls `ctx.invoke(sync)`. If a subcommand was specified, it echoes `"invoke subcommand"`. The child command `sync` echoes `"in subcommand"`.
+
+---
+
+### What the Test Asserts
+
+The test executes two runner invocations and makes explicit assertions on the result objects:
+
+1. **Explicit child selection (`runner.invoke(cli, ["sync"])`)**:
+   - Lines **294–295**:
+     ```python
+     assert not result.exception
+     assert result.output == "invoke subcommand\nin subcommand\n"
+     ```
+   - It asserts that no exception was raised and that the group callback ran first (printing `"invoke subcommand"`), followed by the child command running (printing `"in subcommand"`).
+
+2. **No subcommand selection (`runner.invoke(cli)`)**:
+   - Lines **298–299**:
+     ```python
+     assert not result.exception
+     assert result.output == "no subcommand, use default\nin subcommand\n"
+     ```
+   - It asserts that no exception was raised and that the group branch for `ctx.invoked_subcommand is None` ran (printing `"no subcommand, use default"`), followed by the programmatic invocation of the child command `sync` via `ctx.invoke(sync)` (printing `"in subcommand"`).
+
+---
+
+### Implementation: Callback Ordering and Child Context Creation for Explicit Selection
+
+In **`src/click/core.py`**, lines **2076–2087** within `Group.invoke`:
+
+```python
+if not self.chain:
+    # Make sure the context is entered so we do not clean up
+    # resources until the result processor has worked.
+    with ctx:
+        cmd_name, cmd, args = self.resolve_command(ctx, args)
+        assert cmd is not None
+        ctx.invoked_subcommand = cmd_name
+        super().invoke(ctx)
+        sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
+        with sub_ctx:
+            return _process_result(sub_ctx.command.invoke(sub_ctx))
+```
+
+1. **Callback Ordering**:
+   - First, the command is resolved via `self.resolve_command(ctx, args)`.
+   - The resolved command name is assigned to `ctx.invoked_subcommand = cmd_name` (line 2082).
+   - The group callback itself is executed next via `super().invoke(ctx)` (line 2083), which delegates to `Command.invoke(ctx)`.
+   - The child command is executed only *after* the group callback completes, inside `sub_ctx.command.invoke(sub_ctx)` (line 2086).
+
+2. **Child Context Creation**:
+   - The child context is created on line 2084 using:
+     ```python
+     sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)
+     ```
+   - This passes the resolved `cmd_name` as the info name, the remaining unparsed command-line `args`, and links `ctx` as the `parent` context.
+   - The execution then enters `with sub_ctx:` before running `sub_ctx.command.invoke(sub_ctx)`.
+
+---
+
+### Distinguishing Read Assertions from Untested Generalizations
+
+* **Verified Assertions in the Test**:
+  - Only `not result.exception` and exact standard output strings (`result.output`) are asserted for both scenarios.
+* **Untested Generalizations**:
+  - The test does *not* explicitly assert `result.exit_code == 0` (it relies solely on `not result.exception`).
+  - The test does *not* check return values (`result.return_value`).
+  - The test does *not* test passing options or arguments to the group or to the default/explicit subcommand (`sync` takes zero parameters).
+  - The test does *not* verify context hierarchy properties (e.g., verifying `sub_ctx.parent is ctx`, parameter maps, or context lifecycle cleanup).
+  - The pattern uses `invoke_without_command=True` and imperative dispatch inside the callback (`ctx.invoke(sync)`); Click's standard `Group` does not have a declarative `default_command="sync"` keyword argument tested here. Generalizing that default command invocation happens automatically without a group callback check is not supported by this test.
+
+---
+
+### Unresolved Limitations
+
+No tests or code were executed in accordance with instructions. Any alternate implementations of default subcommands in external extensions or custom `click.Group` subclasses outside `tests/test_commands.py` were not evaluated beyond the grep searches executed in the repository.

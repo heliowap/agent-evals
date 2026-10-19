@@ -1,0 +1,18 @@
+## Decision
+
+Your premises are partly wrong. Fix the receiver in three places and rewrite the recovery plan around documented behavior.
+
+### 1. Signature check (mandatory, documented)
+The signature is an HMAC-SHA256 hex digest computed over the **exact raw payload body** with your webhook secret, sent in `X-Hub-Signature-256` ("sha256=..." prefix). GitHub explicitly warns: **"Never use a plain `==` operator"** — use a constant-time comparison (e.g., `crypto.timingSafeEqual`, `hmac.compare_digest`). Parse/re-serialize before checking is unsafe because the secret authenticates only the original bytes; identity guarantees ignore the hash verification order **UNVERIFIED**. Verify against the raw request body first (ensure your proxy preserves payload/headers), then parse and keep what you parsed for processing only. [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries)
+
+### 2. Respond within 10 seconds (documented)
+**Your 25-second job cannot sit in the request path.** A 2XX must come within 10 seconds; GitHub terminates the connection and treats the delivery as a failure. Documented pattern: acknowledge 2XX immediately and process via an asynchronous queue. [Best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds)
+
+### 3. Redelivery identifier (correct the premise)
+Documented fact: **"If you request a redelivery, the X-GitHub-Delivery header will be the same as in the original delivery."** [Best practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header). Your dedup store must treat the same delivery ID as the same event — currently requested redeliveries will be processed twice. Also verify the delivery ID is present/unique per event to defend against replay; exact replay-scoping semantics for redeliveries vs. retries **UNVERIFIED** — what would resolve it is the delivery headers reference in [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads#delivery-headers).
+
+### 4. Recovery plan (partly wrong)
+The operations assumption "GitHub will retry failed deliveries after an outage" is **not documented as automatic**. The documented instruction after an outage is that **you** redeliver missed webhooks once your server is back ("If your server goes down, you should redeliver missed webhooks once your server is back up"), using the redelivery flow [here](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#redeliver-missed-deliveries). Whether GitHub makes any post-failure retry attempts is fact **UNVERIFIED** in these pages — next evidence target: the *About webhooks* article or delivery lifecycle docs. Adjust the plan to schedule explicit redelivery sweeps.
+
+### 5. Exactly-once across a crash
+**No, not from these documented mechanisms.** GitHub's webhook delivery is an unauthenticated-relay notification, with documented at-most-once delivery-time characteristics and your responsibility for redelivery and dedupe. Detecting crashes between "side effect applied" and "seen-mark written" requires an atomic write-ahead/outbox keyed on the delivery (and, ideally, event:action + business entity ids) plus idempotent business effects. That is my recommendation, not a documented guarantee.

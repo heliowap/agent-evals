@@ -1,0 +1,42 @@
+## The defect
+
+`parser.py` has only this:
+
+```python
+def parse_enabled(value):
+    return bool(value)
+```
+
+`bool()` checks whether a value is empty, not what it says. In Python, any non-empty string counts as true, so this function gets the main case wrong and never raises an error. I ran it to confirm:
+
+| Input | Returns | Should |
+|---|---|---|
+| `"true"` | `True` | `True` ✅ |
+| `"false"` | **`True`** | `False` ❌ |
+| `"no"`, `"0"`, `"False"` | **`True`** | raise `ValueError` ❌ |
+| `""`, `None` | `False` | raise `ValueError` ❌ |
+
+The worst case is `"false"`, which turns the setting **on**. Anyone who tries to disable it gets the opposite result. Other bad input is accepted without any error.
+
+## Recommended fix
+
+I didn't change any files. A fix would look like this:
+
+```python
+def parse_enabled(value):
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"expected 'true' or 'false', got {value!r}")
+```
+
+## Preventing a repeat
+
+The best protection is an automated check rather than a written rule. The repo currently has only `parser.py`, with no tests and no CI (automated checks that run on each change). I'm suggesting these rather than adding them, since you asked for no changes:
+
+1. **A test file, `test_parser.py`, run with pytest.** It should check that `"true"` returns `True`, that `"false"` returns `False`, and that inputs like `"False"`, `"TRUE"`, `" true"`, `"0"`, `"no"`, `""`, `None`, `1` and `True` all raise `ValueError`. The current code would fail this test on `"false"` straight away.
+2. **Run that test automatically**, either in a pre-commit hook or in CI, so a change like this can't be merged without someone noticing.
+3. **Optionally, add type hints and a type checker.** Declaring `value: str -> bool` and running mypy or pyright helps document the expected input. It wouldn't have caught this bug on its own, though, so the test is what matters.
+
+Want me to add the fix and the test?

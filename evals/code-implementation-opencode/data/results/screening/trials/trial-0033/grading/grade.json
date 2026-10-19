@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { OrderHandler } = require('../.build/handler');\n        const { OrderRepository } = require('../.build/repository');\n        const handler = new OrderHandler(new OrderRepository([\n          { id: 'b', tenant: 'a', createdAt: '2026-01-02', total: 2 },\n          { id: 'x', tenant: 'b', createdAt: '2026-01-01', total: 3 },\n          { id: 'a', tenant: 'a', createdAt: '2026-01-01', total: 1 }\n        ]));\n        assert.deepEqual(handler.list({ tenant: 'a', limit: 1 }).items.map(x => x.id), ['a']);\n        assert.throws(() => handler.list({ tenant: 'a', limit: 0 }), /invalid request/);\n\n// Cursor pagination\n{\n  const rows = [\n    { id: 'c', tenant: 't', createdAt: '2026-01-01', total: 1 },\n    { id: 'a', tenant: 't', createdAt: '2026-01-01', total: 1 },\n    { id: 'b', tenant: 'u', createdAt: '2026-01-01', total: 1 },\n    { id: 'B', tenant: 't', createdAt: '2026-01-01', total: 1 },\n    { id: 'd', tenant: 't', createdAt: '2026-01-03', total: 1 },\n    { id: 'z', tenant: 'u', createdAt: '2026-01-02', total: 1 },\n  ];\n  const snapshot = JSON.stringify(rows);\n  const h = new OrderHandler(new OrderRepository(rows));\n  const all = [];\n  let cursor;\n  let pages = 0;\n  do {\n    const page = h.list(cursor === undefined ? { tenant: 't', limit: 2 } : { tenant: 't', limit: 2, cursor });\n    all.push(...page.items.map(x => x.id));\n    cursor = page.nextCursor;\n    pages++;\n  } while (cursor !== null && pages < 10);\n  assert.deepEqual(all, ['B', 'a', 'c', 'd']);\n  assert.equal(pages, 2);\n  assert.equal(JSON.stringify(rows), snapshot);\n  // exact fit -> null cursor\n  assert.equal(h.list({ tenant: 't', limit: 4 }).nextCursor, null);\n  assert.equal(h.list({ tenant: 't', limit: 3 }).nextCursor, '2026-01-01|c');\n  // deleted / other-tenant cursor rows\n  assert.deepEqual(h.list({ tenant: 't', limit: 10, cursor: '2026-01-01|b' }).items.map(x => x.id), ['c', 'd']);\n  assert.deepEqual(h.list({ tenant: 't', limit: 10, cursor: '2026-01-02|z' }).items.map(x => x.id), ['d']);\n  assert.deepEqual(h.list({ tenant: 't', limit: 10, cursor: '2026-01-03|d' }), { items: [], nextCursor: null });\n  // other tenant's later rows don't produce a cursor\n  assert.equal(h.list({ tenant: 't', limit: 1, cursor: '2026-01-01|c' }).nextCursor, null);\n  for (const bad of ['', '|', 'a|', '|a', 'a|b|c', 'abc']) {\n    assert.throws(() => h.list({ tenant: 't', limit: 1, cursor: bad }), /invalid request/);\n  }\n  for (const limit of [0, 101, 1.5, NaN, '5']) {\n    assert.throws(() => h.list({ tenant: 't', limit }), /invalid request/);\n  }\n  assert.throws(() => h.list({ tenant: '', limit: 1 }), /invalid request/);\n  assert.equal(h.list({ tenant: 't', limit: 100 }).items.length, 4);\n}\nconsole.log('public checks passed');\n",
+      "src/handler.ts": "import { OrderPosition, OrderRepository } from './repository';\nimport { ListRequest, Page } from './types';\nfunction invalid(): never {\n  throw new Error('invalid request');\n}\nfunction parseCursor(cursor: unknown): OrderPosition {\n  if (typeof cursor !== 'string') invalid();\n  const parts = cursor.split('|');\n  if (parts.length !== 2 || !parts[0] || !parts[1]) invalid();\n  return { createdAt: parts[0], id: parts[1] };\n}\nexport class OrderHandler {\n  constructor(private readonly repository: OrderRepository) {}\n  list(request: ListRequest): Page {\n    if (!request || typeof request.tenant !== 'string' || !request.tenant ||\n        !Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {\n      invalid();\n    }\n    const after = request.cursor === undefined ? undefined : parseCursor(request.cursor);\n    const matching = this.repository.list(request.tenant, after);\n    const items = matching.slice(0, request.limit);\n    const last = items[items.length - 1];\n    const nextCursor = matching.length > request.limit && last ? `${last.createdAt}|${last.id}` : null;\n    return { items, nextCursor };\n  }\n}\n",
+      "src/repository.ts": "import { Order } from './types';\nexport interface OrderPosition { createdAt: string; id: string }\nfunction compareKey(a: OrderPosition, b: OrderPosition): number {\n  return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;\n}\nexport class OrderRepository {\n  constructor(private readonly rows: Order[]) {}\n  /**\n   * Returns the tenant's orders sorted ascending by (createdAt, id).\n   * When `after` is given, only orders strictly after that pair are returned\n   * (the pair need not exist). Filtering by tenant happens before positioning.\n   * The input array and its rows are never mutated.\n   */\n  list(tenant: string, after?: OrderPosition): Order[] {\n    return this.rows\n      .filter(row => row.tenant === tenant && (after === undefined || compareKey(row, after) > 0))\n      .sort(compareKey);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/handler.ts",
+      "src/repository.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 100,
+    "removed_lines": 30
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5252204999851529
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0642982910212595,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05967662500916049,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

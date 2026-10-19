@@ -1,0 +1,12 @@
+**Corrected premise** — GOSUMDB=off does not enable toolchain downloads; it breaks them: "toolchain downloads fail for lack of verification if GOSUMDB=off. GOPRIVATE and GONOSUMDB patterns do not apply to the toolchain downloads" ([toolchain#download](https://go.dev/doc/toolchain#download)).
+
+**Runners** ([toolchain#select](https://go.dev/doc/toolchain#select), [#config](https://go.dev/doc/toolchain#config))
+- **A (auto):** bundled 1.21.3 < toolchain go1.21.9, so go1.21.9 runs: PATH is searched first, then it is downloaded, cached, and checksum-verified (proxyable via GOPROXY).
+- **B (local):** always runs the bundled toolchain, and go 1.21.9 is a mandatory minimum → it refuses to load the module.
+- **C (go1.21.3+path):** default is go1.21.3; the toolchain line go1.21.9 is newer, so go1.21.9 is selected, but +path disables the download fallback and stops after the PATH search → error. Absent the toolchain line, go 1.21.0 ≤ 1.21.3 → 1.21.3.
+
+**go vs toolchain:** go is the required minimum, mandatory since 1.21, sets language version, and must be ≥ every dependency's go line ([gomod-ref#go-notes](https://go.dev/doc/modules/gomod-ref#go-notes)). toolchain is only a suggestion, effective solely in the main module/workspace and only when the default is older ([gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). A dependency's toolchain line is ignored, so publishing toolchain go1.21.9 does not pull consumers onto 1.21.9 — only your go line binds them. Dependency go lines still matter for commands that add modules (go get, go run pkg@version), which may switch toolchains.
+
+**Policy (recommendation):** pin Go 1.21.9 in the runner image and set GOTOOLCHAIN=local; keep GOSUMDB=sum.golang.org; where switching is required, point GOPROXY at a mirror caching golang.org/toolchain modules rather than disabling verification.
+
+**Not established:** +path is not network-free — it only removes the toolchain fallback; modules still arrive via GOPROXY (use GOPROXY=off or vendoring). With auto, the selected toolchain depends on each machine's default toolchain, GOOS/GOARCH, and PATH, and toolchain checksums cannot be written to go.sum; byte-identical builds across runners are therefore UNVERIFIED — pin a named GOTOOLCHAIN in CI config to resolve.

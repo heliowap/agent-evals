@@ -1,0 +1,51 @@
+{
+  "scope": {
+    "files": {
+      "checks/import_contacts.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, list_contacts\nfrom src.api import handle_add, handle_import\nfrom src.service import import_contacts\n\ndef fresh(**kw):\n    c = sqlite3.connect(\":memory:\", **kw); initialize(c); return c\n\ndef raises(fn):\n    try: fn()\n    except ValueError: return True\n    return False\n\nc = fresh()\nhandle_add(c, {\"email\": \"old@x.com\", \"name\": \"Old\"})\nassert handle_import(c, {\"contacts\": []}) == {\"inserted\": 0, \"updated\": 0}\nr = handle_import(c, {\"contacts\": [\n    {\"email\": \"  New@X.com \", \"name\": \" New \"},\n    {\"email\": \"old@x.com\", \"name\": \"Old\"},\n]})\nassert r == {\"inserted\": 1, \"updated\": 1}, r\nassert list_contacts(c) == [(\"new@x.com\", \"New\"), (\"old@x.com\", \"Old\")]\nbefore = list_contacts(c)\nbad = [\n    [\"x\"], [{\"email\": \"a@b\"}], [{\"email\": \"a@b\", \"name\": \"n\", \"x\": 1}],\n    [{\"email\": \"ab\", \"name\": \"n\"}], [{\"email\": \"a@@b\", \"name\": \"n\"}],\n    [{\"email\": \"@b\", \"name\": \"n\"}], [{\"email\": \"a@\", \"name\": \"n\"}],\n    [{\"email\": \"a b@c\", \"name\": \"n\"}], [{\"email\": \"a@b\", \"name\": \"  \"}],\n    [{\"email\": 1, \"name\": \"n\"}],\n    [{\"email\": \"z@z\", \"name\": \"Z\"}, {\"email\": \" Z@Z\", \"name\": \"Y\"}],\n    [{\"email\": \"ok@ok\", \"name\": \"ok\"}, {\"email\": \"bad\", \"name\": \"n\"}],\n]\nfor rows in bad:\n    assert raises(lambda: import_contacts(c, rows)), rows\n    assert list_contacts(c) == before\nfor env in [None, [], {}, {\"contacts\": {}}, {\"contacts\": [], \"x\": 1}]:\n    assert raises(lambda: handle_import(c, env)), env\n# Database failure mid-batch rolls back\nc.execute(\"CREATE TRIGGER t BEFORE INSERT ON contacts WHEN NEW.email='boom@x' BEGIN SELECT RAISE(ABORT,'boom'); END\")\ntry:\n    import_contacts(c, [{\"email\": \"first@x\", \"name\": \"F\"}, {\"email\": \"old@x.com\", \"name\": \"Changed\"}, {\"email\": \"boom@x\", \"name\": \"B\"}])\n    raise AssertionError(\"expected failure\")\nexcept sqlite3.DatabaseError:\n    pass\nassert list_contacts(c) == before\nassert not c.in_transaction\n# autocommit connection\nc2 = fresh(isolation_level=None)\nassert import_contacts(c2, [{\"email\": \"a@b\", \"name\": \"A\"}]) == {\"inserted\": 1, \"updated\": 0}\nassert list_contacts(c2) == [(\"a@b\", \"A\")]\nprint(\"ok\")\n",
+      "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict) or set(payload.keys()) != {\"contacts\"}:\n        raise ValueError(\"payload must be an object with exactly a 'contacts' field\")\n    contacts = payload[\"contacts\"]\n    if not isinstance(contacts, list):\n        raise ValueError(\"'contacts' must be a list\")\n    return import_contacts(connection, contacts)\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\ndef contact_exists(connection, email):\n    return connection.execute(\"SELECT 1 FROM contacts WHERE email = ?\", (email,)).fetchone() is not None\n",
+      "src/service.py": "from .repository import contact_exists, put_contact\n\n_ROW_FIELDS = frozenset((\"email\", \"name\"))\n\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\n\ndef _validate_row(index, row):\n    if not isinstance(row, dict):\n        raise ValueError(f\"row {index}: must be an object\")\n    keys = set(row.keys())\n    if keys != _ROW_FIELDS:\n        missing = sorted(str(k) for k in _ROW_FIELDS - keys)\n        unknown = sorted(str(k) for k in keys - _ROW_FIELDS)\n        raise ValueError(f\"row {index}: missing fields {missing}, unknown fields {unknown}\")\n    email, name = row[\"email\"], row[\"name\"]\n    if not isinstance(email, str) or not isinstance(name, str):\n        raise ValueError(f\"row {index}: email and name must be strings\")\n    email = email.strip()\n    name = name.strip()\n    if any(ch.isspace() for ch in email):\n        raise ValueError(f\"row {index}: email must not contain whitespace\")\n    if email.count(\"@\") != 1:\n        raise ValueError(f\"row {index}: email must contain exactly one @\")\n    local, domain = email.split(\"@\")\n    if not local or not domain:\n        raise ValueError(f\"row {index}: email must have nonempty sides of @\")\n    if not name:\n        raise ValueError(f\"row {index}: name must be nonempty\")\n    return email.lower(), name\n\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, (list, tuple)):\n        raise ValueError(\"rows must be a list\")\n    validated = []\n    seen = set()\n    for index, row in enumerate(rows):\n        email, name = _validate_row(index, row)\n        if email in seen:\n            raise ValueError(f\"row {index}: duplicate email {email!r} in batch\")\n        seen.add(email)\n        validated.append((email, name))\n\n    summary = {\"inserted\": 0, \"updated\": 0}\n    if not validated:\n        return summary\n    # Single explicit transaction (connections are idle at entry): commit on\n    # success, roll back on any validation-time or database failure.\n    connection.execute(\"BEGIN\")\n    try:\n        for email, name in validated:\n            if contact_exists(connection, email):\n                summary[\"updated\"] += 1\n            else:\n                summary[\"inserted\"] += 1\n            put_contact(connection, email, name)\n    except BaseException:\n        connection.execute(\"ROLLBACK\")\n        raise\n    connection.execute(\"COMMIT\")\n    return summary\n"
+    },
+    "changed_files": [
+      "checks/import_contacts.py",
+      "src/api.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 4,
+    "added_lines": 143,
+    "removed_lines": 25
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04874412500066683
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05122129200026393,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04995291697559878,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

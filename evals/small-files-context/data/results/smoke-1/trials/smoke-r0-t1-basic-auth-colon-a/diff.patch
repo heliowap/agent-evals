@@ -1,0 +1,41 @@
+diff --git a/bottle.py b/bottle.py
+index 2d013a0..9edceaf 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -2876,7 +2876,7 @@ def parse_auth(header):
+     try:
+         method, data = header.split(None, 1)
+         if method.lower() == 'basic':
+-            user, pwd = touni(base64.b64decode(tob(data))).split(':')
++            user, pwd = touni(base64.b64decode(tob(data))).split(':', 1)
+             return user, pwd
+     except (KeyError, ValueError):
+         return None
+diff --git a/test/test_auth.py b/test/test_auth.py
+index d3592f6..1aec4a7 100644
+--- a/test/test_auth.py
++++ b/test/test_auth.py
+@@ -1,7 +1,23 @@
+ # -*- coding: utf-8 -*-
++import base64
++import unittest
+ import bottle
+ from .tools import ServerTestBase
+ 
++class TestParseAuth(unittest.TestCase):
++
++    def basic(self, credentials):
++        return 'Basic ' + base64.b64encode(credentials.encode('utf8')).decode('ascii')
++
++    def test__password_without_colon(self):
++        self.assertEqual(('alice', 'secret'), bottle.parse_auth(self.basic('alice:secret')))
++
++    def test__password_with_colon(self):
++        self.assertEqual(('alice', 'pa:ss:word'), bottle.parse_auth(self.basic('alice:pa:ss:word')))
++
++    def test__missing_colon(self):
++        self.assertIsNone(bottle.parse_auth(self.basic('alice')))
++
+ class TestBasicAuth(ServerTestBase):
+ 
+     def test__header(self):

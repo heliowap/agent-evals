@@ -1,0 +1,18 @@
+I'll start with the supplied page and PostgreSQL's isolation documentation.
+
+Now the dedicated serialization failure handling page and app-level consistency page.
+
+## Decision: not sufficient — the design is incorrect on three counts
+
+**1. Repeatable Read ≠ serial.** PG's RR gives a stable snapshot and (stronger than the SQL standard's minimum) forbids phantom reads, but the standard still permits *serialization anomalies* at RR ([Table 13.1](https://www.postgresql.org/docs/18/transaction-iso.html#MVCC-ISOLEVEL-TABLE)). A stable snapshot prevents phantoms, not write skew: your workers read one invariant then write *different* rows, which is precisely the read/write-conflict cycle RR does not monitor. The docs say enforcing business rules at RR is "not likely to work correctly without careful use of explicit locks" ([13.2.2](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-REPEATABLE-READ)). So the "equivalent to serial execution" premise is false. *(Fact.)*
+
+**2. Retrying only the failed statement is wrong.** "It is important to retry the complete transaction, including all logic that decides which SQL to issue and/or which values to use. Therefore, PostgreSQL does not offer an automatic retry facility, since it cannot do so with any guarantee of correctness" ([13.5](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-FAILURE-HANDLING)). PostgreSQL never replays your decision logic. The application owns retrying; the retry unit is the whole transaction (BEGIN…COMMIT). *(Fact.)*
+
+**3. Unique violations don't belong in an unconditional bucket.** 23505 *can* be a disguised serialization failure (e.g., inspecting keys then inserting), but "more care is needed when retrying these other error codes, since they might represent persistent error conditions" ([13.5](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-FAILURE-HANDLING)). Retry 40001 unconditionally; consider 40P01; treat 23505 case-by-case. *(Fact, plus my recommendation.)*
+
+**Narrow changes that matter (recommendations):**
+- Move the read-and-decide logic to **SERIALIZABLE**, whose whole purpose is detecting these cycles via nonblocking predicate locks; or keep RR but take **explicit locks before the snapshot** — `SELECT FOR UPDATE`/`LOCK TABLE` — since RR's snapshot freezes at the first query ([13.4.2](https://www.postgresql.org/docs/18/applevel-consistency.html#NON-SERIALIZABLE-CONSISTENCY)). Serializable is the low-effort correctness path ([13.4.1](https://www.postgresql.org/docs/18/applevel-consistency.html#SERIALIZABLE-CONSISTENCY)).
+- Retry the full transaction; never assume statement replay.
+- Scope retries by SQLSTATE, not blanket.
+
+**Three-attempt promise: cannot be made.** "Transaction retry does not guarantee that the retried transaction will complete; multiple retries may be needed… possibly many attempts," and a conflicting prepared transaction may block progress entirely ([13.5](https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-FAILURE-HANDLING)). **UNVERIFIED:** any deterministic attempt bound under contention — resolve by measuring 40001 rates and setting an app-level backoff/timeout policy rather than a documented guarantee.

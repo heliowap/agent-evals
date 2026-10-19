@@ -1,0 +1,17 @@
+## Decision
+Do not deploy this. Official docs make Node.js's Permission Model a blast-radius limiter for trusted code, not a tenant sandbox: it "does not protect against malicious code" and is a "seat belt," while SECURITY.md states it is "not ... a security boundary against intentional misuse or a compromised process" ([permissions.html#permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions); [SECURITY.md](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md#permission-model-boundaries-permission)). Customer-uploaded JavaScript therefore needs OS-level isolation (separate OS users, containers, seccomp/AppArmor) — which SECURITY.md explicitly assigns to the operator.
+
+## Assumptions to change
+1. **Wildcard scope.** Wildcards truncate: "/home/*.js will work similar to /home/*". `--allow-fs-read=/srv/jobs/*.js` grants all of `/srv/jobs`, not just `.js` ([permissions.html#file-system-permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions)).
+2. **Symlinks.** "Relative symbolic links may allow access to arbitrary files and directories"; granted paths must contain no relative symlinks ([limitations-and-known-issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues)).
+3. **Pre-opened fd.** "Using existing file descriptors via the node:fs module bypasses the Permission Model" ([constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)).
+4. **`--env-file`.** It is read before initialization and is "not subject to the rules of the Permission Model"; its variables, including `NODE_OPTIONS`, "are parsed and applied," and that variable accepts `--allow-fs-read`/`--allow-worker` ([cli.html#--env-filefile](https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#--env-filefile); [#node_optionsoptions](https://nodejs.org/download/release/v24.21.0/docs/api/cli.html#node_optionsoptions)). Treat any writability of that file/environment as permission-granting.
+5. **Staging signal.** `--permission-audit` never denies and publishes only diagnostics-channel events, so staging cannot evidence enforce-mode behavior; combined with `--allow-*`, only ungranted scopes are audited ([audit-mode](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#audit-mode)).
+
+## Worker inheritance: conflicting
+[constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints) says "The model does not inherit to a worker thread"; SECURITY.md says workers inherit the parent's restrictions and modified `execArgv` grants nothing. **UNVERIFIED** — resolve via the v24.21.0 worker-permission tests/source or a Node.js issue before relying on `--allow-worker`.
+
+## Useful for trusted code
+`process.permission.has()`/`drop()` to shrink grants after init (whole-scope for wildcards, irreversible), and audit diagnostics channels for discovery ([runtime-api](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#runtime-api)). Worker options otherwise inherit by default ([worker_threads](https://nodejs.org/download/release/v24.21.0/docs/api/worker_threads.html#new-workerfilename-options)).
+
+**Certification:** No — neither document supports certifying tenant isolation.

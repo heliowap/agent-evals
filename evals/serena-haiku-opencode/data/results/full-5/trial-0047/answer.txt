@@ -1,0 +1,15 @@
+`get_document` and `list_documents` now only return documents that match both `tenant` and `owner` and have `deleted_at IS NULL`. Both existing checks pass, plus a new isolation check.
+
+**Changes**
+
+- **`src/repository.py`**
+  - `find(connection, tenant, owner, document_id)` filters on `id`, `tenant`, `owner` and `deleted_at IS NULL`. It returns `None` for any inaccessible ID, whether deleted, cross-tenant, cross-owner or missing.
+  - `listing(connection, tenant, owner)` filters on `tenant`, `owner` and `deleted_at IS NULL`, ordered by `id`.
+  - All values are bound parameters. `decode` is unchanged, so results contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` and `owner` through to the repository. Their signatures are unchanged. Nothing else in the project called the repository functions, so the changed signatures break no callers.
+- **`checks/isolation.py`** (new): covers accessible reads, deleted, cross-tenant, cross-owner and missing IDs returning `None`, list ordering and contents, names containing quotes and SQL-like text, and an intact table afterwards.
+
+**Verification**
+
+- `python3 checks/public.py`: passes.
+- `python3 checks/isolation.py`: passes.

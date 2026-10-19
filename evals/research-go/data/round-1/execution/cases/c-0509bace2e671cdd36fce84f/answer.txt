@@ -1,0 +1,22 @@
+## Runner outcomes
+
+**Runner A — succeeds, selects go1.21.9 (downloaded).** `auto` is `local+auto`; the `toolchain go1.21.9` line is newer than the bundled 1.21.3, so the go command runs go1.21.9. It searches PATH for `go1.21.9`, finds none, and downloads+caches it ([toolchain#select](https://go.dev/doc/toolchain#select), [download](https://go.dev/doc/toolchain#download)).
+
+**Runner B — refuses.** With `GOTOOLCHAIN=local` the go command always runs the bundled 1.21.3, but since Go 1.21 the `go 1.21.9` line is a *mandatory minimum*, and a toolchain refuses to load a module declaring a newer version ([config](https://go.dev/doc/toolchain#config)).
+
+**Runner C — refuses.** `go1.21.3+path` sets default 1.21.3 but still switches upward as needed; `+path` disables the download fallback, so after failing to find `go1.21.9` on PATH the command stops rather than downloading ([select](https://go.dev/doc/toolchain#select)).
+
+## Directives
+
+The `go` line is the minimum required Go version; the `toolchain` line is a *suggestion* that only applies when the module is the **main module** and the default toolchain is older ([gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go), [#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain)). So a **dependency's** `toolchain` line is ignored for consumers; only its `go` line propagates, raising the consumer's required minimum.
+
+## Proposed fixes — both premises are wrong
+
+- **GOSUMDB=off does the opposite**: "toolchain downloads fail for lack of verification if GOSUMDB=off," and GOPRIVATE/GONOSUMDB do not apply to toolchain downloads ([download](https://go.dev/doc/toolchain#download)). It also weakens verification of every module ([managing-dependencies](https://go.dev/doc/modules/managing-dependencies#proxy_server)).
+- **+path is not "entirely network-free"**: it only removes the *toolchain* download fallback; ordinary module fetches still go to GOPROXY/repos ([select](https://go.dev/doc/toolchain#select)). **UNVERIFIED** as a whole-build guarantee.
+
+## Recommendation
+
+Keep the checksum database on; point GOPROXY at an internal proxy that serves both modules *and* `golang.org/toolchain` (toolchain downloads are proxyable and checksum-verified). Preinstall pinned toolchains on PATH, then use `local`/`+path` for hermetic runners; pin versions with `go get go@X toolchain@Y`. Confirm with `go version` and (Go 1.24+) `GODEBUG=toolchaintrace=1`.
+
+**Not established:** these settings don't guarantee reproducibility or that the intended toolchain ran — only content integrity via go.sum/checksum db; `replace` skips authentication entirely ([managing-dependencies](https://go.dev/doc/modules/managing-dependencies#local_directory)). Resolve by inspecting `go version` output in CI.

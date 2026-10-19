@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { ProfileService } = require('../.build/service');\n        const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n        assert.deepEqual(service.patch({ displayName: 'after' }), { displayName: 'after', tags: ['old'] });\n        assert.deepEqual(service.patch({ tags: ['new'] }), { displayName: 'after', tags: ['new'] });\n        assert.throws(() => service.patch(null), /invalid profile/);\n\n// PATCH contract checks.\nconst fresh = (displayName = 'before', tags = ['old']) =>\n  new ProfileService({ displayName, tags: [...tags] });\nconst invalidProfile = { name: 'Error', message: 'invalid profile' };\n\n// Asserts the input is rejected and storage is byte-for-byte unchanged.\nfunction rejects(input, service = fresh()) {\n  const before = structuredClone(service.profile);\n  assert.throws(() => service.patch(input), invalidProfile);\n  assert.deepEqual(service.profile, before);\n}\n\n// Empty object is a valid no-op.\n{\n  const s = fresh();\n  assert.deepEqual(s.patch({}), { displayName: 'before', tags: ['old'] });\n}\n\n// Absent fields keep stored values; the stored profile object is returned.\n{\n  const s = fresh();\n  const result = s.patch({ displayName: '  Ada  ' });\n  assert.equal(result, s.profile);\n  assert.deepEqual(result, { displayName: 'Ada', tags: ['old'] });\n  assert.deepEqual(s.patch({ displayName: 'Ada', tags: ['x'] }), { displayName: 'Ada', tags: ['x'] });\n}\n\n// null clears displayName; null or [] clears tags.\n{\n  const s = fresh();\n  assert.deepEqual(s.patch({ displayName: null }), { displayName: null, tags: ['old'] });\n  assert.deepEqual(s.patch({ tags: null }), { displayName: null, tags: [] });\n  s.patch({ tags: ['a'] });\n  assert.deepEqual(s.patch({ tags: [] }), { displayName: null, tags: [] });\n}\n\n// displayName: trimmed, length 1..40 after trimming.\n{\n  const s = fresh();\n  assert.equal(s.patch({ displayName: ` ${'a'.repeat(40)} ` }).displayName, 'a'.repeat(40));\n  rejects({ displayName: '' }, s);\n  rejects({ displayName: '   ' }, s);\n  rejects({ displayName: 'a'.repeat(41) }, s);\n  rejects({ displayName: ` ${'a'.repeat(41)} ` }, s);\n}\n\n// tags: at most five distinct non-empty strings, trimmed, each at most 12 chars.\n{\n  const s = fresh();\n  assert.deepEqual(s.patch({ tags: [' a ', 'b', 'a'.repeat(12)] }).tags, ['a', 'b', 'a'.repeat(12)]);\n  assert.deepEqual(s.patch({ tags: ['a', 'b', 'c', 'd', 'e'] }).tags, ['a', 'b', 'c', 'd', 'e']);\n  rejects({ tags: ['a', 'b', 'c', 'd', 'e', 'f'] }, s);\n  rejects({ tags: ['a', ' a '] }, s); // duplicate after trimming\n  rejects({ tags: ['  '] }, s); // empty after trimming\n  rejects({ tags: ['a'.repeat(13)] }, s);\n  rejects({ tags: [` ${'a'.repeat(13)} `] }, s);\n  rejects({ tags: [1] }, s); // no numeric coercion\n  rejects({ tags: ['a', null] }, s);\n  rejects({ tags: [, 'a'] }, s); // hole\n  rejects({ tags: 'a' }, s);\n  rejects({ tags: {} }, s);\n}\n\n// No numeric coercion for displayName; undefined counts as a present, invalid value.\n{\n  const s = fresh();\n  rejects({ displayName: 0 }, s);\n  rejects({ displayName: 5 }, s);\n  rejects({ displayName: undefined }, s);\n  rejects({ tags: undefined }, s);\n  rejects({ displayName: {} }, s);\n  rejects({ displayName: ['a'] }, s);\n}\n\n// Top-level input must be a plain object (Object.prototype or null prototype).\n{\n  const s = fresh();\n  for (const bad of [\n    null, undefined, 'x', 1, true, [], [{}], () => {},\n    Object.create({ displayName: 'x' }), Object.create(Array.prototype),\n  ]) {\n    rejects(bad, s);\n  }\n  const nullProto = Object.create(null);\n  nullProto.displayName = 'Grace';\n  assert.equal(s.patch(nullProto).displayName, 'Grace');\n}\n\n// Unknown keys are rejected, including symbol, non-enumerable, and own __proto__ keys.\n{\n  const s = fresh();\n  rejects({ displayName: 'a', extra: 1 }, s);\n  rejects({ [Symbol('x')]: 1 }, s);\n  rejects(Object.defineProperty({}, 'hidden', { value: 1, enumerable: false }), s);\n  rejects(JSON.parse('{\"__proto__\": {\"x\": 1}}'), s);\n}\n\n// Accessor properties are rejected, and their getters are never invoked.\n{\n  const s = fresh();\n  let calls = 0;\n  const getter = () => { calls += 1; return 'x'; };\n  rejects(Object.defineProperty({}, 'displayName', { get: getter, enumerable: true }), s);\n  rejects(Object.defineProperty({}, 'tags', { get: () => ['a'], enumerable: true }), s);\n  rejects(Object.defineProperty({ tags: [] }, 'displayName', { get: getter, enumerable: true }), s);\n  assert.equal(calls, 0);\n}\n\n// A failing field leaves storage unchanged, even when another field was valid.\n{\n  const s = fresh();\n  rejects({ displayName: 'new', tags: ['a', 'a'] }, s);\n  rejects({ displayName: 'new', tags: 'bad' }, s);\n}\n\n// Input is not mutated, and stored tags are not the caller's array.\n{\n  const s = fresh();\n  const input = { displayName: ' Ada ', tags: [' a ', 'b'] };\n  const original = structuredClone(input);\n  const result = s.patch(input);\n  assert.deepEqual(input, original);\n  assert.deepEqual(result, { displayName: 'Ada', tags: ['a', 'b'] });\n  assert.notEqual(result.tags, input.tags);\n  input.tags[0] = 'mutated';\n  input.tags.push('z');\n  assert.deepEqual(s.profile.tags, ['a', 'b']);\n}\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nconst MAX_DISPLAY_NAME_LENGTH = 40;\nconst MAX_TAG_COUNT = 5;\nconst MAX_TAG_LENGTH = 12;\n\nfunction invalid(): never {\n  throw new Error('invalid profile');\n}\n\nfunction parseDisplayName(value: unknown): string | null {\n  if (value === null) return null;\n  if (typeof value !== 'string') invalid();\n  const trimmed = value.trim();\n  if (trimmed.length < 1 || trimmed.length > MAX_DISPLAY_NAME_LENGTH) invalid();\n  return trimmed;\n}\n\n// Builds a fresh array of trimmed tags. The caller's array is never stored.\nfunction parseTags(value: unknown): string[] {\n  if (value === null) return [];\n  if (!Array.isArray(value) || value.length > MAX_TAG_COUNT) invalid();\n  const tags: string[] = [];\n  const seen = new Set<string>();\n  for (let i = 0; i < value.length; i++) {\n    // Descriptors are read instead of values so getters never run. A hole has\n    // no own property, and an accessor has no `value`; both fail the checks below.\n    const item = Object.getOwnPropertyDescriptor(value, String(i));\n    if (item === undefined) invalid();\n    const raw: unknown = item.value;\n    if (typeof raw !== 'string') invalid();\n    const trimmed = raw.trim();\n    if (trimmed.length < 1 || trimmed.length > MAX_TAG_LENGTH) invalid();\n    if (seen.has(trimmed)) invalid();\n    seen.add(trimmed);\n    tags.push(trimmed);\n  }\n  return tags;\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) invalid();\n  const proto = Object.getPrototypeOf(input);\n  if (proto !== Object.prototype && proto !== null) invalid();\n  for (const key of Reflect.ownKeys(input)) {\n    if (key !== 'displayName' && key !== 'tags') invalid();\n  }\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n  // Same as above: read descriptors so getters never run. An accessor's\n  // `value` is undefined, which fails the type checks.\n  const displayNameDesc = Object.getOwnPropertyDescriptor(input, 'displayName');\n  if (displayNameDesc !== undefined) {\n    displayName = { kind: 'set', value: parseDisplayName(displayNameDesc.value) };\n  }\n  const tagsDesc = Object.getOwnPropertyDescriptor(input, 'tags');\n  if (tagsDesc !== undefined) {\n    tags = { kind: 'set', value: parseTags(tagsDesc.value) };\n  }\n  return { displayName, tags };\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/parser.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 197,
+    "removed_lines": 22
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.492819250037428
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0656184580293484,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05328091699630022,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,17 @@
+{
+  "prompt": "Diagnostique o incidente cruzando operacao.md e mudanca.md. Identifique\na causa mais sustentada, o componente a reverter, as filas que exigem reprocessamento e\nse há evidência de perda definitiva. Em answer.json use exatamente as chaves causa,\nreverter, reprocessar e perda_confirmada. causa deve ser um dos códigos C1, C2, C3;\nreverter deve ser o nome do componente; reprocessar é uma lista ordenada de IDs de filas;\nperda_confirmada é booleano. Explique também por que as alternativas são menos sustentadas.",
+  "files": {
+    "operacao.md": "# Operação de 7 de outubro\nO painel agrega todas as filas e arredonda as taxas de erro. O início do alerta,\nàs 14:08 UTC, não é necessariamente o início do defeito. Todos os horários abaixo\nestão em UTC. O banco foi verificado às 14:12: conexões disponíveis, sem aumento\nde latência nem falhas nas consultas de leitura e escrita. Às 14:04 houve uma\nfalha de DNS em uma sonda de laboratório, que não compartilha o resolvedor de produção.\n\n| Fila | Consumidor | Mensagens afetadas | Evidência |\n|---|---|---|---|\n| Q1 | recibos | 42 | rejeições locais com campo customer_id ausente desde 14:06 |\n| Q2 | recibos | 17 | mesmo erro; mensagens retidas na fila de falhas |\n| Q3 | notificacoes | 0 | consumo e confirmações normais durante toda a janela |\n| Q4 | recibos | 0 | vazia desde 13:50; nenhum evento durante a janela |\n\nO produtor continuou publicando. As 59 mensagens rejeitadas estão íntegras na\nfila de falhas, com IDs originais e payload disponível. Não se verificou ainda\no resultado de um reprocessamento completo. Contagem de tentativas não deve\nser confundida com quantidade de mensagens. Os recibos usam uma chave de\nidempotência por ID de mensagem; o operador deve preservá-la ao reprocessar.\n",
+    "mudanca.md": "# Histórico e hipóteses\nÀs 13:40 houve uma alteração visual no painel, sem mudança de agregação.\nÀs 14:05 o consumidor recibos passou da versão 7 para a 8. A versão 8 passou\na exigir customer_id, enquanto o contrato vigente do produtor publica cliente_id.\nNão houve migração coordenada do produtor. Às 14:16 uma instância de recibos\nfoi revertida para a versão 7: dez mensagens de teste com o formato vigente\nforam aceitas, usando o mesmo banco e a mesma rede. As outras instâncias ainda\nestão na versão 8. O consumidor notificacoes não foi atualizado.\n\nO catálogo de hipóteses é: C1 = esgotamento de conexões do banco; C2 = quebra\nde compatibilidade no consumidor recibos; C3 = indisponibilidade de DNS em produção.\nUma reversão do produtor exigiria coordenar clientes que continuam operando\nnormalmente. O procedimento operacional permite reverter recibos para 7 e\nvalidar uma amostra antes de reprocessar as filas efetivamente afetadas.\nNão classifique retenção temporária como perda definitiva. Ausência de\nevidência de perda não é garantia de recuperação integral sem validação.\n"
+  },
+  "expected": {
+    "causa": "C2",
+    "reverter": "recibos",
+    "reprocessar": [
+      "Q1",
+      "Q2"
+    ],
+    "perda_confirmada": false
+  },
+  "rubric": "Distinguir retenção de perda, rejeitar C1/C3 com evidências, propor reversão e validação antes do reprocessamento com idempotência."
+}

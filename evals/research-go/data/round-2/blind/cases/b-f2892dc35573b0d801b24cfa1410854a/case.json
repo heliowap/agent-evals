@@ -1,0 +1,299 @@
+{
+  "blind_id": "b-f2892dc35573b0d801b24cfa1410854a",
+  "task_id": "T4",
+  "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe enabled read replication for a Cloudflare D1 database used by a Worker. The current code still calls env.DB.prepare(...).run() directly. For checkout, a write is followed by a read in a later HTTP request, which currently carries no session context. The proposal is to use withSession(\"first-primary\") for every request and describe the entire session as pinned to the primary; a teammate instead suggests withSession() always begins with the latest data. Checkout also batches a header insert and line-item inserts, and the team expects earlier statements to remain committed if a later statement fails.\n\nRecommend a routing/session and failure-handling contract that supports useful replica reads without losing the checkout's prior write context. Explain the important differences between the proposed session options. Product wants to advertise globally latest reads and a maximum 100 ms replica-lag guarantee after commit. Decide which claims the official documentation actually supports.\n\nStarting URLs\n- https://developers.cloudflare.com/d1/",
+  "answer": "I'll start with the D1 documentation hub and the read-replication pages.\n\nNow the Sessions API reference and the batch/transaction semantics.\n\n## Decision\n\n**Routing/session contract.** Adopt the documented bookmark pattern: pass the session bookmark across requests via a header, rather than `first-primary` on every request. `first-primary` routes only the *first* query to the primary — \"Subsequent queries in the Session may use read replicas\" — so describing the whole session as pinned to the primary is wrong ([withSession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)). Your teammate is also wrong: `withSession()` equals `withSession(\"first-unconstrained\")` and routes the first query to *any* instance, possibly a lagging replica, so it does not \"always begin with the latest data\" ([read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)).\n\nFor checkout: after the write, capture `session.getBookmark()` and return it (e.g. `x-d1-bookmark`). In the later request, call `env.DB.withSession(bookmark)`, which guarantees a version \"at least as up-to-date as the previous session\" while still permitting replica reads. That preserves prior write context without forcing every request to the primary ([bookmark](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)).\n\n**Failure handling.** The team's expectation is contradicted. `batch()` is auto-commit and statements are SQL transactions: \"If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence.\" Earlier statements do **not** stay committed. Put header + line-items in one `batch()` and treat it as atomic; retry/idempotency must handle full rollback ([batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)).\n\n**Supported claims.** Documented: sequential consistency with monotonic reads, read-my-own-writes, and cross-request continuity via bookmarks ([consistency model](https://developers.cloudflare.com/d1/best-practices/read-replication/#sessions-api-provides-sequential-consistency)).\n\n**Not supported.** \"Globally latest reads\" is false: replicas replicate asynchronously and \"a read replica may be arbitrarily out of date.\" A 100 ms maximum replica-lag guarantee is **UNVERIFIED** — no such bound appears; replicas are documented as arbitrarily stale, and D1 explicitly declines such commitments. Next evidence target: Cloudflare's blog \"Sequential consistency without borders\" and any D1 limits page stating a lag SLO.\n\n**Recommendation (mine):** default `first-unconstrained` + bookmarks; escalate to `first-primary` only for read-after-write across requests lacking a bookmark.",
+  "sources": [
+    {
+      "url": "https://developers.cloudflare.com/d1/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s1.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://developers.cloudflare.com/d1/",
+      "candidate_visible_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s1.txt"
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+      "candidate_visible_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s3.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+      "candidate_visible_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s3.txt"
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/worker-api/prepared-statements/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s4.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://developers.cloudflare.com/d1/worker-api/prepared-statements/",
+      "candidate_visible_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s4.txt"
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s5.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/llms.txt",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s6.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s7.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s8.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s9.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+      "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s10.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    }
+  ],
+  "rubric": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirement": "Enabling replication alone does not route these binding queries to replicas",
+        "accepted": [
+          "use the Sessions API to benefit from replicas; without it queries continue on the primary."
+        ],
+        "contradicted": [
+          "unchanged direct binding calls automatically become replica reads once replication is enabled."
+        ],
+        "rubric_text": "S: use the Sessions API to benefit from replicas; without it queries continue on the primary. X: unchanged direct binding calls automatically become replica reads once replication is enabled.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+            "quote": "To use read replication, you must use the D1 Sessions API, otherwise all queries will continue to be executed only by the primary database.",
+            "source_id": "D1-R",
+            "anchor": null,
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "requirement": "Writes still go to primary",
+        "accepted": [
+          "replicas do not execute independent writes; write queries are forwarded to primary."
+        ],
+        "contradicted": [
+          "spread writes over nearest replica for latency. This is distinct from C1's read-routing prerequisite."
+        ],
+        "rubric_text": "S: replicas do not execute independent writes; write queries are forwarded to primary. X: spread writes over nearest replica for latency. This is distinct from C1's read-routing prerequisite.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+            "quote": "All write queries are still forwarded to the primary database instance.",
+            "source_id": "D1-R",
+            "anchor": "primary-database-instance-vs-read-replicas",
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "requirement": "`first-primary` constrains the first query, not the entire session",
+        "accepted": [
+          "start with primary's up-to-date state; subsequent queries may use replicas."
+        ],
+        "contradicted": [
+          "describe the whole session as pinned to primary. No requirement to list all sequential-consistency subproperties here."
+        ],
+        "rubric_text": "S: start with primary's up-to-date state; subsequent queries may use replicas. X: describe the whole session as pinned to primary. No requirement to list all sequential-consistency subproperties here.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession",
+            "quote": "Subsequent queries in the Session may use read replicas.",
+            "source_id": "D1-D",
+            "anchor": "withsession",
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s3.txt"
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "requirement": "Default initial session read need not be latest",
+        "accepted": [
+          "`withSession()` defaults to `first-unconstrained`, which may start on a replica and is appropriate when the latest version is not needed."
+        ],
+        "contradicted": [
+          "default means always-latest/first-primary. The single scored property is the absence of a latest-first-read promise; explicit default name is an acceptable precise formulation."
+        ],
+        "rubric_text": "S: `withSession()` defaults to `first-unconstrained`, which may start on a replica and is appropriate when the latest version is not needed. X: default means always-latest/first-primary. The single scored property is the absence of a latest-first-read promise; explicit default name is an acceptable precise formulation.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+            "quote": "`withSession()` is the same as `withSession(\"first-unconstrained\")`",
+            "source_id": "D1-R",
+            "anchor": "start-a-session-without-constraints",
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+          },
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+            "quote": "This approach is best when your application does not require the latest database version.",
+            "source_id": "D1-R",
+            "anchor": "start-a-session-without-constraints",
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C5",
+        "requirement": "Carry the bookmark across requests for the prior-write lower bound",
+        "accepted": [
+          "return `session.getBookmark()` and pass it into a new `withSession(bookmark)` in the later request; this guarantees a database version at least as up-to-date as that bookmark. HTTP header, cookie or other application-carried bookmark is acceptable; do not require the demo's particular header name."
+        ],
+        "contradicted": [
+          "use the bookmark as an exact historic snapshot or reset every request without retaining context while claiming the same bound."
+        ],
+        "rubric_text": "S: return `session.getBookmark()` and pass it into a new `withSession(bookmark)` in the later request; this guarantees a database version at least as up-to-date as that bookmark. HTTP header, cookie or other application-carried bookmark is acceptable; do not require the demo's particular header name. X: use the bookmark as an exact historic snapshot or reset every request without retaining context while claiming the same bound.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark",
+            "quote": "Starting a session with a `bookmark` ensures the new session will be at least as up-to-date as the previous session that generated the given `bookmark`.",
+            "source_id": "D1-R",
+            "anchor": "start-a-session-from-previous-context-bookmark",
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "requirement": "Batch failure rolls back the sequence",
+        "accepted": [
+          "a failing statement aborts/rolls back the entire batch, not just the later statements."
+        ],
+        "contradicted": [
+          "earlier batch statements persist despite a later failure. Do not infer atomicity across separate calls or external services."
+        ],
+        "rubric_text": "S: a failing statement aborts/rolls back the entire batch, not just the later statements. X: earlier batch statements persist despite a later failure. Do not infer atomicity across separate calls or external services.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#batch",
+            "quote": "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence.",
+            "source_id": "D1-D",
+            "anchor": "batch",
+            "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s3.txt"
+          }
+        ]
+      }
+    ],
+    "uncertainty": {
+      "id": "U",
+      "requirement": "No numerical lag bound or global-latest promise from per-session consistency",
+      "pass": "do not advertise a 100 ms lag bound or arbitrary-request globally latest reads. The docs explicitly allow an arbitrarily out-of-date replica and define a session/bookmark freshness lower bound; a replica may wait for that bookmark. Next obtain a specific contractual SLA/guarantee from Cloudflare and measure workload latency, separately from selecting a session consistency contract. A numerical observed latency is not a guarantee. Mentioning only 'eventual consistency' without Sessions' stronger guarantee is insufficient.",
+      "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+      "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+      "source_evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+          "quote": "This means that at any given time, a read replica may be arbitrarily out of date.",
+          "source_id": "D1-R",
+          "anchor": "primary-database-instance-vs-read-replicas",
+          "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+        },
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#with-sessions-api",
+          "quote": "The read replica will wait until it has been updated to be at least as up-to-date as the provided bookmark (100).",
+          "source_id": "D1-R",
+          "anchor": "with-sessions-api",
+          "source_path": "blind/cases/b-f2892dc35573b0d801b24cfa1410854a/sources/s2.txt"
+        }
+      ]
+    },
+    "critical_errors": [
+      "write to replicas",
+      "guarantee default latest reads",
+      "say `first-primary` permanently pins all queries",
+      "lose bookmark context while promising its freshness bound",
+      "promise partial batch commits",
+      "invent the numerical/global freshness guarantee. Do not accept the first sentence about sequential per-statement commits on the API page as overriding its explicit whole-batch rollback paragraph."
+    ],
+    "critical_errors_text": "write to replicas; guarantee default latest reads; say `first-primary` permanently pins all queries; lose bookmark context while promising its freshness bound; promise partial batch commits; invent the numerical/global freshness guarantee. Do not accept the first sentence about sequential per-statement commits on the API page as overriding its explicit whole-batch rollback paragraph.",
+    "source_rules": {
+      "description": "`developers.cloudflare.com`, preferably confined to `/d1/`. Required base URLs are the start page, `https://developers.cloudflare.com/d1/llms.txt`, read-replication page and d1-database page. Native Markdown bodies verified: `https://developers.cloudflare.com/d1/best-practices/read-replication/index.md` and `https://developers.cloudflare.com/d1/worker-api/d1-database/index.md`. Archive canonical HTML and these native Markdown mirrors; capture any documented `Accept: text/markdown` behavior only if actually used. No dashboard/REST mutation or token is needed. Do not grade through the linked Jepsen explanations; the required evidence is on Cloudflare's own pages. The binding reference's example of `getBookmark` is not needed as code to execute; grade its documented String-or-null return description and the overview's working bookmark flow instead.",
+      "allowed_url_patterns": [
+        "https://developers\\.cloudflare\\.com/d1(?:/[^?#]*)?"
+      ],
+      "required_source_urls": [
+        "https://developers.cloudflare.com/d1/",
+        "https://developers.cloudflare.com/d1/llms.txt",
+        "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+        "https://developers.cloudflare.com/d1/worker-api/d1-database/"
+      ],
+      "minimum_distinct_sources": 4,
+      "minimum_answer_bearing_sources": 2,
+      "discovery_chain": {
+        "description": "product page → product-scoped `llms.txt` index (the fetched page explicitly directs this); index → Global read replication and D1 Database binding reference. Reconcile routing/consistency overview with `withSession`, `getBookmark` and `batch` details. **Minimum distinct content sources: 4 including two discovery pages; 2 answer-bearing.**",
+        "edges": [
+          {
+            "from": "https://developers.cloudflare.com/d1/",
+            "to": "https://developers.cloudflare.com/d1/llms.txt",
+            "relation": "documentation_link"
+          },
+          {
+            "from": "https://developers.cloudflare.com/d1/llms.txt",
+            "to": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+            "relation": "documentation_link"
+          },
+          {
+            "from": "https://developers.cloudflare.com/d1/llms.txt",
+            "to": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+            "relation": "documentation_link"
+          }
+        ],
+        "minimum_distinct_sources": 4
+      }
+    }
+  },
+  "mechanical": {
+    "attempted": true,
+    "operational_complete": true,
+    "visible_words": 316,
+    "word_cap": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "fetched_two_sources": true,
+    "distinct_fetched_pages": 4,
+    "requested_tool_calls": 4,
+    "fetch_attempts": 4,
+    "truncated_fetches": 0,
+    "semantic_grading": "required; not automatically assigned",
+    "explicit_self_identification_redacted": false
+  }
+}

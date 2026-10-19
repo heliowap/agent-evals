@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "src/consumer.py": "from .service import stream_rows\n\ndef take(resource, transform, limit):\n    if limit == 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n        return result\n    finally:\n        stream.close()\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    failed = False\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            yield transform(row)\n    except GeneratorExit:\n        raise\n    except BaseException:\n        failed = True\n        raise\n    finally:\n        try:\n            resource.close()\n        except BaseException:\n            if not failed:\n                raise\n"
+    },
+    "changed_files": [
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 34,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04251500000827946
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04421079202438705,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.046828457998344675,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

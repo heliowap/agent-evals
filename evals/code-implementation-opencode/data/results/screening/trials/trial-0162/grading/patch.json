@@ -1,0 +1,15 @@
+{
+  "files": {
+    "checks/authorization.cjs": "const assert = require('node:assert/strict');\nconst { DocumentRepository } = require('../.build/repository');\nconst { DocumentService } = require('../.build/service');\nconst docs = () => [\n  { id: 'own', tenant: 'a', owner: 'ed', deleted: false, archived: false },\n  { id: 'other', tenant: 'a', owner: 'x', deleted: false, archived: false },\n  { id: 'gone', tenant: 'a', owner: 'ed', deleted: true, archived: false },\n  { id: 'foreign', tenant: 'b', owner: 'ed', deleted: false, archived: false },\n  { id: 'done', tenant: 'a', owner: 'x', deleted: false, archived: true },\n];\nconst admin = { tenant: 'a', user: 'ad', role: 'admin' };\nconst editor = { tenant: 'a', user: 'ed', role: 'editor' };\nconst viewer = { tenant: 'a', user: 'ed', role: 'viewer' };\nfunction fails(actor, id, re) {\n  const repo = new DocumentRepository(docs()); const before = JSON.stringify(repo.documents);\n  assert.throws(() => new DocumentService(repo).archive(actor, id), re);\n  assert.equal(JSON.stringify(repo.documents), before); assert.deepEqual(repo.audit, []);\n}\nfor (const actor of [admin, editor, viewer]) for (const id of ['missing', 'gone', 'foreign']) fails(actor, id, /^Error: not found$/);\nfails(editor, 'other', /^Error: forbidden$/);\nfails(editor, 'done', /^Error: forbidden$/);\nfor (const id of ['own', 'other', 'done']) fails(viewer, id, /^Error: forbidden$/);\n{ const repo = new DocumentRepository(docs()); const s = new DocumentService(repo);\n  s.archive(editor, 'own'); s.archive(editor, 'own');\n  assert.equal(repo.find('own').archived, true); assert.deepEqual(repo.audit, [{ actor: 'ed', document: 'own' }]); }\n{ const repo = new DocumentRepository(docs()); const s = new DocumentService(repo);\n  s.archive(admin, 'other'); s.archive(admin, 'done');\n  assert.deepEqual(repo.audit, [{ actor: 'ad', document: 'other' }]); assert.equal(repo.find('done').archived, true); }\nconsole.log('authorization checks passed');\n",
+    "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    // Missing, deleted and foreign-tenant documents are indistinguishable to the caller.\n    if (!document || document.deleted || document.tenant !== actor.tenant) throw new Error('not found');\n    // Permission is enforced before the idempotency check.\n    if (!canArchive(actor, document)) throw new Error('forbidden');\n    if (!document.archived) this.repository.archive(document, actor.user);\n  }\n}\nfunction canArchive(actor: Actor, document: Document): boolean {\n  if (actor.role === 'admin') return true;\n  if (actor.role === 'editor') return document.owner === actor.user;\n  return false;\n}\n"
+  },
+  "changed_files": [
+    "checks/authorization.cjs",
+    "src/service.ts"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 2,
+  "added_lines": 47,
+  "removed_lines": 10
+}

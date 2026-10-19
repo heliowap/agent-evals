@@ -1,0 +1,47 @@
+Based on public primary sources from the Node.js project (specifically the Node.js 22 launch announcement blog post and the official release notes for Node.js 22.12.0), here is how the status and behavior of loading native ES modules via `require()` reconcile between the two releases:
+
+---
+
+### 1. Launch-Time Status and Enabling Flag (Node.js 22.0.0 Announcement)
+In the Node.js 22 launch announcement (*"Node.js 22 is now available!"*), loading synchronous native ECMAScript module graphs via `require()` was introduced under an experimental CLI flag:
+* **Launch-time enabling flag:** `--experimental-require-module`
+
+At launch, Node.js stated the intention to eventually enable `require(esm)` by default in future releases without requiring this flag.
+
+---
+
+### 2. Default Status and Stability in Node.js 22.12.0
+In the release notes for **Node.js 22.12.0 (LTS)** (*"require(esm) is now enabled by default"*):
+* **Enabled by default?** **Yes.** Support for loading native ES modules using `require()` is no longer behind a flag on `v22.x` and is enabled by default.
+* **Does enabling it by default make it stable?** **No.** The 22.12.0 release notes explicitly state:
+  > *"This feature is still experimental, and we are looking for user feedback to make more final tweaks before fully stabilizing it."*
+
+While enabled without requiring a command-line flag, its stability classification remained experimental.
+
+---
+
+### 3. Error Resulting from Top-Level Await (`TLA`)
+With the feature enabled, Node.js no longer throws `ERR_REQUIRE_ESM` when `require()` is used to load an ES module. However, because `require()` is fundamentally synchronous:
+* **Error code thrown:** **`ERR_REQUIRE_ASYNC_MODULE`**
+* This error is thrown if the ES module being loaded or any of its dependencies contain top-level `await`.
+
+---
+
+### 4. Disabling Flag in Node.js 22.12.0
+If users run into regressions or need to opt out of the default behavior, Node.js 22.12.0 provides an opt-out flag:
+* **Disabling flag:** **`--no-experimental-require-module`**
+
+*(Note: When disabled with this flag, attempting to `require()` an ES module reverts to throwing `ERR_REQUIRE_ESM`.)*
+
+---
+
+### 5. Documented Runtime Feature Check
+To inspect whether `require(esm)` is enabled in the running instance, Node.js 22.12.0 documents a runtime JavaScript property check:
+* **Runtime feature check:** **`process.features.require_module`** (evaluates to a boolean).
+
+*(Additionally, for package authoring and resolution, the release notes document the `"module-sync"` exports condition as a way to detect runtime support and allow both `require()` and `import` to load the same native ES module.)*
+
+---
+
+### Unresolved Limitations
+* The retrieved primary sources for 22.12.0 specifically describe the warning emitted when native ESM is first required, but mention that on `v23.x` warnings are omitted if `require()` originates from inside `node_modules`; minor documentation ambiguities exist in the text regarding the exact warning text format displayed to users.

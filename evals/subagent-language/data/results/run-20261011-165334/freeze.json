@@ -1,0 +1,492 @@
+{
+  "created_utc": "2026-10-11T19:53:34Z",
+  "model": "gpt-6.1-sol",
+  "effort": "high",
+  "cli_version": "codex-cli 0.162.1",
+  "seed": 20261011,
+  "repetitions": 5,
+  "timeout_s": 300,
+  "budget_s": 21600,
+  "conditions": {
+    "default": "Comunique-se com o usuário em português.\n",
+    "pt": "Comunique-se com o usuário em português.\nNas delegações, mensagens e respostas entre agentes, use português e instrua os subagentes a fazer o mesmo. Preserve citações, identificadores e conteúdos que precisem permanecer no idioma original.\n",
+    "en": "Comunique-se com o usuário em português.\nNas delegações, mensagens e respostas entre agentes, use inglês e instrua os subagentes a fazer o mesmo. Preserve citações, identificadores e conteúdos que precisem permanecer no idioma original.\n"
+  },
+  "common_prompt": "Trabalhe somente com os arquivos desta pasta. Use exatamente dois subagentes\ndiretos, com fork_turns=\"none\", sem outros descendentes. Escolha a divisão de trabalho,\nenvie a cada um o contexto necessário e aguarde a conclusão de ambos. Use o mesmo\nmodelo e esforço desta sessão. Os subagentes devem retornar suas análises por mensagem;\nsomente você deve escrever os arquivos finais. Pode haver perguntas e correções entre vocês.\nEntregue answer.json conforme o contrato solicitado e report.md em português, explicando\nas decisões, evidências e ressalvas. Responda ao usuário em português. Preserve os\narquivos de entrada. Use apenas ferramentas locais; a tarefa dispensa acesso à internet.\n",
+  "cases": {
+    "incidente": {
+      "prompt": "Diagnostique o incidente cruzando operacao.md e mudanca.md. Identifique\na causa mais sustentada, o componente a reverter, as filas que exigem reprocessamento e\nse há evidência de perda definitiva. Em answer.json use exatamente as chaves causa,\nreverter, reprocessar e perda_confirmada. causa deve ser um dos códigos C1, C2, C3;\nreverter deve ser o nome do componente; reprocessar é uma lista ordenada de IDs de filas;\nperda_confirmada é booleano. Explique também por que as alternativas são menos sustentadas.",
+      "files": {
+        "operacao.md": "# Operação de 7 de outubro\nO painel agrega todas as filas e arredonda as taxas de erro. O início do alerta,\nàs 14:08 UTC, não é necessariamente o início do defeito. Todos os horários abaixo\nestão em UTC. O banco foi verificado às 14:12: conexões disponíveis, sem aumento\nde latência nem falhas nas consultas de leitura e escrita. Às 14:04 houve uma\nfalha de DNS em uma sonda de laboratório, que não compartilha o resolvedor de produção.\n\n| Fila | Consumidor | Mensagens afetadas | Evidência |\n|---|---|---|---|\n| Q1 | recibos | 42 | rejeições locais com campo customer_id ausente desde 14:06 |\n| Q2 | recibos | 17 | mesmo erro; mensagens retidas na fila de falhas |\n| Q3 | notificacoes | 0 | consumo e confirmações normais durante toda a janela |\n| Q4 | recibos | 0 | vazia desde 13:50; nenhum evento durante a janela |\n\nO produtor continuou publicando. As 59 mensagens rejeitadas estão íntegras na\nfila de falhas, com IDs originais e payload disponível. Não se verificou ainda\no resultado de um reprocessamento completo. Contagem de tentativas não deve\nser confundida com quantidade de mensagens. Os recibos usam uma chave de\nidempotência por ID de mensagem; o operador deve preservá-la ao reprocessar.\n",
+        "mudanca.md": "# Histórico e hipóteses\nÀs 13:40 houve uma alteração visual no painel, sem mudança de agregação.\nÀs 14:05 o consumidor recibos passou da versão 7 para a 8. A versão 8 passou\na exigir customer_id, enquanto o contrato vigente do produtor publica cliente_id.\nNão houve migração coordenada do produtor. Às 14:16 uma instância de recibos\nfoi revertida para a versão 7: dez mensagens de teste com o formato vigente\nforam aceitas, usando o mesmo banco e a mesma rede. As outras instâncias ainda\nestão na versão 8. O consumidor notificacoes não foi atualizado.\n\nO catálogo de hipóteses é: C1 = esgotamento de conexões do banco; C2 = quebra\nde compatibilidade no consumidor recibos; C3 = indisponibilidade de DNS em produção.\nUma reversão do produtor exigiria coordenar clientes que continuam operando\nnormalmente. O procedimento operacional permite reverter recibos para 7 e\nvalidar uma amostra antes de reprocessar as filas efetivamente afetadas.\nNão classifique retenção temporária como perda definitiva. Ausência de\nevidência de perda não é garantia de recuperação integral sem validação.\n"
+      },
+      "expected": {
+        "causa": "C2",
+        "reverter": "recibos",
+        "reprocessar": [
+          "Q1",
+          "Q2"
+        ],
+        "perda_confirmada": false
+      },
+      "rubric": "Distinguir retenção de perda, rejeitar C1/C3 com evidências, propor reversão e validação antes do reprocessamento com idempotência."
+    },
+    "fornecedor": {
+      "prompt": "Escolha o fornecedor elegível de menor custo em 12 meses, cruzando\nrequisitos.md e propostas.md. Em answer.json use exatamente escolhido, elegiveis,\ncusto_12_meses_centavos e excluidos. elegiveis é uma lista de nomes em ordem alfabética;\nexcluidos mapeia cada nome inelegível para a lista ordenada dos códigos de requisitos\nviolados. Explique os cálculos, os motivos de exclusão e o desempate se necessário.",
+      "files": {
+        "requisitos.md": "# Compra de um serviço de processamento\nO horizonte de comparação é de 12 meses com 80.000 eventos por mês. A implantação\nacontece uma única vez. Compare todos os valores em reais, sem atualização monetária.\nNão há desconto por pagamento antecipado. Franquia não utilizada não acumula.\nCada evento excedente custa o valor indicado, inclusive quando o excesso não\ncompleta um lote. O orçamento desejável de R$ 32.000 não é eliminatório.\n\nRequisitos obrigatórios: R1 = dados primários e backups armazenados no Brasil;\nR2 = exportação completa em formato aberto, incluída no preço e disponível em\naté 48 horas; R3 = início de operação em até 20 dias corridos, contados da assinatura.\nAtender exatamente o limite atende o requisito. Uma promessa de funcionalidade\nfutura não vale como atendimento atual. Condições específicas assinadas prevalecem\nsobre o texto comercial genérico. Escolha o menor custo total entre os elegíveis.\nEm empate, prefira menor prazo de implantação e, persistindo, ordem alfabética.\n",
+        "propostas.md": "# Propostas assinadas\nAlfa: mensalidade R$ 2.000; franquia de 60.000 eventos; excedente R$ 0,02 por\nevento; implantação R$ 4.000; prazo 20 dias. Dados e backups no Brasil.\nExportação JSON integral incluída, em 48 horas.\n\nBeta: mensalidade R$ 1.600; franquia de 100.000; implantação R$ 2.000;\nprazo 10 dias. Dados primários no Brasil, backups no Chile. Exportação CSV\nintegral incluída em 24 horas. A proposta não prevê mudança dos backups.\n\nGama: mensalidade R$ 2.400; franquia de 80.000; implantação R$ 3.000;\nprazo 18 dias. Dados e backups no Brasil. Exportação JSON integral incluída\nem 36 horas. Eventos acima da franquia custam R$ 0,04 cada.\n\nDelta: mensalidade R$ 1.800; franquia de 80.000; implantação R$ 1.000;\nprazo 15 dias. Dados e backups no Brasil. A página comercial anuncia\n\"exportação fácil\", mas a condição assinada entrega somente PDF e prevê\nexportação JSON em uma versão futura, sem data contratual.\n\nÉpsilon: mensalidade R$ 2.400; franquia de 80.000; implantação R$ 3.000;\nprazo 19 dias. Dados e backups no Brasil. Exportação CSV integral incluída\nem 24 horas. Os valores de todas as propostas já incluem impostos.\n"
+      },
+      "expected": {
+        "escolhido": "Gama",
+        "elegiveis": [
+          "Alfa",
+          "Gama",
+          "Épsilon"
+        ],
+        "custo_12_meses_centavos": 3180000,
+        "excluidos": {
+          "Beta": [
+            "R1"
+          ],
+          "Delta": [
+            "R2"
+          ]
+        }
+      },
+      "rubric": "Calcular Alfa=32.800 e Gama/Épsilon=31.800 reais; desempatar pelo prazo; explicar backups e exportação, sem transformar orçamento desejável em veto."
+    },
+    "acessos": {
+      "prompt": "Aplique a política aos pedidos. Em answer.json use exatamente permitidos\ne negados, ambas listas de IDs em ordem crescente. No report.md explique cada decisão\nnegada e os casos de exceção ou fronteira. Não invente aprovações ausentes.",
+      "files": {
+        "politica.md": "# Política do projeto P, versão vigente\nUm usuário ativo pode ler um recurso de seu próprio projeto. Suspensão bloqueia\nqualquer ação, inclusive acesso emergencial. Usuários de outro projeto são negados.\nEscrita exige papel editor ou admin e recurso desbloqueado. Administrador não\nignora bloqueio de escrita. Leitura de recurso bloqueado continua permitida.\nExportação exige papel admin e aprovação do titular dos dados ainda válida.\nNo instante exato do vencimento, a aprovação já expirou. Uma aprovação de exportação\nnão concede escrita nem acesso a outro projeto. Ausência de aprovação equivale a não.\n\nExceção E1: leitura emergencial pode ser concedida a usuário ativo do papel suporte,\nmesmo de outro projeto, se houver chamado de emergência aberto associado ao recurso.\nEssa exceção só cobre leitura. Estar no suporte não dá escrita nem exportação.\nAvalie cada pedido isoladamente às 12:00:00 UTC de 10/10/2026. A lista de usuários\né um retrato válido para esse instante; não extrapole uma decisão para outro horário.\n",
+        "pedidos.md": "# Pedidos para recursos do projeto P\nA01: ativo, leitor, projeto P, ler recurso desbloqueado.\nA02: ativo, editor, projeto P, escrever recurso bloqueado.\nA03: ativo, admin, projeto P, escrever recurso bloqueado.\nA04: ativo, admin, projeto P, exportar; aprovação vence 10/10/2026 12:00:00 UTC.\nA05: ativo, admin, projeto P, exportar; aprovação vence 10/10/2026 12:00:01 UTC.\nA06: ativo, suporte, projeto X, ler; chamado emergencial aberto para esse recurso.\nA07: suspenso, suporte, projeto X, ler; chamado emergencial aberto para esse recurso.\nA08: ativo, suporte, projeto X, exportar; chamado emergencial aberto para esse recurso.\nA09: ativo, leitor, projeto P, ler recurso bloqueado.\nA10: ativo, editor, projeto P, escrever recurso desbloqueado.\nA11: ativo, admin, projeto X, ler recurso desbloqueado; sem chamado emergencial.\nA12: ativo, admin, projeto P, exportar; sem aprovação do titular.\nA13: ativo, suporte, projeto X, ler; chamado emergencial encerrado para esse recurso.\nA14: ativo, editor, projeto P, exportar; aprovação vence amanhã.\nA15: ativo, suporte, projeto P, ler recurso desbloqueado; sem chamado emergencial.\nA16: ativo, leitor, projeto P, escrever recurso desbloqueado; aprovação de exportação válida.\n"
+      },
+      "expected": {
+        "permitidos": [
+          "A01",
+          "A05",
+          "A06",
+          "A09",
+          "A10",
+          "A15"
+        ],
+        "negados": [
+          "A02",
+          "A03",
+          "A04",
+          "A07",
+          "A08",
+          "A11",
+          "A12",
+          "A13",
+          "A14",
+          "A16"
+        ]
+      },
+      "rubric": "Justificar cada negativa; observar vencimento exclusivo, suspensão, bloqueio de escrita do admin e escopo somente leitura da exceção."
+    },
+    "conciliacao": {
+      "prompt": "Concilie as vendas conforme regras.md e eventos.json. Em answer.json\nuse exatamente pedidos_incluidos (lista ordenada), receita_liquida_centavos (inteiro)\ne por_canal_centavos (objeto com loja e web). Explique exclusões, duplicatas e estornos.",
+      "files": {
+        "regras.md": "# Fechamento de 10 de outubro\nIncluir pedidos BRL pagos cujo instante de pagamento esteja em [2026-10-10T00:00:00Z,\n2026-10-11T00:00:00Z). Datas já estão em UTC. Não usar a criação do pedido para\ndecidir a janela. O arquivo contém eventos repetidos por retry: deduplicar pelo\nevent_id antes de calcular qualquer valor. IDs diferentes representam eventos distintos.\n\nSubtrair de cada pedido incluído os estornos confirmados ocorridos estritamente\nantes de 2026-10-11T00:00:00Z, inclusive parciais. Estornos pendentes não entram.\nEstorno no limite superior fica para o próximo fechamento. Pedido integralmente\nestornado permanece na lista de incluídos, com líquido zero. Um estorno de pedido\nfora da janela não entra neste relatório. Não converter outras moedas. Valores\nsão inteiros em centavos. Use o canal do pagamento; não some o valor de criação.\nO relatório é por coorte de pagamentos, não um fluxo de caixa de todos os eventos do dia.\n",
+        "eventos.json": "[\n  {\n    \"event_id\": \"E1\",\n    \"pedido\": \"P1\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 10000,\n    \"canal\": \"web\",\n    \"em\": \"2026-10-10T00:00:00Z\"\n  },\n  {\n    \"event_id\": \"E1\",\n    \"pedido\": \"P1\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 10000,\n    \"canal\": \"web\",\n    \"em\": \"2026-10-10T00:00:00Z\"\n  },\n  {\n    \"event_id\": \"E2\",\n    \"pedido\": \"P2\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 25000,\n    \"canal\": \"loja\",\n    \"em\": \"2026-10-10T09:00:00Z\"\n  },\n  {\n    \"event_id\": \"E3\",\n    \"pedido\": \"P3\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 5000,\n    \"canal\": \"web\",\n    \"em\": \"2026-10-10T23:59:59Z\"\n  },\n  {\n    \"event_id\": \"E4\",\n    \"pedido\": \"P4\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 99999,\n    \"canal\": \"web\",\n    \"em\": \"2026-10-11T00:00:00Z\"\n  },\n  {\n    \"event_id\": \"E5\",\n    \"pedido\": \"P5\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"USD\",\n    \"valor\": 8000,\n    \"canal\": \"web\",\n    \"em\": \"2026-10-10T10:00:00Z\"\n  },\n  {\n    \"event_id\": \"E6\",\n    \"pedido\": \"P6\",\n    \"tipo\": \"criado\",\n    \"moeda\": \"BRL\",\n    \"valor\": 7000,\n    \"canal\": \"loja\",\n    \"em\": \"2026-10-10T11:00:00Z\"\n  },\n  {\n    \"event_id\": \"E7\",\n    \"pedido\": \"P7\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 12000,\n    \"canal\": \"loja\",\n    \"em\": \"2026-10-09T23:59:59Z\"\n  },\n  {\n    \"event_id\": \"E8\",\n    \"pedido\": \"P8\",\n    \"tipo\": \"pago\",\n    \"moeda\": \"BRL\",\n    \"valor\": 3000,\n    \"canal\": \"loja\",\n    \"em\": \"2026-10-10T12:00:00Z\"\n  },\n  {\n    \"event_id\": \"R1\",\n    \"pedido\": \"P1\",\n    \"tipo\": \"estorno_confirmado\",\n    \"valor\": 2000,\n    \"em\": \"2026-10-10T16:00:00Z\"\n  },\n  {\n    \"event_id\": \"R1\",\n    \"pedido\": \"P1\",\n    \"tipo\": \"estorno_confirmado\",\n    \"valor\": 2000,\n    \"em\": \"2026-10-10T16:00:00Z\"\n  },\n  {\n    \"event_id\": \"R2\",\n    \"pedido\": \"P2\",\n    \"tipo\": \"estorno_pendente\",\n    \"valor\": 4000,\n    \"em\": \"2026-10-10T17:00:00Z\"\n  },\n  {\n    \"event_id\": \"R3\",\n    \"pedido\": \"P3\",\n    \"tipo\": \"estorno_confirmado\",\n    \"valor\": 5000,\n    \"em\": \"2026-10-11T00:00:00Z\"\n  },\n  {\n    \"event_id\": \"R4\",\n    \"pedido\": \"P7\",\n    \"tipo\": \"estorno_confirmado\",\n    \"valor\": 12000,\n    \"em\": \"2026-10-10T18:00:00Z\"\n  },\n  {\n    \"event_id\": \"R5\",\n    \"pedido\": \"P8\",\n    \"tipo\": \"estorno_confirmado\",\n    \"valor\": 3000,\n    \"em\": \"2026-10-10T20:00:00Z\"\n  }\n]"
+      },
+      "expected": {
+        "pedidos_incluidos": [
+          "P1",
+          "P2",
+          "P3",
+          "P8"
+        ],
+        "receita_liquida_centavos": 38000,
+        "por_canal_centavos": {
+          "loja": 25000,
+          "web": 13000
+        }
+      },
+      "rubric": "Explicar deduplicação, janela semiaberta, P8 com zero, R2 pendente, R3 no limite e R4 fora da coorte."
+    }
+  },
+  "schedule": [
+    {
+      "id": "trial-0001",
+      "case": "incidente",
+      "rep": 3,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0002",
+      "case": "incidente",
+      "rep": 3,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0003",
+      "case": "incidente",
+      "rep": 3,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0004",
+      "case": "fornecedor",
+      "rep": 5,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0005",
+      "case": "fornecedor",
+      "rep": 5,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0006",
+      "case": "fornecedor",
+      "rep": 5,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0007",
+      "case": "conciliacao",
+      "rep": 4,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0008",
+      "case": "conciliacao",
+      "rep": 4,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0009",
+      "case": "conciliacao",
+      "rep": 4,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0010",
+      "case": "incidente",
+      "rep": 2,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0011",
+      "case": "incidente",
+      "rep": 2,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0012",
+      "case": "incidente",
+      "rep": 2,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0013",
+      "case": "fornecedor",
+      "rep": 2,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0014",
+      "case": "fornecedor",
+      "rep": 2,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0015",
+      "case": "fornecedor",
+      "rep": 2,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0016",
+      "case": "incidente",
+      "rep": 5,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0017",
+      "case": "incidente",
+      "rep": 5,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0018",
+      "case": "incidente",
+      "rep": 5,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0019",
+      "case": "conciliacao",
+      "rep": 3,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0020",
+      "case": "conciliacao",
+      "rep": 3,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0021",
+      "case": "conciliacao",
+      "rep": 3,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0022",
+      "case": "incidente",
+      "rep": 4,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0023",
+      "case": "incidente",
+      "rep": 4,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0024",
+      "case": "incidente",
+      "rep": 4,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0025",
+      "case": "acessos",
+      "rep": 3,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0026",
+      "case": "acessos",
+      "rep": 3,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0027",
+      "case": "acessos",
+      "rep": 3,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0028",
+      "case": "conciliacao",
+      "rep": 2,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0029",
+      "case": "conciliacao",
+      "rep": 2,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0030",
+      "case": "conciliacao",
+      "rep": 2,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0031",
+      "case": "acessos",
+      "rep": 4,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0032",
+      "case": "acessos",
+      "rep": 4,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0033",
+      "case": "acessos",
+      "rep": 4,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0034",
+      "case": "fornecedor",
+      "rep": 3,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0035",
+      "case": "fornecedor",
+      "rep": 3,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0036",
+      "case": "fornecedor",
+      "rep": 3,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0037",
+      "case": "fornecedor",
+      "rep": 1,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0038",
+      "case": "fornecedor",
+      "rep": 1,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0039",
+      "case": "fornecedor",
+      "rep": 1,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0040",
+      "case": "acessos",
+      "rep": 5,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0041",
+      "case": "acessos",
+      "rep": 5,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0042",
+      "case": "acessos",
+      "rep": 5,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0043",
+      "case": "incidente",
+      "rep": 1,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0044",
+      "case": "incidente",
+      "rep": 1,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0045",
+      "case": "incidente",
+      "rep": 1,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0046",
+      "case": "fornecedor",
+      "rep": 4,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0047",
+      "case": "fornecedor",
+      "rep": 4,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0048",
+      "case": "fornecedor",
+      "rep": 4,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0049",
+      "case": "acessos",
+      "rep": 1,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0050",
+      "case": "acessos",
+      "rep": 1,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0051",
+      "case": "acessos",
+      "rep": 1,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0052",
+      "case": "conciliacao",
+      "rep": 5,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0053",
+      "case": "conciliacao",
+      "rep": 5,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0054",
+      "case": "conciliacao",
+      "rep": 5,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0055",
+      "case": "acessos",
+      "rep": 2,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0056",
+      "case": "acessos",
+      "rep": 2,
+      "variant": "en"
+    },
+    {
+      "id": "trial-0057",
+      "case": "acessos",
+      "rep": 2,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0058",
+      "case": "conciliacao",
+      "rep": 1,
+      "variant": "pt"
+    },
+    {
+      "id": "trial-0059",
+      "case": "conciliacao",
+      "rep": 1,
+      "variant": "default"
+    },
+    {
+      "id": "trial-0060",
+      "case": "conciliacao",
+      "rep": 1,
+      "variant": "en"
+    }
+  ],
+  "source_sha256": {
+    "cases.py": "1de4516c404d58e86a2efdbc85ea25a663caa2c9b08a4fb12c0c1c7a04a80f36",
+    "run.py": "af5b30fa6d5f65c70f5e7ff317c62f49def94a1564b35e51e6f6c0f002fe4836",
+    "runtime.py": "b40ec13f963987063fc2f0fe711d47e3b058b661a88c0ad0437a39fedbf76bec",
+    "telemetry.py": "76af04b4498f83975203ff93e70f2d5f7241fe0883175639e65855899e421a16",
+    "test_eval.py": "b85dcd0c9c150ccc171a886e43f212e9d4989fed796922e3437821a6f163b1e9",
+    "README.md": "8455c5996c5360508dcee8a65697f99633c245304531c4d5226af8b0ebdd77d4",
+    "REVIEW.md": "2fe16a8b2a129b098a5e42b79476718472fe1eb211a03f36d05534b5262f686f"
+  },
+  "environment": {
+    "python": "3.14.6",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "cpu_count": 14,
+    "load_average": [
+      5.07861328125,
+      8.7177734375,
+      10.12255859375
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+The standard check (`python3 check.py`) now fails on direct calls to `eval` in `src`. The only change is in `checks.json`:
+
+```json
+{"forbidden_builtins": ["eval"]}
+```
+
+`check.py` didn't need any changes. It reads the code's structure instead of searching the text, and it only flags a call when `eval` is used by its bare name.
+
+I tested it with throwaway files in `src`, then deleted them:
+- The current code still passes (exit 0).
+- A comment containing `eval(x)`, the string `"eval(1)"` and `obj.eval(1)` all pass (exit 0).
+- `eval("1")` fails, and the check names the file (exit 1).
+
+**Gaps:** the check doesn't catch indirect uses like `builtins.eval(...)`, `e = eval; e(...)` or `getattr(__builtins__, "eval")`. `builtins.eval(...)` looks the same to the check as `obj.eval(...)`, so blocking it would mean changing `check.py` to look at where the method comes from. Tell me if you want that.

@@ -1,0 +1,279 @@
+{
+  "blind_id": "b-644e53dc9b5d75fafc08fa091dcabad9",
+  "task_id": "T5",
+  "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nOur team is standardizing a Docker Compose development stack on plugin version 2.18.0. The API currently has short-form depends_on for a database that defines a healthcheck and restart: always. A one-shot migration service must finish successfully before the API starts. Developers also want the API to restart after an explicit Compose restart of the database and assume the same propagation will happen whenever the database crashes and the container runtime restarts it. An optional telemetry dependency is proposed with required: false, without upgrading the plugin.\n\nRecommend the dependency conditions and lifecycle settings we should use, and identify which parts of the proposal cannot be relied on with this version. Separate container startup, health/readiness, successful migration completion, explicit operator restarts and runtime restarts. Can this configuration alone justify promising that the API remains ready to serve throughout later database failures?\n\nStarting URLs\n- https://docs.docker.com/compose/how-tos/startup-order/",
+  "answer": "## Decision\n\n| Service | Dependency/lifecycle settings |\n|---|---|\n| `db` | Keep `healthcheck` + `restart: always` |\n| `migrate` (one-shot) | `depends_on: db: {condition: service_healthy}`; no restart policy; must exit 0 |\n| `api` | Long syntax: `migrate: {condition: service_completed_successfully}`; `db: {condition: service_healthy, restart: true}` |\n| `telemetry` | `profiles: [telemetry]`, **not** `required: false` |\n\nShort-form `depends_on` only guarantees the dependency is \"started\"; health gating requires the long syntax ([services#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). Compose \"does not wait until a container is 'ready'\"; conditions are evaluated once when the dependent service starts ([startup-order](https://docs.docker.com/compose/how-tos/startup-order/)). So: container startup ≠ readiness ≠ migration success; only the three documented conditions separate them.\n\n## What 2.18.0 cannot do\n\n- **Runtime/crash restarts:** `restart: true` covers explicit Compose operations (`docker compose restart db`) but \"excludes automated restart by the container runtime after the container dies\" ([services#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). So the team's crash-restart propagation assumption is false; `restart: always` resurrects `db` alone ([services#restart](https://docs.docker.com/reference/compose-file/services/#restart)).\n- **`required: false`:** introduced in 2.20.0 ([services#depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)); unavailable on 2.18.0. Whether 2.18.0 rejects or ignores it is UNVERIFIED — check the [v2.20.0 release notes](https://github.com/docker/compose/releases/tag/v2.20.0).\n- **Lifecycle hooks:** `post_start`/`pre_stop` need 2.30.0+ ([lifecycle how-to](https://docs.docker.com/compose/how-tos/lifecycle/)); hook timing is anyway \"not guaranteed.\"\n\n## Telemetry\n\nProfiles make services conditional and are version-safe ([profiles reference](https://docs.docker.com/reference/compose-file/profiles/)), but a profile-gated dependency referenced by an always-enabled service makes Compose \"return an error.\" Put the `api → telemetry` edge in an override file enabled with `--profile telemetry`.\n\n## Readiness promise\n\nNo. Nothing documented monitors the database after startup or restarts `api` on later database failure, so this configuration cannot justify promising the API stays ready to serve. Add in-app reconnection/retry and external health-based orchestration (recommendation, outside Compose's documented guarantees).",
+  "sources": [
+    {
+      "url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s1.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "candidate_visible_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s1.txt"
+    },
+    {
+      "url": "https://docs.docker.com/reference/compose-file/services/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s2.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.docker.com/reference/compose-file/services/",
+      "candidate_visible_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s2.txt"
+    },
+    {
+      "url": "https://docs.docker.com/compose/how-tos/lifecycle/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s3.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.docker.com/compose/how-tos/lifecycle/",
+      "candidate_visible_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s3.txt"
+    },
+    {
+      "url": "https://docs.docker.com/reference/compose-file/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s4.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.docker.com/reference/compose-file/",
+      "candidate_visible_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s4.txt"
+    },
+    {
+      "url": "https://docs.docker.com/compose/how-tos/profiles/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s5.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.docker.com/compose/how-tos/profiles/",
+      "candidate_visible_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s5.txt"
+    },
+    {
+      "url": "https://docs.docker.com/reference/compose-file/profiles/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s6.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.docker.com/reference/compose-file/profiles/",
+      "candidate_visible_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s6.txt"
+    },
+    {
+      "url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s7.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://docs.docker.com/reference/compose-file/services/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s8.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s9.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://docs.docker.com/reference/compose-file/services/",
+      "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s10.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    }
+  ],
+  "rubric": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirement": "Short dependencies do not wait for health",
+        "accepted": [
+          "short-form `depends_on` guarantees started dependencies, not passing healthchecks."
+        ],
+        "contradicted": [
+          "the mere existence of a database healthcheck makes short syntax wait for it. O: 'use depends_on' without distinguishing readiness."
+        ],
+        "rubric_text": "S: short-form `depends_on` guarantees started dependencies, not passing healthchecks. X: the mere existence of a database healthcheck makes short syntax wait for it. O: 'use depends_on' without distinguishing readiness.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+            "quote": "With short syntax, Compose does not wait for dependency services to be \"healthy\" before starting a dependent service.",
+            "source_id": "DC-S",
+            "anchor": "depends_on",
+            "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "requirement": "Use the health condition to gate database startup readiness",
+        "accepted": [
+          "long form `condition: service_healthy` for database together with its healthcheck."
+        ],
+        "contradicted": [
+          "recommend `service_started` as the equivalent readiness gate. Only the database health gate is scored here."
+        ],
+        "rubric_text": "S: long form `condition: service_healthy` for database together with its healthcheck. X: recommend `service_started` as the equivalent readiness gate. Only the database health gate is scored here.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/compose/how-tos/startup-order/#control-startup",
+            "quote": "This specifies that a dependency is expected to be “healthy”, which is defined with `healthcheck`, before starting a dependent service.",
+            "source_id": "DC-G",
+            "anchor": "control-startup",
+            "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "requirement": "Gate on successful migration completion",
+        "accepted": [
+          "migration dependency uses `service_completed_successfully`, not merely running/healthy."
+        ],
+        "contradicted": [
+          "wait only for the migration container to start and treat schema completion as established."
+        ],
+        "rubric_text": "S: migration dependency uses `service_completed_successfully`, not merely running/healthy. X: wait only for the migration container to start and treat schema completion as established.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/compose/how-tos/startup-order/#control-startup",
+            "quote": "This specifies that a dependency is expected to run to successful completion before starting a dependent service.",
+            "source_id": "DC-G",
+            "anchor": "control-startup",
+            "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "requirement": "Explicit Compose operations can propagate restart via nested `restart: true`",
+        "accepted": [
+          "set `restart: true` in the API's long-form database dependency for explicit Compose restart/update behavior. This is not the service-level `restart: always` policy."
+        ],
+        "contradicted": [
+          "the database's service-level restart policy alone expresses dependent restart propagation. The version threshold 2.17.0 is acceptable useful detail but not a hidden additional check."
+        ],
+        "rubric_text": "S: set `restart: true` in the API's long-form database dependency for explicit Compose restart/update behavior. This is not the service-level `restart: always` policy. X: the database's service-level restart policy alone expresses dependent restart propagation. The version threshold 2.17.0 is acceptable useful detail but not a hidden additional check.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/compose/how-tos/startup-order/#example",
+            "quote": "`restart: true` ensures that if `db` is updated or restarted due to an explicit Compose operation, for example `docker compose restart`, the `web` service is also restarted automatically",
+            "source_id": "DC-G",
+            "anchor": "example",
+            "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s1.txt"
+          }
+        ]
+      },
+      {
+        "id": "C5",
+        "requirement": "Runtime automatic restart is excluded from that propagation",
+        "accepted": [
+          "a container dying and being restarted by the runtime is not covered by the dependency `restart: true`; application reconnect/retry logic is separate advice."
+        ],
+        "contradicted": [
+          "promise the same dependent restart on every runtime crash-restart."
+        ],
+        "rubric_text": "S: a container dying and being restarted by the runtime is not covered by the dependency `restart: true`; application reconnect/retry logic is separate advice. X: promise the same dependent restart on every runtime crash-restart.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+            "quote": "This applies to an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies.",
+            "source_id": "DC-S",
+            "anchor": "depends_on",
+            "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "requirement": "`required: false` has a later supported version",
+        "accepted": [
+          "docs introduce this option in Compose 2.20.0, so do not rely on it as supported in the specified 2.18.0; upgrade or omit/restructure it."
+        ],
+        "contradicted": [
+          "approve it as a documented 2.18 feature. Do not require a claim about the exact observed error string or whether an old parser ignores/rejects it; no parser was run."
+        ],
+        "rubric_text": "S: docs introduce this option in Compose 2.20.0, so do not rely on it as supported in the specified 2.18.0; upgrade or omit/restructure it. X: approve it as a documented 2.18 feature. Do not require a claim about the exact observed error string or whether an old parser ignores/rejects it; no parser was run.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+            "quote": "Introduced in Docker Compose version 2.20.0.",
+            "source_id": "DC-S",
+            "anchor": "depends_on",
+            "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s2.txt"
+          }
+        ]
+      }
+    ],
+    "uncertainty": {
+      "id": "U",
+      "requirement": "Startup gates do not establish perpetual application readiness",
+      "pass": "do not certify the API's ongoing availability from startup conditions and restart options; the documented healthy condition is a gate **before starting**, and restart propagation excludes runtime restarts. Next inspect the actual healthcheck's scope, application connection/retry behavior and failure tests. This is a bounded conclusion about the specified mechanisms, not a claim that Docker has no health or monitoring features.",
+      "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+      "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+      "source_evidence": [
+        {
+          "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+          "quote": "Compose guarantees dependency services marked with `service_healthy` are \"healthy\" before starting a dependent service.",
+          "source_id": "DC-S",
+          "anchor": "depends_on",
+          "source_path": "blind/cases/b-644e53dc9b5d75fafc08fa091dcabad9/sources/s2.txt"
+        }
+      ]
+    },
+    "critical_errors": [
+      "confuse running with ready",
+      "start API before required migration success",
+      "conflate nested restart propagation with service restart policy",
+      "promise crash-restart propagation",
+      "approve `required: false` as supported on 2.18",
+      "promise perpetual API readiness. No whole YAML file is required",
+      "a small fragment or precise prose is sufficient."
+    ],
+    "critical_errors_text": "confuse running with ready; start API before required migration success; conflate nested restart propagation with service restart policy; promise crash-restart propagation; approve `required: false` as supported on 2.18; promise perpetual API readiness. No whole YAML file is required; a small fragment or precise prose is sufficient.",
+    "source_rules": {
+      "description": "`docs.docker.com`; optional official `github.com/docker/compose` release links only if the candidate needs them, not required. Native Markdown mirrors verified: `https://docs.docker.com/compose/how-tos/startup-order.md` and `https://docs.docker.com/reference/compose-file/services.md`. Prefer these over the navigation-heavy HTML for extraction. The services Markdown is larger (78,786 bytes), but all scored `depends_on` material is near the beginning and was visible in this session's truncated whole-page output. Archive the entire native Markdown, not merely a cropped answer excerpt. `services/depends_on/` and `services/depends_on.md` were tried and returned 404; do not invent a standalone subpage. No Compose invocation is necessary or allowed by the candidate instructions; the version claim is documentation-level supported availability, not an executable test result.",
+      "allowed_url_patterns": [
+        "https://docs\\.docker\\.com/[^?#]*",
+        "https://github\\.com/docker/compose/releases(?:/[^?#]*)?"
+      ],
+      "required_source_urls": [
+        "https://docs.docker.com/compose/how-tos/startup-order/",
+        "https://docs.docker.com/reference/compose-file/services/"
+      ],
+      "minimum_distinct_sources": 2,
+      "minimum_answer_bearing_sources": 2,
+      "discovery_chain": {
+        "description": "startup-order guide → its `depends_on` reference link → the short/long syntax and version-specific `required` paragraph. Synthesize the tutorial with the reference's runtime-restart exclusion and version gate. **Minimum distinct content sources: 2, both answer-bearing.**",
+        "edges": [
+          {
+            "from": "https://docs.docker.com/compose/how-tos/startup-order/",
+            "to": "https://docs.docker.com/reference/compose-file/services/",
+            "relation": "documentation_link"
+          }
+        ],
+        "minimum_distinct_sources": 2
+      }
+    }
+  },
+  "mechanical": {
+    "attempted": true,
+    "operational_complete": true,
+    "visible_words": 250,
+    "word_cap": true,
+    "source_rules": false,
+    "tool_rules": true,
+    "fetched_two_sources": true,
+    "distinct_fetched_pages": 6,
+    "requested_tool_calls": 9,
+    "fetch_attempts": 9,
+    "truncated_fetches": 0,
+    "semantic_grading": "required; not automatically assigned",
+    "explicit_self_identification_redacted": false
+  }
+}

@@ -1,0 +1,19 @@
+`parse_amount` no longer goes through `float`, and `make_invoice` applies the same rules. `python3 checks/public.py` passes, and the 16 new unit tests pass.
+
+**Changes**
+
+- **`src/money.py`**
+  - `parse_cents(value)` validates an amount and returns an integer count of cents. It accepts `Decimal`, non-bool `int`, and plain decimal strings matched by an ASCII-only regex (optional sign, no whitespace or exponent). Every other type raises `ValueError`, including `float` and `bool`.
+  - It rejects non-finite values, zero, negatives, anything over 1000000.00, and any nonzero amount that isn't a whole number of cents. Trailing zeros are stripped by digit-string arithmetic, so no rounding happens.
+  - `cents_to_amount` builds an exact `Decimal` with exponent -2 from the integer, and `parse_amount` is now `cents_to_amount(parse_cents(value))`.
+  - `format_amount` is unchanged.
+  - Nothing reads or writes the decimal context, so no `localcontext` or `getcontext` changes are needed.
+- **`src/api.py`**
+  - `make_invoice` copies the input with `list(amounts)`, so the caller's list is never touched. It sums integer cents, rejects a total over 1000000.00, and returns `{"total": ..., "count": N}`. An empty list gives `0.00`.
+- **`checks/test_amounts.py`** (new) covers accepted and rejected inputs, the exponent of returned values, the total cap, the empty list, non-mutation of input, and that the global decimal context is unchanged.
+
+**Judgment calls**
+
+- Wrong types raise `ValueError` rather than `TypeError`, to match the spec.
+- Plain strings accept `".5"` and `"5."` as well as `"5"` and `"5.50"`. Say if you want only the stricter `digits[.digits]` form.
+- `make_invoice` accepts any iterable now, not just a list, because it copies the input once.

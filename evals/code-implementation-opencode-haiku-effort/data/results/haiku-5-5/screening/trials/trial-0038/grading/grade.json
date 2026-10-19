@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/access_checks.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nimport unittest\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nFIELDS = {\"id\", \"title\", \"body\"}\n\nclass AccessTests(unittest.TestCase):\n    def setUp(self):\n        self.c = sqlite3.connect(\":memory:\")\n        initialize(self.c)\n        rows = [\n            (1, \"t\", \"o\", \"A\", \"a\", None),\n            (2, \"t\", \"o\", \"B\", \"b\", None),\n            (3, \"t\", \"o\", \"C-deleted\", \"c\", \"2026-01-01\"),\n            (4, \"other\", \"o\", \"D\", \"d\", None),        # cross-tenant\n            (5, \"t\", \"other\", \"E\", \"e\", None),        # cross-owner\n            (6, \"t\", \"o\", \"F\", \"f\", None),\n        ]\n        self.c.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\n        self.c.commit()\n\n    def test_get_visible_document(self):\n        self.assertEqual(get_document(self.c, \"t\", \"o\", 1), {\"id\": 1, \"title\": \"A\", \"body\": \"a\"})\n\n    def test_get_cross_tenant_is_none(self):\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", 4))\n        self.assertEqual(get_document(self.c, \"other\", \"o\", 4), {\"id\": 4, \"title\": \"D\", \"body\": \"d\"})\n\n    def test_get_cross_owner_is_none(self):\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", 5))\n\n    def test_get_deleted_is_none(self):\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", 3))\n\n    def test_get_missing_is_none(self):\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", 999))\n\n    def test_unavailable_ids_indistinguishable(self):\n        results = [get_document(self.c, \"t\", \"o\", i) for i in (3, 4, 5, 999)]\n        self.assertEqual(results, [None, None, None, None])\n\n    def test_list_filters_and_orders(self):\n        self.assertEqual(\n            list_documents(self.c, \"t\", \"o\"),\n            [{\"id\": 1, \"title\": \"A\", \"body\": \"a\"},\n             {\"id\": 2, \"title\": \"B\", \"body\": \"b\"},\n             {\"id\": 6, \"title\": \"F\", \"body\": \"f\"}],\n        )\n\n    def test_list_fields_have_no_deletion_metadata(self):\n        for doc in list_documents(self.c, \"t\", \"o\"):\n            self.assertEqual(set(doc.keys()), FIELDS)\n\n    def test_list_cross_tenant_and_owner_empty(self):\n        self.assertEqual(list_documents(self.c, \"t\", \"nobody\"), [])\n        self.assertEqual(list_documents(self.c, \"nobody\", \"o\"), [])\n\n    def test_null_scope_matches_nothing(self):\n        self.assertIsNone(get_document(self.c, None, \"o\", 1))\n        self.assertEqual(list_documents(self.c, None, None), [])\n\n    def test_names_with_quotes(self):\n        self.c.execute(\"INSERT INTO documents VALUES (10, ?, ?, 'Q1', 'q1', NULL)\", (\"o'brien\", 'say \"hi\"'))\n        self.c.execute(\"INSERT INTO documents VALUES (11, ?, ?, 'Q2', 'q2', NULL)\", (\"o'brien\", 'say \"hi\"'))\n        self.c.commit()\n        self.assertEqual([d[\"id\"] for d in list_documents(self.c, \"o'brien\", 'say \"hi\"')], [10, 11])\n        self.assertEqual(get_document(self.c, \"o'brien\", 'say \"hi\"', 10), {\"id\": 10, \"title\": \"Q1\", \"body\": \"q1\"})\n        self.assertIsNone(get_document(self.c, \"o'brien\", \"say\", 10))\n\n    def test_injection_style_names_do_not_bypass_scope(self):\n        payload = \"' OR '1'='1\"\n        self.assertEqual(list_documents(self.c, payload, \"o\"), [])\n        self.assertEqual(list_documents(self.c, \"t\", payload), [])\n        self.assertIsNone(get_document(self.c, payload, \"o\", 1))\n        self.assertIsNone(get_document(self.c, \"t\", payload, 1))\n        self.assertIsNone(get_document(self.c, \"t\", \"o\", \"1 OR 1=1\"))\n\n    def test_queries_use_bound_parameters(self):\n        class Recording(sqlite3.Connection):\n            calls = []\n            def execute(self, sql, parameters=()):\n                Recording.calls.append((sql, tuple(parameters)))\n                return super().execute(sql, parameters)\n\n        conn = sqlite3.connect(\":memory:\", factory=Recording)\n        initialize(conn)\n        conn.execute(\"INSERT INTO documents VALUES (1, ?, ?, 'A', 'a', NULL)\", (\"x'y\\\"z\", \"x'y\\\"z\"))\n        conn.commit()\n        payload = \"x'y\\\"z\"\n        Recording.calls.clear()\n        self.assertIsNotNone(get_document(conn, payload, payload, 1))\n        self.assertEqual(len(list_documents(conn, payload, payload)), 1)\n        queries = [c for c in Recording.calls if c[0].lstrip().upper().startswith(\"SELECT\")]\n        self.assertEqual(len(queries), 2)\n        for sql, params in queries:\n            self.assertNotIn(payload, sql)\n            self.assertNotIn(\"'\", sql.replace(\"''\", \"\"))  # no string literals in SQL text\n            self.assertIn(payload, params)\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [decode(row) for row in connection.execute(\n        \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n        (tenant, owner),\n    )]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/access_checks.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 130,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04577529098605737
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0482590839965269,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.047191416029818356,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

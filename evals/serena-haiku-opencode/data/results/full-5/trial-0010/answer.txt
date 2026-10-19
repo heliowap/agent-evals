@@ -1,0 +1,20 @@
+I replaced the float-based parsing in `src/money.py` and made `src/api.py` use the same rules. `python3 checks/public.py` passes, and the 8 new unittest checks pass.
+
+**What changed**
+
+- **`src/money.py`**
+  - `parse_cents(value)` does all validation and returns a positive integer cent count. It rejects `bool`, floats, other types, non-finite values, zero, negatives, values over `1000000.00`, and nonzero fractional cents.
+  - Decimals and strings are checked with exact tuple and integer arithmetic, so no decimal-context arithmetic runs. Strings must match a plain signed decimal pattern with no whitespace or exponent.
+  - `parse_amount` returns a Decimal with exponent -2 built from the cent count, so the active context is never read or changed.
+  - `format_amount` is unchanged.
+- **`src/api.py`**
+  - `make_invoice` copies the input with `list(...)`, so the caller's list is never modified.
+  - Each item goes through `parse_cents`, the cents are summed as integers, and the total is rejected if it exceeds `1000000.00`.
+  - An empty list returns `{'total': '0.00', 'count': 0}`.
+- **`checks/test_money_rules.py`** (new) covers accepted and rejected inputs, exponent and type of the result, the context being left unchanged, `format_amount`, API totals, the total limit, per-item rules, and input immutability.
+
+**Judgment calls**
+
+- `"5."` and `".5"` are accepted as plain decimals, matching Python's `Decimal` grammar. Say if you want them rejected.
+- Every invalid input raises `ValueError`, including wrong types, since the spec asked for that.
+- `make_invoice` accepts any iterable, not just lists, because it copies the input first.

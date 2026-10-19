@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/service.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom decimal import Decimal, getcontext, setcontext\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\ndef must_raise(fn, *args):\n    try:\n        fn(*args)\n    except ValueError:\n        return\n    raise AssertionError(\"expected ValueError for %r\" % (args,))\n\n\n# --- parse_amount: accepted forms ---\nassert format_amount(parse_amount(\"12.50\")) == \"12.50\"\nassert parse_amount(12) == Decimal(\"12.00\")\nassert parse_amount(12).as_tuple().exponent == -2\nassert parse_amount(\"0012.500\") == Decimal(\"12.50\")  # leading zeros, trailing zeros\nassert parse_amount(\"+1.2\") == Decimal(\"1.20\")\nassert parse_amount(Decimal(\"1E+2\")) == Decimal(\"100.00\")  # exponent notation\nassert parse_amount(Decimal(\"0.1\")) == Decimal(\"0.10\")\nassert parse_amount(\"1000000.00\") == Decimal(\"1000000.00\")\n\n# --- parse_amount: rejected forms ---\nfor bad in [\n    0, -1, 0.5, 12.0, float(\"nan\"), True, False, None, [], {}, b\"1.00\",\n    Decimal(0), Decimal(\"-1.00\"), Decimal(\"-0\"), Decimal(\"nan\"),\n    Decimal(\"Infinity\"), Decimal(\"1.005\"), Decimal(\"1000000.01\"),\n    1000001, \".1\", \"1.\", \" 1\", \"1 \", \"1e2\", \"1_0\", \"١٢\", \"0\", \"-0\",\n    \"0.00\", \"+0\", \"1.2.3\", \"\", \"0.001\", \"1000000.001\",\n]:\n    must_raise(parse_amount, bad)\n\n# --- make_invoice ---\nassert make_invoice([\"1.20\", \"2.30\"]) == {\"total\": \"3.50\", \"count\": 2}\nassert make_invoice([]) == {\"total\": \"0.00\", \"count\": 0}\nassert make_invoice([Decimal(\"0.01\")] * 3) == {\"total\": \"0.03\", \"count\": 3}\nassert make_invoice([1]) == {\"total\": \"1.00\", \"count\": 1}\nmust_raise(make_invoice, \"1.20\")          # strings are not lists\nmust_raise(make_invoice, None)\nmust_raise(make_invoice, (\"1.20\",))       # tuple is not a list\nmust_raise(make_invoice, {\"a\": 1})\nmust_raise(make_invoice, [\"1.20\", \"1.005\"])  # invalid item\nmust_raise(make_invoice, [\"1000000.00\", \"0.01\"])  # total over limit\n\n# --- exactness under a low caller decimal context (prec=3) ---\nsaved = getcontext().copy()\ngetcontext().prec = 3\ntry:\n    assert parse_amount(\"1000000.00\") == Decimal(\"1000000.00\")\n    assert parse_amount(Decimal(\"999999.99\")) == Decimal(\"999999.99\")\n    assert make_invoice([\"1000.00\", \"0.01\"]) == {\"total\": \"1000.01\", \"count\": 2}\n    assert make_invoice([\"999999.99\", \"0.01\"]) == {\"total\": \"1000000.00\", \"count\": 2}\n    must_raise(make_invoice, [\"999999.99\", \"0.02\"])\nfinally:\n    setcontext(saved)\nassert getcontext().prec == saved.prec  # global context untouched\n\n# --- caller input is not mutated ---\namounts = [\"1.20\", \"2.30\"]\nmake_invoice(amounts)\nassert amounts == [\"1.20\", \"2.30\"]\n\nprint(\"checks/service.py OK\")\n",
+      "src/api.py": "from decimal import Decimal, localcontext\n\nfrom .money import parse_amount, format_amount\n\n_WORK_PREC = 100\n_MAX = Decimal(\"1000000.00\")\n_ZERO = Decimal(\"0.00\")\n\n\ndef make_invoice(amounts):\n    if not isinstance(amounts, list):\n        raise ValueError(\"amounts must be a list\")\n    with localcontext() as ctx:\n        ctx.prec = _WORK_PREC\n        total = _ZERO\n        for item in amounts:\n            total += parse_amount(item)\n        if total > _MAX:\n            raise ValueError(\"total exceeds 1000000.00\")\n        return {\"total\": format_amount(total), \"count\": len(amounts)}\n",
+      "src/money.py": "import re\nfrom decimal import Decimal, localcontext, InvalidOperation\n\n# High working precision so that quantize/comparison operations are exact\n# regardless of the caller's global decimal context precision.\n_WORK_PREC = 100\n\n_MAX = Decimal(\"1000000.00\")\n_CENT = Decimal(\"0.01\")\n_ZERO = Decimal(0)\n\n# Full-match ASCII grammar: optional sign, digits before the point, and\n# (if a point is present) digits after it.  No whitespace, exponents,\n# underscores, or non-ASCII digits.\n_STRING_PATTERN = re.compile(r\"[+-]?[0-9]+(?:\\.[0-9]+)?\", re.ASCII)\n\n\ndef _validated(value):\n    \"\"\"Validate a finite, in-range, cents-exact Decimal and return it quantized to cents.\"\"\"\n    if not value.is_finite():\n        raise ValueError(\"amount must be a finite number\")\n    if value < _ZERO:\n        raise ValueError(\"amount must not be negative\")\n    if value == _ZERO:\n        raise ValueError(\"amount must not be zero\")\n    with localcontext() as ctx:\n        ctx.prec = _WORK_PREC\n        if value > _MAX:\n            raise ValueError(\"amount exceeds 1000000.00\")\n        try:\n            cents = value.quantize(_CENT)\n        except InvalidOperation:\n            raise ValueError(\"amount is not exactly representable in cents\")\n        if cents != value:\n            raise ValueError(\"amount is not exactly representable in cents\")\n        return cents\n\n\ndef parse_amount(value):\n    if isinstance(value, bool):\n        raise ValueError(\"bool is not a valid amount\")\n    if isinstance(value, int):\n        return _validated(Decimal(value))\n    if isinstance(value, Decimal):\n        return _validated(value)\n    if isinstance(value, str):\n        if _STRING_PATTERN.fullmatch(value) is None:\n            raise ValueError(\"string does not match the amount grammar\")\n        return _validated(Decimal(value))\n    raise ValueError(\n        \"amount must be a Decimal, an int, or a string matching the amount grammar\"\n    )\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+    },
+    "changed_files": [
+      "checks/service.py",
+      "src/api.py",
+      "src/money.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 142,
+    "removed_lines": 12
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.056351459003053606
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05309899998246692,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.052007208025315776,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,16 @@
+`parse_amount` and `make_invoice` now follow the spec. `python3 checks/public.py` passes, and the new unit checks (`checks/test_money.py`, 10 tests) pass.
+
+**What changed**
+
+- **`src/money.py`**: `parse_amount` no longer uses `float`. A new helper, `to_cents`, validates the input and returns an exact integer number of cents:
+  - Accepts `Decimal`, non-bool `int`, and plain ASCII decimal strings with an optional sign. Rejects whitespace, exponents, and bare trailing dots like `"5."`.
+  - Rejects with `ValueError`: bools, floats, other types, non-finite values, zero, negatives, anything over `1000000.00`, and any nonzero digit below the cent place. Trailing zeros are fine.
+  - It only does exact Decimal construction and integer arithmetic, so it never reads or changes the global decimal context.
+  - `parse_amount` returns a `Decimal` with exponent -2. `format_amount` is unchanged.
+- **`src/api.py`**: `make_invoice` copies the input into a new list, so the caller's container is never modified. It validates each item with the same rules, sums in integer cents, and rejects totals over `1000000.00`. The result is `{"total": "x.xx", "count": N}`, and an empty list gives `"0.00"`.
+- **`checks/test_money.py`** (new): covers accepted and rejected inputs, the exponent of the result, the global context staying unchanged (including under `prec=2`), the total limit, and input non-mutation.
+
+**Judgment calls**
+
+- `".5"` is accepted, but `"5."` is rejected. The spec doesn't settle this; say if you want the other choice.
+- Every rejection raises `ValueError`, including wrong types, to follow the spec literally. A non-iterable `amounts` argument to `make_invoice` raises `TypeError` from `list()`.

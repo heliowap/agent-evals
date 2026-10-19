@@ -1,0 +1,120 @@
+[
+  {
+    "blind_id": "b-34db6ddd0fc39fb43133e36b",
+    "units": [
+      {
+        "id": "C09.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly identifies the classic pipe builder and the callback-bearing ZodTransform factory; both are directly visible.",
+        "evidence": [
+          {"source_id": "e-0010", "quote": "return pipe(this, transform(tx));"},
+          {"source_id": "e-0011", "quote": "return new ZodTransform({"},
+          {"source_id": "e-0011", "quote": "type: \"transform\","},
+          {"source_id": "e-0011", "quote": "transform: fn as any,"}
+        ]
+      },
+      {
+        "id": "C09.U2",
+        "correct": true,
+        "supported": false,
+        "rationale": "Input-before-transform order is correct, but the retrieved builder and transform implementation do not establish the pipe runner's execution order. No eligible core pipe branch was inspected.",
+        "evidence": []
+      },
+      {
+        "id": "C09.U3",
+        "correct": false,
+        "supported": false,
+        "rationale": "Omits the required unrecognized_keys-only exception and its issue carry-forward. Transform addIssue's fatal flag and default custom code are not the input pipe's stopping predicate.",
+        "evidence": []
+      },
+      {
+        "id": "C09.U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "The callback invocation and synchronous assignment/return are correct and directly supported by the classic parse override, although the requested core implementation span is absent.",
+        "evidence": [
+          {"source_id": "e-0011", "quote": "const output = def.transform(payload.value, payload);"},
+          {"source_id": "e-0011", "quote": "if (output instanceof Promise) {"},
+          {"source_id": "e-0011", "quote": "packages/zod/src/v4/classic/schemas.ts:2285:       payload.value = output;"},
+          {"source_id": "e-0011", "quote": "packages/zod/src/v4/classic/schemas.ts:2286:       return payload;"}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": true,
+    "uncertain": false,
+    "auxiliary": {
+      "citation_coverage": {"value": "partial", "rationale": "Classic builder, factory and transform execution have spans; core pipe order and issue filtering have none."},
+      "citation_entailment": {"value": "mixed", "rationale": "Classic spans entail their local code claims, but addIssue does not establish which input issues stop a pipe."},
+      "source_authority": {"value": "primary implementation", "rationale": "Eligible reads are snapshot source code, but the core pipe implementation is missing."},
+      "unsupported_extras": {"value": "present", "rationale": "The claim that the same payload object is threaded across stages is not supported; the frozen pipe branch creates a new payload while preserving value and issues."},
+      "uncertainty": {"value": "partially appropriate", "rationale": "Discloses missing core inspection but still asserts pipe order and stopping semantics without establishing them."},
+      "usability": {"value": "incomplete", "rationale": "Readable trace, but substitutes transform issue defaults for the requested pipe exception and does not cite core execution paths."},
+      "tool_navigation": {"value": "incomplete", "rationale": "Reaches the classic builder and transform implementation but not the core pipe runner; no code or tests were run in the supplied evidence."}
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  },
+  {
+    "blind_id": "b-36936cffb837989f1b4ee681",
+    "units": [
+      {
+        "id": "C04.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly closes the environment-proxy branch: the supplied transport makes the gate false, and proxy=None then returns an empty map.",
+        "evidence": [
+          {"source_id": "e-0003", "quote": "allow_env_proxies = trust_env and transport is None"},
+          {"source_id": "e-0003", "quote": "proxy_map = self._get_proxy_map(proxy, allow_env_proxies)"},
+          {"source_id": "e-0005", "quote": "if proxy is None:"},
+          {"source_id": "e-0005", "quote": "if allow_env_proxies:"},
+          {"source_id": "e-0005", "quote": "httpx/_client.py:248:             return {}"}
+        ]
+      },
+      {
+        "id": "C04.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "The constructor assigns the helper result as the default, and the helper returns the supplied transport unchanged. The answer explicitly excludes arbitrary custom transport internals.",
+        "evidence": [
+          {"source_id": "e-0003", "quote": "self._transport = self._init_transport("},
+          {"source_id": "e-0003", "quote": "httpx/_client.py:728:         if transport is not None:"},
+          {"source_id": "e-0003", "quote": "httpx/_client.py:729:             return transport"}
+        ]
+      },
+      {
+        "id": "C04.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly contrasts the explicit-proxy branch, which supplies an all:// entry independently of the environment gate and initializes a proxy transport.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "httpx/_client.py:249:         else:"},
+          {"source_id": "e-0005", "quote": "return {\"all://\": proxy}"},
+          {"source_id": "e-0003", "quote": "else self._init_proxy_transport("},
+          {"source_id": "e-0003", "quote": "for key, proxy in proxy_map.items()"},
+          {"source_id": "e-0003", "quote": "httpx/_client.py:757:             proxy=proxy,"}
+        ]
+      },
+      {
+        "id": "C04.U4",
+        "correct": false,
+        "supported": false,
+        "rationale": "Correct first-match and None-default statements are contradicted by the claim that all://:None overrides any other matching pattern, including matches encountered before it. update replaces identical keys, and an earlier matching entry wins. Flagged for review because the surrounding correct explanation partly qualifies this erroneous example.",
+        "evidence": []
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": true,
+    "auxiliary": {
+      "citation_coverage": {"value": "extensive", "rationale": "Required constructor, helper, initialization and selection branches are cited. The request call-site at line 1005 is not in the supplied reads."},
+      "citation_entailment": {"value": "mostly strong", "rationale": "Closed branches support the main conclusion and proxy contrast, but the cited selection branch does not support indiscriminate all:// mount precedence."},
+      "source_authority": {"value": "primary implementation", "rationale": "Actual eligible snapshot source reads cover the decisive constructor and helper branches."},
+      "unsupported_extras": {"value": "present", "rationale": "The all://:None example overstates precedence. Empty final mounts and universal custom routing also require no explicit mounts, a condition left implicit in the opening."},
+      "uncertainty": {"value": "appropriate scope limitation", "rationale": "Explicitly avoids generalizing about environmental behavior inside custom transports or uninspected helper internals."},
+      "usability": {"value": "mostly useful with selection contradiction", "rationale": "The bounded no-environment-proxy answer is well established, but the mounting example may mislead users about earlier matching patterns."},
+      "tool_navigation": {"value": "effective", "rationale": "Inspects the relevant constructor and exhaustive proxy helper branches without running code or tests in the supplied evidence."}
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  }
+]

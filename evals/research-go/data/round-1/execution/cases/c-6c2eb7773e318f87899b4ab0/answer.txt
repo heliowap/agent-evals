@@ -1,0 +1,25 @@
+## Decision: minimum changes
+
+**1. Verify the signature first, over raw bytes.** Compute HMAC-SHA256 with your high-entropy webhook secret over the unmodified request body and require a constant-time match with `X-Hub-Signature-256` (`sha256=` prefix). Docs explicitly say "Never use a plain `==` operator" and to use a "constant time" comparison; the digest is "generated using your webhook's secret token and the payload contents," and troubleshooting warns the "payload and headers are not modified before verification." So parsing/re-serializing before verification both breaks the byte-exact digest and lets forged/modified payloads spend server time; validate, then parse ([validating-webhook-deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries), [troubleshooting section](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#troubleshooting)).
+
+**2. Acknowledge fast.** "Your server should respond with a 2XX response within 10 seconds... If your server takes longer than that to respond, then GitHub terminates the connection and considers the delivery a failure." A 25-second inline job will record every delivery as failed. Move the job to a durable queue and process asynchronously ([best-practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds)).
+
+**3. Dedupe on `X-GitHub-Delivery`.** Docs: "If you request a redelivery, the X-GitHub-Delivery header will be the same as in the original delivery," and the redelivery script notes "The GUID is constant across redeliveries of the same delivery." Your store's premise is wrong: key on the GUID and treat a requested redelivery as the same event ([best-practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header), [auto-redelivering script](https://docs.github.com/en/webhooks/using-webhooks/automatically-redelivering-failed-deliveries-for-a-repository-webhook#about-automatically-redelivering-failed-deliveries)).
+
+**4. Fix the recovery plan.** "GitHub does not automatically redeliver failed webhook deliveries" — after an outage, you drive recovery: script against the deliveries API and redeliver only GUIDs with no "OK" attempt, on a schedule; note GITHUB_TOKEN is insufficient (needs webhooks-write credentials) ([handling-failed-webhook-deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries#about-webhook-delivery-failures), [script/workflow](https://docs.github.com/en/webhooks/using-webhooks/automatically-redelivering-failed-deliveries-for-a-repository-webhook#adding-a-workflow-that-will-run-the-script)).
+
+Optional hardening: IP allowlist via `GET /meta`, but GitHub's IPs change periodically — it blocks spoofed requests and is not a substitute for signature validation ([best-practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#allow-githubs-ip-addresses)).
+
+## Evidence that establishes authenticity
+
+Only the HMAC-SHA256 over the raw body with your secret proves origin and non-tampering; the header is absent if no secret is configured. `X-GitHub-Delivery` guards replay (uniqueness per event) and identifies redeliveries, not authenticity. Also check `X-GitHub-Event`/`action` before processing ([best-practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#check-the-event-type-and-action-before-processing-the-event)).
+
+## Safe timing/retry assumptions
+
+Safe: ≤10 s 2XX or failure; no automatic retry; redelivery reuses the GUID. Unsafe: assuming GitHub re-sends after outages, or that a recorded "OK" means your job ran.
+
+## Exactly-once across a crash?
+
+No. Docs alone don't support it: after a 2XX-then-crash, GitHub marks success and won't resend. Recommendation (not documented): commit the GUID as an idempotency key atomically with the side effect (outbox) and make jobs idempotent.
+
+**UNVERIFIED:** any deliveries-API retention window bounding how far recovery can reach; resolve via the REST reference and troubleshooting-webhooks pages.

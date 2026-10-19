@@ -1,0 +1,135 @@
+[
+  {
+    "blind_id": "b-7acfda8583da23328f2b1783",
+    "units": [
+      {
+        "id": "C08.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly rejects universal emission using the conjunctive histogram/non-custom/non-protobuf continue branch, rather than an empty search.",
+        "evidence": [
+          {"source_id": "e-0004", "quote": "if isHistogram &&"},
+          {"source_id": "e-0004", "quote": "!s.H.UsesCustomBuckets() &&"},
+          {"source_id": "e-0004", "quote": "formatType != expfmt.TypeProtoCompact {"},
+          {"source_id": "e-0004", "quote": "continue"}
+        ]
+      },
+      {
+        "id": "C08.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Enumerates all three protobuf categories accurately. The 'kept only if' statement is a necessary format condition, not an explicit guarantee of successful protobuf encoding; later failure is not discussed.",
+        "evidence": [
+          {"source_id": "e-0004", "quote": "formatType != expfmt.TypeProtoDelim &&"},
+          {"source_id": "e-0004", "quote": "formatType != expfmt.TypeProtoText &&"},
+          {"source_id": "e-0004", "quote": "formatType != expfmt.TypeProtoCompact {"}
+        ]
+      },
+      {
+        "id": "C08.U3",
+        "correct": false,
+        "supported": false,
+        "rationale": "The exemption and classic conversion are accurate, but 'precisely the conversion that makes NHCB format-agnostic' extends them to unbounded serializer support. The cited comment describes conversion, while the handler still has later encoding-error paths. Review the scope of 'format-agnostic': it could mean format capability rather than guaranteed successful emission.",
+        "evidence": [
+          {"source_id": "e-0004", "quote": "!s.H.UsesCustomBuckets() &&"},
+          {"source_id": "e-0004", "quote": "protMetric.Histogram = makeClassicHistogram(s.H)"},
+          {"source_id": "e-0004", "quote": "if err := enc.Encode(protMetricFam); err != nil {"}
+        ]
+      },
+      {
+        "id": "C08.U4",
+        "correct": false,
+        "supported": false,
+        "rationale": "Correctly explains that s.H == nil defeats this guard, but 'Floats are emitted ... unconditionally' exceeds the bounded claim required by the gold: DTO construction is not unconditional successful output, and nameless metrics and encoding errors remain possible. Semantic review is warranted because 'unconditionally' might have been intended only relative to the format gate.",
+        "evidence": [
+          {"source_id": "e-0004", "quote": "isHistogram := s.H != nil"},
+          {"source_id": "e-0004", "quote": "Ignoring nameless metric during federation"},
+          {"source_id": "e-0004", "quote": "if err := enc.Encode(protMetricFam); err != nil {"}
+        ]
+      }
+    ],
+    "critical_errors": [
+      {
+        "claim": "The classic conversion 'makes NHCB format-agnostic', and floats are 'emitted ... unconditionally'.",
+        "rationale": "These conclusions turn bypass of this particular restriction into an unbounded output assurance, despite later filtering and fallible Encode calls. This is substantive under the frozen bounded-support rubric, not a citation-format defect; the intended scope of these phrases is uncertain and needs review."
+      }
+    ],
+    "decisive_unsupported": true,
+    "uncertain": true,
+    "auxiliary": {
+      "citation_coverage": {"value": "high", "rationale": "All main code explanations cite paths and spans, including the guard, conversions, float handling and test limitations."},
+      "citation_entailment": {"value": "mixed", "rationale": "The sources entail the skip logic and conversion, but not unconditional emission or a universal serialization guarantee."},
+      "source_authority": {"value": "primary", "rationale": "Eligible evidence contains the assigned handler implementation, histogram method, documentation and test fixtures."},
+      "unsupported_extras": {"value": "present", "rationale": "The normal-200 claim is not qualified for other handler failures; format-agnostic and unconditional-output wording exceed the demonstrated gate behavior."},
+      "uncertainty": {"value": "partly appropriate", "rationale": "Explicitly limits test and grep inferences and discloses static analysis, but does not bound serializer-success claims."},
+      "usability": {"value": "clear but overbroad", "rationale": "Organized, responsive and path-cited; the central contrasts need bounded wording."},
+      "tool_navigation": {"value": "adequate", "rationale": "Retrieved the full handler and relevant tests/methods; no test execution is shown in the supplied evidence."}
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  },
+  {
+    "blind_id": "b-7dcea47e2a6c5087f21679d0",
+    "units": [
+      {
+        "id": "C05.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Identifies command.go's (*Command).Find and its downward-only search contract with the correct span.",
+        "evidence": [
+          {"source_id": "e-0003", "quote": "func (c *Command) Find(args []string) (*Command, []string, error) {"},
+          {"source_id": "e-0003", "quote": "Meant to be run on the highest node. Only searches down."}
+        ]
+      },
+      {
+        "id": "C05.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Accurately distinguishes flag stripping for lookup from removing only the selected command token in the original arguments, and explains both stopping cases and legacy validation.",
+        "evidence": [
+          {"source_id": "e-0003", "quote": "argsWOflags := stripFlags(innerArgs, c)"},
+          {"source_id": "e-0003", "quote": "return innerfind(cmd, c.argsMinusFirstX(innerArgs, nextSubCmd))"},
+          {"source_id": "e-0003", "quote": "return c, innerArgs"},
+          {"source_id": "e-0006", "quote": "ret = append(ret, args[pos+1:]...)"}
+        ]
+      },
+      {
+        "id": "C05.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly explains immediate name-or-alias matching, spelling recording, optional case folding, and distinct case-sensitive prefix checks.",
+        "evidence": [
+          {"source_id": "e-0003", "quote": "if commandNameMatches(cmd.Name(), next) || cmd.HasAlias(next) {"},
+          {"source_id": "e-0003", "quote": "cmd.commandCalledAs.name = next"},
+          {"source_id": "e-0007", "quote": "if commandNameMatches(a, s) {"},
+          {"source_id": "e-0008", "quote": "return strings.EqualFold(s, t)"}
+        ]
+      },
+      {
+        "id": "C05.U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "Explains that only a unique prefix candidate is accepted; ambiguity returns nil, stops descent and retains the token, without promising absence of legacy validation errors.",
+        "evidence": [
+          {"source_id": "e-0003", "quote": "if EnablePrefixMatching && cmd.hasNameOrAliasPrefix(next) {"},
+          {"source_id": "e-0003", "quote": "if len(matches) == 1 {"},
+          {"source_id": "e-0003", "quote": "return matches[0] // #nosec G602"},
+          {"source_id": "e-0003", "quote": "return nil"},
+          {"source_id": "e-0003", "quote": "return commandFound, a, legacyArgs(commandFound, stripFlags(a, commandFound))"}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": false,
+    "auxiliary": {
+      "citation_coverage": {"value": "high", "rationale": "Every requested mechanism and the additional matching/validation details have path and line-span citations."},
+      "citation_entailment": {"value": "strong", "rationale": "Read implementation slices directly establish recursion, original argument retention, exact and prefix lookup, and legacy validation."},
+      "source_authority": {"value": "primary", "rationale": "Uses the assigned Cobra implementation and configuration declarations."},
+      "unsupported_extras": {"value": "none identified", "rationale": "Case folding, case-sensitive prefix behavior, Traverse contrast and prefix-scan mutations are visible in eligible sources."},
+      "uncertainty": {"value": "appropriate", "rationale": "Discloses static analysis and does not claim runtime verification or universal error-free results."},
+      "usability": {"value": "good", "rationale": "Answers all requested points clearly, albeit at more length than necessary."},
+      "tool_navigation": {"value": "adequate", "rationale": "Retrieves Find, helpers and matching configuration; supplied evidence shows no executed tests."}
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  }
+]

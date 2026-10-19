@@ -1,0 +1,17 @@
+`import_contacts` is implemented in `src/service.py`, and `handle_import` in `src/api.py` now exposes it. `python3 checks/public.py` passes, and so does the new `checks/test_import.py`.
+
+**What changed**
+- **`src/repository.py`**: added `existing_emails(connection, emails)`, which looks up existing emails in chunks of 500 to stay under SQLite's variable limit. `put_contact`, `list_contacts` and `initialize` are unchanged.
+- **`src/service.py`**:
+  - Each row is validated before anything is written: it must be a dict with exactly `email` and `name` as strings. Email is trimmed, must contain exactly one `@` with nonempty sides, and must have no whitespace. It is then lowercased. Name is trimmed and must be nonempty.
+  - Duplicate normalized emails in a batch raise `ValueError`.
+  - Writes run in one transaction (`BEGIN IMMEDIATE` inside `with connection:`), so any failure rolls back the whole batch.
+  - Existing emails are looked up before writing. They count as `updated`, and new ones count as `inserted`, even when the name is unchanged.
+  - Empty batches return `{'inserted': 0, 'updated': 0}` without touching the database.
+  - `add_contact` is untouched.
+- **`src/api.py`**: `handle_import` requires a payload that is a dict with exactly the key `contacts`, and that value must be a list. Otherwise it raises `ValueError`. It then returns the summary from `import_contacts`. `handle_add` is untouched.
+- **`checks/test_import.py`** (new): covers empty batches, trimming and lowercasing, insert/update counting, validation failures leaving data unchanged, rollback when a mid-batch INSERT fails, and envelope rejection.
+
+**Judgment calls**
+- The envelope check rejects extra top-level keys, not just a missing `contacts`. The spec says "malformed envelope", so I read that strictly. Say if you want extra keys allowed.
+- Service-level `import_contacts` also accepts tuples as well as lists.

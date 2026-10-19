@@ -1,0 +1,24 @@
+I'll research the official D1 documentation on read replication, sessions, and batch behavior.
+
+Now let me get the Sessions API reference and batch behavior.
+
+## Corrected premises
+
+- **`withSession("first-primary")` does not pin the whole session.** It directs only the *first* query to the primary; "subsequent queries in the Session may use read replicas" ([d1-database#withsession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)). It guarantees the session *starts* at the latest data, not that every statement is serialized to the primary.
+- **`withSession()` is not "latest data".** It equals `first-unconstrained`: the first query goes to *any* instance — primary or replica ([start-a-session-without-constraints](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)). Sessions give sequential consistency, not freshness.
+- **Batches roll back, they don't partially commit.** "Batched statements are SQL transactions... If a statement in the sequence fails... it aborts or rolls back the entire sequence" ([d1-database#batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)). The team's expectation is wrong: a header insert will *not* survive a later line-item failure in one `batch()`.
+
+Also note: with no Sessions API, all reads stay on the primary, so replicas are currently unused ([read-replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#use-sessions-api)).
+
+## Recommended contract
+
+1. **Propagate the bookmark across requests.** After the checkout write, capture `session.getBookmark()` and send it to the later request (e.g. `x-d1-bookmark`), then call `env.DB.withSession(bookmark)`. That starts "at least as up-to-date as the provided bookmark," preserving read-your-writes ([start-a-session-from-previous-context-bookmark](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)). Sequential consistency includes "Read my own writes" *within* a session ([#sessions-api-provides-sequential-consistency](https://developers.cloudflare.com/d1/best-practices/read-replication/#sessions-api-provides-sequential-consistency)); cross-request freshness requires the bookmark.
+2. **Writes:** `withSession("first-primary")` on checkout; otherwise use `withSession()` — writes are forwarded to the primary regardless.
+3. **Pure replica reads:** `withSession()`; instrument `meta.served_by_region`/`served_by_primary` ([#observability](https://developers.cloudflare.com/d1/best-practices/read-replication/#observability)).
+4. **Failure handling:** for atomic checkout, keep one `batch()` and treat failure as full rollback. For genuinely independent partial commits, use separate `run()` calls instead — do not expect `batch()` to preserve earlier statements.
+
+## Ad claims
+
+Documented: sequential consistency within a session; sessions are the only way to serve replica reads.
+
+**Not supported:** *globally latest reads* (replicas "may be arbitrarily out of date") and *100 ms max replica lag after commit* — no lag bound appears in these pages. Both are **UNVERIFIED**; resolve via the D1 Limitations page and the official read-replication blog.

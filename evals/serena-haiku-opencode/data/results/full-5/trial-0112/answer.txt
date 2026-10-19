@@ -1,0 +1,20 @@
+`import_contacts` is implemented in `src/service.py` and exposed through `handle_import` in `src/api.py`. The public check and a new 12-test suite both pass.
+
+**What changed**
+- **`src/repository.py`**: added `find_existing_emails(connection, emails)`, which looks up which emails already exist, in chunks of 500 to stay under SQLite's parameter limit. `put_contact` and `list_contacts` are unchanged.
+- **`src/service.py`**: `import_contacts` validates every row before touching the database, in this order:
+  - rejects non-list batches and non-object rows;
+  - requires exactly the `email` and `name` keys and string values;
+  - trims both fields, checks the email has one `@`, nonempty sides and no whitespace, and rejects an empty name;
+  - lowercases the email and rejects duplicates within the batch.
+  
+  Then it runs the writes in one `BEGIN IMMEDIATE` transaction. It rolls back on any exception and returns `{'inserted', 'updated'}`. Empty batches return zeros without opening a transaction. `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires the payload to be a dict with exactly the key `contacts`, and that value to be a list. Anything else raises `ValueError`. `handle_add` is unchanged.
+- **`checks/test_import_contacts.py`** (new): covers counting, normalization, empty batches, each validation rule, a database failure midway through a batch (forced with a trigger), a connection in autocommit mode, a 1,200-row batch, and the API envelope.
+
+**Choices you may want to review**
+- The write lock is taken before the existence check, so the inserted/updated counts stay correct if another writer is active.
+- Strict envelope checking: an extra top-level key next to `contacts` is rejected, not ignored.
+- A database failure re-raises the original `sqlite3` error rather than wrapping it in `ValueError`, because the spec only said that failures must leave data unchanged.
+
+**Caveat:** `add_contact` still stores emails as given, without lowercasing. If a mixed-case email was added that way, an import of the same address in lowercase will insert a second row rather than update the first, because the primary key is case-sensitive. I left `add_contact` alone because the request said to preserve it.

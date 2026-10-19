@@ -1,0 +1,15 @@
+`get_document` and `list_documents` now only return a document when its `tenant` and `owner` match and its `deleted_at` is NULL. Both `python3 checks/public.py` and the new check file pass.
+
+**Changes**
+- **`src/repository.py`**: `find` and `listing` now take `tenant` as well. The SQL filters on `tenant=? AND owner=? AND deleted_at IS NULL`, and `listing` adds `ORDER BY id`. All values are bound parameters. Results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` through to the repository. Their signatures are unchanged.
+- **`checks/test_service_access.py`** (new): covers these cases:
+  - Deleted, cross-tenant, cross-owner and missing IDs all return `None`.
+  - Lists exclude other tenants, other owners and deleted rows, and are ordered by id.
+  - Names containing quotes round-trip correctly.
+  - Injection-style tenant, owner and ID values match nothing.
+  - Returned dictionaries have exactly the keys `id`, `title` and `body`.
+
+**Verification**
+- Both check files pass against the new code.
+- The new check fails against the original code. The first failure is the deleted-record assertion, so the test does catch the original bug.

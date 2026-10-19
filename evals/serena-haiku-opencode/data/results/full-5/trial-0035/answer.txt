@@ -1,0 +1,14 @@
+I scoped `get_document` and `list_documents` to tenant, owner, and `deleted_at IS NULL`, and both checks pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Each query filters on `tenant=?`, `owner=?`, and `deleted_at IS NULL`, with all values passed as bound parameters. `listing` keeps `ORDER BY id`. Results are still `{id, title, body}` dicts with no deletion metadata.
+- **`src/service.py`**: `get_document` and `list_documents` pass tenant and owner through to the repository. Their signatures are unchanged.
+- **`checks/access_checks.py`** (new): covers visible documents, cross-tenant, cross-owner, soft-deleted, and missing IDs returning `None`, and ordering and field shape on lists. It also covers names with quotes, including an injection-style string, which are treated as plain values and leave the table intact.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/access_checks.py` passes all 5 tests.
+
+The README asks for `checks/public.py` to be run. It doesn't mention the new check script, so run it separately if you want it in the routine.

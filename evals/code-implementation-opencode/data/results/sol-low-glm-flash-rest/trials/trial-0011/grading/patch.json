@@ -1,0 +1,21 @@
+{
+  "files": {
+    "checks/exporter.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.exporter import export_rows\nfrom src.dispatcher import export\n\n# Quoting, embedded newline, None and missing keys, non-ASCII\nrows = [{'id': 1, 'name': 'A,\"B\"\\nC'}, {'id': None, 'name': 'zebra'}, {'name': 'è'}]\nassert export_csv(rows) == 'id,name\\n1,\"A,\"\"B\"\"\\nC\"\\n,zebra\\n,è\\n'\nassert export_json(rows) == '[{\"id\":\"1\",\"name\":\"A,\\\\\"B\\\\\"\\\\nC\"},{\"id\":\"\",\"name\":\"zebra\"},{\"id\":\"\",\"name\":\"è\"}]'\n\n# Generators / one-shot iterables are consumed once, inputs not mutated\nassert export_csv(iter([{'id': 2, 'name': 'Bob'}])) == 'id,name\\n2,Bob\\n'\nassert export_json(iter([{'id': 2, 'name': 'Bob'}])) == '[{\"id\":\"2\",\"name\":\"Bob\"}]'\ndata = [{'id': 3, 'name': 'C'}]\nexport_rows(data, 'csv'); export_rows(iter([{'id': 9}]), 'json')\nassert data == [{'id': 3, 'name': 'C'}]\n\n# Empty input keeps header / empty JSON array\nassert export_csv([]) == 'id,name\\n'\nassert export_json([]) == '[]'\n\n# Non-string values are stringified; None and missing keys become ''\nassert export_json([{'id': 1.5, 'name': False}, {'id': 2, 'name': None}]) == '[{\"id\":\"1.5\",\"name\":\"False\"},{\"id\":\"2\",\"name\":\"\"}]'\nassert export_csv([{'id': 2, 'name': None}]) == 'id,name\\n2,\\n'\n\n# Extra keys ignored, order preserved\nassert export_json([{'name': 'n', 'id': 1, 'extra': 'x'}, {'id': 0}]) == '[{\"id\":\"1\",\"name\":\"n\"},{\"id\":\"0\",\"name\":\"\"}]'\n\n# Wrappers and dispatcher agree with the shared entry point\nsample = [{'id': 1, 'name': 'Alice'}]\nassert export_csv(sample) == export_rows(sample, 'csv') == export(sample, 'csv')\nassert export_json(sample) == export_rows(sample, 'json') == export(sample, 'json')\n\n# Unsupported format raises ValueError everywhere\nfor fn in (export_rows, export):\n    for fmt in ('xml', 'CSV', ''):\n        try:\n            fn([], fmt)\n        except ValueError:\n            pass\n        else:\n            raise AssertionError('expected ValueError for %r' % fmt)\n\nprint('exporter checks OK')\n",
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/dispatcher.py": "from .exporter import export_rows\n\n\ndef export(rows, format):\n    return export_rows(rows, format)\n",
+    "src/exporter.py": "\"\"\"Shared export pipeline used by the public CSV and JSON wrappers.\"\"\"\n\nimport csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    clean = []\n    for row in rows:\n        clean.append(\n            {key: \"\" if row.get(key) is None else str(row[key]) for key in _FIELDS}\n        )\n    return clean\n\n\ndef export_rows(rows, format):\n    if format == \"csv\":\n        buffer = io.StringIO(newline=\"\")\n        writer = csv.writer(buffer, lineterminator=\"\\n\")\n        writer.writerow(list(_FIELDS))\n        for row in _normalize(rows):\n            writer.writerow([row[key] for key in _FIELDS])\n        return buffer.getvalue()\n    if format == \"json\":\n        return json.dumps(_normalize(rows), ensure_ascii=False, separators=(\",\", \":\"))\n    raise ValueError(\"unsupported format\")\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "checks/exporter.py",
+    "src/csv_exporter.py",
+    "src/dispatcher.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 5,
+  "added_lines": 90,
+  "removed_lines": 27
+}

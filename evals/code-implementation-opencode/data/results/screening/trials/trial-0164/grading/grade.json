@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { DocumentRepository } = require('../.build/repository');\n        const { DocumentService } = require('../.build/service');\n        const repo = new DocumentRepository([{ id: 'one', tenant: 'a', owner: 'u', deleted: false, archived: false }]);\n        const service = new DocumentService(repo); const admin = { tenant: 'a', user: 'u', role: 'admin' };\n        service.archive(admin, 'one'); assert.equal(repo.documents[0].archived, true);\n        service.archive(admin, 'one'); assert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\n        assert.throws(() => service.archive(admin, 'missing'), /not found/);\n\n// ---- extended checks ----\n{\n  const assert = require('node:assert/strict');\n  const snapshot = (repo) => JSON.stringify({ documents: repo.documents, audit: repo.audit });\n  const docs = [\n    { id: 'a-own', tenant: 'a', owner: 'u',   deleted: false, archived: false },\n    { id: 'a-other', tenant: 'a', owner: 'u2', deleted: false, archived: false },\n    { id: 'a-deleted', tenant: 'a', owner: 'u', deleted: true,  archived: false },\n    { id: 'b-doc', tenant: 'b', owner: 'u',   deleted: false, archived: false },\n    { id: 'a-archived', tenant: 'a', owner: 'u2', deleted: false, archived: true },\n    { id: 'b-archived', tenant: 'b', owner: 'u',   deleted: false, archived: true },\n  ];\n  const makeRepo = () => new DocumentRepository(docs.map(d => ({ ...d })));\n  const expectFailure = (repo, actor, id, message) => {\n    const before = snapshot(repo);\n    assert.throws(() => new DocumentService(repo).archive(actor, id), new RegExp(message));\n    assert.equal(snapshot(repo), before, `state changed on failed archive of ${id}`);\n  };\n\n  // invisible documents: missing, deleted, foreign tenant -> not found, even for admin\n  {\n    const repo = makeRepo();\n    for (const actor of [\n      { tenant: 'a', user: 'u', role: 'admin' },\n      { tenant: 'a', user: 'u', role: 'editor' },\n      { tenant: 'a', user: 'u', role: 'viewer' },\n    ]) {\n      expectFailure(repo, actor, 'missing', 'not found');\n      expectFailure(repo, actor, 'a-deleted', 'not found');\n      expectFailure(repo, actor, 'b-doc', 'not found');\n      expectFailure(repo, actor, 'b-archived', 'not found');\n    }\n  }\n\n  // visibility precedes permission: foreign-tenant + would-be-forbidden yields not found\n  {\n    const repo = makeRepo();\n    expectFailure(repo, { tenant: 'a', user: 'u', role: 'editor' }, 'b-doc', 'not found');\n    expectFailure(repo, { tenant: 'a', user: 'u', role: 'viewer' }, 'b-doc', 'not found');\n  }\n\n  // editor may archive own; audit appended exactly\n  {\n    const repo = makeRepo();\n    const service = new DocumentService(repo);\n    service.archive({ tenant: 'a', user: 'u', role: 'editor' }, 'a-own');\n    assert.equal(repo.find('a-own').archived, true);\n    assert.deepEqual(repo.audit, [{ actor: 'u', document: 'a-own' }]);\n  }\n\n  // editor may not archive another's document\n  {\n    const repo = makeRepo();\n    expectFailure(repo, { tenant: 'a', user: 'u', role: 'editor' }, 'a-other', 'forbidden');\n  }\n\n  // viewer never may, even for their own document\n  {\n    const repo = makeRepo();\n    expectFailure(repo, { tenant: 'a', user: 'u', role: 'viewer' }, 'a-own', 'forbidden');\n  }\n\n  // repeating archive is a no-op but permission is still enforced first\n  {\n    const repo = makeRepo();\n    const service = new DocumentService(repo);\n    service.archive({ tenant: 'a', user: 'u', role: 'editor' }, 'a-own');\n    service.archive({ tenant: 'a', user: 'u', role: 'editor' }, 'a-own');\n    assert.deepEqual(repo.audit, [{ actor: 'u', document: 'a-own' }]);\n    expectFailure(repo, { tenant: 'a', user: 'u', role: 'editor' }, 'a-archived', 'forbidden');\n    expectFailure(repo, { tenant: 'a', user: 'u', role: 'viewer' }, 'a-archived', 'forbidden');\n  }\n\n  // admin may archive archived visible document as a no-op without new audit\n  {\n    const repo = makeRepo();\n    const admin = { tenant: 'a', user: 'u', role: 'admin' };\n    new DocumentService(repo).archive(admin, 'a-archived');\n    assert.deepEqual(repo.audit, []);\n    assert.equal(repo.find('a-archived').archived, true);\n  }\n\n  console.log('extended checks passed');\n}\n",
+      "src/service.ts": "import { Actor, Document } from './types';\nimport { DocumentRepository } from './repository';\n\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    if (!this.isVisible(actor, document)) throw new Error('not found');\n    const visible = document as Document;\n    if (!this.isAllowed(actor, visible)) throw new Error('forbidden');\n    if (visible.archived) return;\n    this.repository.archive(visible, actor.user);\n  }\n\n  private isVisible(actor: Actor, document: Document | undefined): boolean {\n    return !!document && !document.deleted && document.tenant === actor.tenant;\n  }\n\n  private isAllowed(actor: Actor, document: Document): boolean {\n    switch (actor.role) {\n      case 'admin': return true;\n      case 'editor': return document.owner === actor.user;\n      case 'viewer': return false;\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 121,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5262830419815145
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06833279199781828,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05409049999434501,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

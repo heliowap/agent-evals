@@ -1,0 +1,25 @@
+## Decision
+
+**Runner A (GOTOOLCHAIN=auto, go 1.21.0 + toolchain go1.21.9):** `auto` = `local+auto`, so the default toolchain is the bundled 1.21.3. Since the `toolchain go1.21.9` line is newer than the default, the go command runs go1.21.9 instead; finding no `go1.21.9` on PATH, it **downloads and verifies** that toolchain ([selection](https://go.dev/doc/toolchain#select), [download](https://go.dev/doc/toolchain#download)). It needs a working proxy/network plus the checksum database.
+
+**Runner B (GOTOOLCHAIN=local, go 1.21.9):** `local` always runs the bundled toolchain, and since Go 1.21 a toolchain **refuses to load a module whose go line declares a newer version** — 1.21.3 exits with an error on a `go 1.21.9` module ([config](https://go.dev/doc/toolchain#config), [select](https://go.dev/doc/toolchain#select)).
+
+**Runner C (GOTOOLCHAIN=go1.21.3+path):** the default is 1.21.3, but the `toolchain go1.21.9` line is newer, so it tries to run 1.21.9. `+path` disables the download fallback, so after scanning PATH (no go1.21.9), **it stops and fails** ([select](https://go.dev/doc/toolchain#select)).
+
+## go vs toolchain directives
+
+- `go` = the **mandatory minimum** Go version to use the module (since Go 1.21), sets the enforced language version, and must be ≥ every dependency's `go` line ([config](https://go.dev/doc/toolchain#config), [go directive](https://go.dev/doc/modules/gomod-ref#go)).
+- `toolchain` = a **suggested** toolchain; it only takes effect when the module is the main module and the default toolchain is older ([toolchain directive](https://go.dev/doc/modules/gomod-ref#toolchain)).
+
+A dependency's `toolchain` line has **no effect on downstream consumers** — only the main module's is consulted. But a dependency's `go` line does propagate: `go get`/`go mod tidy` raise the main module's `go` line to meet a new dependency's requirement, potentially forcing consumers onto a newer toolchain.
+
+## Incorrect proposals
+
+- **GOSUMDB=off:** backwards. Toolchain downloads are module-like and verified; with `GOSUMDB=off` they **fail for lack of verification**. GOPRIVATE/GONOSUMDB patterns don't apply to them ([download](https://go.dev/doc/toolchain#download)). For restricted CI, use an internal GOPROXY that serves `golang.org/toolchain` with GOSUMDB on (recommendation).
+- **"+path makes the build network-free":** UNVERIFIED/false in scope. `+path` only disables the toolchain fallback; dependency fetches still honor GOPROXY and can hit the network.
+
+## Policy (recommendation)
+
+Pin CI runners with an explicit `GOTOOLCHAIN=<name>` or `local` matching the intended version; keep `go` lines as low as the code genuinely needs; treat `toolchain` as developer convenience, not a consumer contract.
+
+**Not guaranteed:** a `toolchain` line in your published module will not lock consumers to that version; a `go 1.21.x` line guarantees the minimum and language version, not which patch build compiles consumers' code.

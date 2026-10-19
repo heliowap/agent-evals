@@ -1,0 +1,186 @@
+{
+  "blind_id": "b-da63af314eff5d4248f8ccbdba08fb90",
+  "task_id": "T3",
+  "checks": [
+    {
+      "id": "C1",
+      "status": "supported",
+      "answer_quote": "PG's RR gives a stable snapshot and (stronger than the SQL standard's minimum) forbids phantom reads",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s2.txt",
+          "quote": "The table also shows that PostgreSQL's Repeatable Read implementation does not allow phantom reads."
+        }
+      ],
+      "rationale": "Retains PostgreSQL's stronger phantom protection while distinguishing standard minima.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C2",
+      "status": "supported",
+      "answer_quote": "So the \"equivalent to serial execution\" premise is false.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s2.txt",
+          "quote": "this view will not necessarily always be consistent with some serial (one at a time) execution of concurrent transactions of the same level."
+        }
+      ],
+      "rationale": "Explains that snapshot stability does not remove cross-row serialization anomalies.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C3",
+      "status": "missing",
+      "answer_quote": "",
+      "evidence": [],
+      "rationale": "Recommends Serializable and calls it the low-effort correctness path, but does not state serial-equivalent effects for all committed transactions. Monitoring alone is not the frozen C3 guarantee.",
+      "citation_status": "missing"
+    },
+    {
+      "id": "C4",
+      "status": "supported",
+      "answer_quote": "The application owns retrying; the retry unit is the whole transaction (BEGIN…COMMIT).",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+          "quote": "It is important to retry the complete transaction, including all logic that decides which SQL to issue and/or which values to use."
+        }
+      ],
+      "rationale": "Includes earlier reads and application decisions in the transaction retry unit.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C5",
+      "status": "supported",
+      "answer_quote": "PostgreSQL never replays your decision logic.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+          "quote": "PostgreSQL does not offer an automatic retry facility, since it cannot do so with any guarantee of correctness."
+        }
+      ],
+      "rationale": "Assigns retry responsibility to the application, not transparent engine replay.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C6",
+      "status": "supported",
+      "answer_quote": "23505 *can* be a disguised serialization failure (e.g., inspecting keys then inserting)",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+          "quote": "more care is needed when retrying these other error codes, since they might represent persistent error conditions rather than transient failures."
+        }
+      ],
+      "rationale": "Distinguishes concurrency-derived unique failures from persistent duplicates.",
+      "citation_status": "entailing"
+    }
+  ],
+  "uncertainty": {
+    "status": "pass",
+    "answer_quote": "resolve by measuring 40001 rates and setting an app-level backoff/timeout policy rather than a documented guarantee.",
+    "rationale": "Refuses the fixed attempt bound with the documented no-completion/many-attempts reasons and an appropriate workload/policy resolution.",
+    "evidence": [
+      {
+        "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+        "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+        "quote": "Transaction retry does not guarantee that the retried transaction will complete; multiple retries may be needed."
+      },
+      {
+        "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+        "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+        "quote": "In cases with very high contention, it is possible that completion of a transaction may take many attempts."
+      }
+    ]
+  },
+  "citations": [
+    {
+      "answer_quote": "PG's RR gives a stable snapshot and (stronger than the SQL standard's minimum) forbids phantom reads",
+      "url": "https://www.postgresql.org/docs/18/transaction-iso.html#MVCC-ISOLEVEL-TABLE",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s2.txt",
+          "quote": "The table also shows that PostgreSQL's Repeatable Read implementation does not allow phantom reads."
+        }
+      ]
+    },
+    {
+      "answer_quote": "So the \"equivalent to serial execution\" premise is false.",
+      "url": "https://www.postgresql.org/docs/18/transaction-iso.html#XACT-REPEATABLE-READ",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s2.txt",
+          "quote": "this view will not necessarily always be consistent with some serial (one at a time) execution of concurrent transactions of the same level."
+        }
+      ]
+    },
+    {
+      "answer_quote": "The application owns retrying; the retry unit is the whole transaction (BEGIN…COMMIT).",
+      "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-FAILURE-HANDLING",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+          "quote": "It is important to retry the complete transaction, including all logic that decides which SQL to issue and/or which values to use."
+        }
+      ]
+    },
+    {
+      "answer_quote": "PostgreSQL never replays your decision logic.",
+      "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-FAILURE-HANDLING",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+          "quote": "PostgreSQL does not offer an automatic retry facility, since it cannot do so with any guarantee of correctness."
+        }
+      ]
+    },
+    {
+      "answer_quote": "23505 *can* be a disguised serialization failure (e.g., inspecting keys then inserting)",
+      "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html#MVCC-SERIALIZATION-FAILURE-HANDLING",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The full URL applies to this claim in its paragraph/list or explicitly named same-page context; fetched primary text proves the claim.",
+      "evidence": [
+        {
+          "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+          "source_path": "blind/cases/b-da63af314eff5d4248f8ccbdba08fb90/sources/s3.txt",
+          "quote": "more care is needed when retrying these other error codes, since they might represent persistent error conditions rather than transient failures."
+        }
+      ]
+    }
+  ],
+  "critical_errors": [],
+  "unsupported_extras": [],
+  "compliance": {
+    "full_urls": true,
+    "word_cap": true,
+    "english": true,
+    "fetched_two_sources": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "discovery_chain": "Fetched all required canonical discovery pages; the answer combines the linked mechanisms."
+  },
+  "ambiguous": false,
+  "notes": "Disclosed AI semantic grading from opaque first-party text. "
+}

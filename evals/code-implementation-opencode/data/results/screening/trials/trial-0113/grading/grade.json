@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/contract.cjs": "const assert = require('node:assert/strict');\n\nconst { ProfileService } = require('../.build/service');\nconst { parseProfile } = require('../.build/parser');\n\nconst throwsInvalid = (fn, label) => {\n  assert.throws(fn, (err) => err instanceof Error && err.message === 'invalid profile', label);\n};\n\n// Validated no-op / keep behavior\n{\n  const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n  const result = service.patch({});\n  assert.strictEqual(result, service.profile);\n  assert.deepEqual(result, { displayName: 'before', tags: ['old'] });\n}\n\n// displayName trimming and bounds\n{\n  const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n  assert.deepEqual(service.patch({ displayName: '  after  ' }), { displayName: 'after', tags: ['old'] });\n  assert.deepEqual(service.patch({ displayName: null }), { displayName: null, tags: ['old'] });\n  assert.deepEqual(service.patch({ displayName: 'a'.repeat(40) }), { displayName: 'a'.repeat(40), tags: ['old'] });\n  assert.deepEqual(service.patch({ displayName: 'b' }), { displayName: 'b', tags: ['old'] });\n  throwsInvalid(() => service.patch({ displayName: '' }), 'empty displayName');\n  throwsInvalid(() => service.patch({ displayName: '   ' }), 'blank displayName');\n  throwsInvalid(() => service.patch({ displayName: 'a'.repeat(41) }), 'long displayName');\n  throwsInvalid(() => service.patch({ displayName: 42 }), 'numeric displayName');\n  throwsInvalid(() => service.patch({ displayName: true }), 'boolean displayName');\n  throwsInvalid(() => service.patch({ displayName: undefined }), 'undefined displayName');\n  throwsInvalid(() => service.patch({ displayName: ['x'] }), 'array displayName');\n  throwsInvalid(() => service.patch({ displayName: { value: 'x' } }), 'object displayName');\n  assert.deepEqual(service.profile, { displayName: 'b', tags: ['old'] });\n}\n\n// tags trimming, clearing, bounds, distinctness\n{\n  const service = new ProfileService({ displayName: 'x', tags: ['old'] });\n  const cleared = service.patch({ tags: null });\n  assert.deepEqual(cleared, { displayName: 'x', tags: [] });\n  assert.deepEqual(service.patch({ tags: [' a ', 'b'] }), { displayName: 'x', tags: ['a', 'b'] });\n  assert.deepEqual(service.patch({ tags: [] }), { displayName: 'x', tags: [] });\n  assert.deepEqual(service.patch({ tags: ['1'.repeat(12)] }), { displayName: 'x', tags: ['1'.repeat(12)] });\n  assert.deepEqual(service.patch({ tags: ['a', 'b', 'c', 'd', 'e'] }), { displayName: 'x', tags: ['a', 'b', 'c', 'd', 'e'] });\n  throwsInvalid(() => service.patch({ tags: ['1'.repeat(13)] }), 'tag too long');\n  throwsInvalid(() => service.patch({ tags: [''] }), 'empty tag');\n  throwsInvalid(() => service.patch({ tags: ['   '] }), 'blank tag');\n  throwsInvalid(() => service.patch({ tags: ['a', ' a '] }), 'duplicate after trim');\n  throwsInvalid(() => service.patch({ tags: ['a', 'b', 'c', 'd', 'e', 'f'] }), 'six tags');\n  throwsInvalid(() => service.patch({ tags: [1] }), 'numeric tag');\n  throwsInvalid(() => service.patch({ tags: ['ok', true] }), 'boolean tag');\n  throwsInvalid(() => service.patch({ tags: 'a' }), 'string tags');\n  throwsInvalid(() => service.patch({ tags: 5 }), 'numeric tags');\n  throwsInvalid(() => service.patch({ tags: {} }), 'object tags');\n  const sparse = ['a', , 'b'];\n  throwsInvalid(() => service.patch({ tags: sparse }), 'sparse tags');\n  assert.deepEqual(service.profile, { displayName: 'x', tags: ['a', 'b', 'c', 'd', 'e'] });\n}\n\n// Atomicity: a valid field is not applied when another field is invalid\n{\n  const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n  throwsInvalid(() => service.patch({ displayName: 'after', tags: [''] }), 'mixed invalid');\n  assert.deepEqual(service.profile, { displayName: 'before', tags: ['old'] });\n}\n\n// Shape validation\n{\n  const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n  for (const bad of [null, undefined, 1, 'x', true, [], ['x'], new Date(), /x/, new (class { constructor() { this.displayName = 'x'; } })()]) {\n    throwsInvalid(() => service.patch(bad), `bad input ${String(bad)}`);\n  }\n  const customProto = Object.create({ displayName: 'x' });\n  throwsInvalid(() => service.patch(customProto), 'custom prototype');\n  throwsInvalid(() => service.patch({ extra: true }), 'unknown key');\n  throwsInvalid(() => service.patch({ displayName: 'x', extra: undefined }), 'unknown undefined key');\n  const withSymbol = { displayName: 'x' };\n  withSymbol[Symbol('extra')] = 1;\n  throwsInvalid(() => service.patch(withSymbol), 'symbol key');\n  const withHidden = {};\n  Object.defineProperty(withHidden, 'hidden', { value: 1, enumerable: false });\n  throwsInvalid(() => service.patch(withHidden), 'non-enumerable key');\n  assert.deepEqual(service.profile, { displayName: 'before', tags: ['old'] });\n}\n\n// Null-prototype objects are plain enough\n{\n  const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n  const input = Object.assign(Object.create(null), { displayName: ' null proto ', tags: [' t '] });\n  assert.deepEqual(service.patch(input), { displayName: 'null proto', tags: ['t'] });\n}\n\n// Input is not mutated and caller arrays are not reused\n{\n  const service = new ProfileService({ displayName: 'before', tags: ['old'] });\n  const inputTags = [' a ', 'b'];\n  const input = { displayName: '  after  ', tags: inputTags };\n  service.patch(input);\n  assert.deepEqual(input, { displayName: '  after  ', tags: [' a ', 'b'] });\n  assert.notStrictEqual(service.profile.tags, inputTags);\n  inputTags.push('c');\n  assert.deepEqual(service.profile.tags, ['a', 'b']);\n  const storedTags = service.profile.tags;\n  service.patch({ tags: storedTags });\n  assert.notStrictEqual(service.profile.tags, storedTags);\n}\n\n// parseProfile directly\n{\n  assert.deepEqual(parseProfile({}), { displayName: { kind: 'keep' }, tags: { kind: 'keep' } });\n  assert.deepEqual(parseProfile({ displayName: null }), { displayName: { kind: 'set', value: null }, tags: { kind: 'keep' } });\n  assert.deepEqual(parseProfile({ tags: null }), { displayName: { kind: 'keep' }, tags: { kind: 'set', value: [] } });\n  throwsInvalid(() => parseProfile({ unknown: 1 }), 'parse unknown');\n}\n\nconsole.log('contract checks passed');\n",
+      "src/parser.ts": "import { ProfilePatch } from './types';\n\nfunction invalid(): never {\n  throw new Error('invalid profile');\n}\n\nfunction hasOwn(object: object, key: string): boolean {\n  return Object.prototype.hasOwnProperty.call(object, key);\n}\n\nfunction isPlainObject(input: unknown): input is Record<string, unknown> {\n  if (typeof input !== 'object' || input === null || Array.isArray(input)) return false;\n  const prototype = Object.getPrototypeOf(input);\n  return prototype === Object.prototype || prototype === null;\n}\n\nexport function parseProfile(input: unknown): ProfilePatch {\n  if (!isPlainObject(input)) invalid();\n\n  for (const key of Reflect.ownKeys(input)) {\n    if (key !== 'displayName' && key !== 'tags') invalid();\n  }\n\n  let displayName: ProfilePatch['displayName'] = { kind: 'keep' };\n  if (hasOwn(input, 'displayName')) {\n    const value = input.displayName;\n    if (value === null) {\n      displayName = { kind: 'set', value: null };\n    } else if (typeof value === 'string') {\n      const trimmed = value.trim();\n      if (trimmed.length < 1 || trimmed.length > 40) invalid();\n      displayName = { kind: 'set', value: trimmed };\n    } else {\n      invalid();\n    }\n  }\n\n  let tags: ProfilePatch['tags'] = { kind: 'keep' };\n  if (hasOwn(input, 'tags')) {\n    const value = input.tags;\n    if (value === null) {\n      tags = { kind: 'set', value: [] };\n    } else if (Array.isArray(value)) {\n      if (value.length > 5) invalid();\n      const parsedTags: string[] = [];\n      const seen = new Set<string>();\n      for (const item of value) {\n        if (typeof item !== 'string') invalid();\n        const trimmed = item.trim();\n        if (trimmed.length < 1 || trimmed.length > 12) invalid();\n        if (seen.has(trimmed)) invalid();\n        seen.add(trimmed);\n        parsedTags.push(trimmed);\n      }\n      tags = { kind: 'set', value: parsedTags };\n    } else {\n      invalid();\n    }\n  }\n\n  return { displayName, tags };\n}\n"
+    },
+    "changed_files": [
+      "checks/contract.cjs",
+      "src/parser.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 178,
+    "removed_lines": 15
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5570521249901503
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05914100000518374,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05763141700299457,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

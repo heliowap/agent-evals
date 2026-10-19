@@ -1,0 +1,24 @@
+I'll start with the D1 documentation hub and the read-replication/session pages.
+
+Now the Sessions API reference, the batch/transactions behavior, and the e-commerce replication tutorial.
+
+I need to verify batch transaction semantics and whether any lag bound is documented.
+
+Let me check the error/retry guidance and bookmark reference.
+
+## Decision
+
+**Routing/session contract**
+- **Writes:** route the checkout write session with `withSession("first-primary")` so a pre-write stock/price read is primary-fresh, then persist `session.getBookmark()` in the response (header or cookie). Writes always go to the primary regardless of constraint or bookmark ([tutorial](https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#1-post-apiproduct)).
+- **Read-after-write request:** start with `withSession(bookmark)`; the docs guarantee the session is "at least as up-to-date as the provided bookmark," restoring read-your-writes across HTTP requests ([read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)). Only read paths with no write dependency should use `withSession()` / `first-unconstrained` for replica latency.
+
+**Premises corrected**
+- `withSession()` is **not** "always latest." It equals `first-unconstrained`; the first query may hit any replica ([read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)).
+- `first-primary` does **not** pin the whole session to primary. Only the first query does; "Subsequent queries in the Session may use read replicas" ([D1 Database](https://developers.cloudflare.com/d1/worker-api/d1-database/#parameters-4)). Use bookmarks to force freshness, not `first-primary` across requests.
+
+**Failure contract**
+Batch is atomic, not per-statement: it is a SQL transaction, and a failed statement "aborts or rolls back the entire sequence" ([D1 Database](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)). So the team's expectation is wrong — the header insert will not remain committed if a line-item insert fails. Treat header + line items as one success/failure unit; generate the order ID client-side and make retries idempotent, because only read-only queries get automatic retries (up to two) and non-idempotent write retries are unsafe ([Debug D1](https://developers.cloudflare.com/d1/observability/debug-d1/#retry-operations)).
+
+**Product-claim support**
+- "Globally latest reads": **not supported.** Documented model is sequential consistency; latest data requires the primary ([read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#sessions-api-provides-sequential-consistency)).
+- "100 ms maximum replica lag after commit": **no documented bound.** Replicas "may be arbitrarily out of date" ([read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas)). Mark UNVERIFIED; obtain a written lag SLA from Cloudflare support before advertising it.

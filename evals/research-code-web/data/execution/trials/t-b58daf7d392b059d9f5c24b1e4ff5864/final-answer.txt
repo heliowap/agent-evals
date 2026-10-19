@@ -1,0 +1,93 @@
+## Pydantic v1 → v2.12 migration
+
+The v2.12 docs state the core replacements directly: `@validator` “has been deprecated, and should be replaced with `@field_validator`,” and `@root_validator` “has been deprecated, and should be replaced with `@model_validator`” (Pydantic 2.12 Migration Guide, “Changes to validators,” [link](https://pydantic.dev/docs/validation/2.12/get-started/migration/)).
+
+For whole-model / root validators, the v2 replacement is therefore:
+
+```python
+from pydantic import model_validator
+
+@model_validator(mode="before")  # replaces @root_validator(pre=True)
+@classmethod
+def check_before(cls, data): ...
+
+@model_validator(mode="after")   # replaces a post-validation @root_validator
+def check_after(self): ...
+```
+
+`mode="after"` validators are instance methods and should return `self`; `mode="before"` validators receive the raw input data.
+
+## `each_item=True` and the list-of-nonnegative-integers pattern
+
+No. The v2.12 docs say the new `@field_validator` decorator “does not have the `each_item` keyword argument.” Instead, “validators you want to apply to items within a generic container should be added by annotating the type argument.” The exact documented pattern is:
+
+```python
+list[Annotated[int, Field(ge=0)]]
+```
+
+So a v1-style field validator such as `@validator("values", each_item=True)` should become an item-type annotation:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+class Model(BaseModel):
+    values: list[Annotated[int, Field(ge=0)]]
+```
+
+If the item check is custom rather than a built-in constraint, the same idea applies with an annotated metadata validator, e.g.:
+
+```python
+from typing import Annotated
+from pydantic import AfterValidator
+
+def nonnegative(v: int) -> int:
+    if v < 0:
+        raise ValueError("must be nonnegative")
+    return v
+
+NonNegativeInt = Annotated[int, AfterValidator(nonnegative)]
+
+class Model(BaseModel):
+    values: list[NonNegativeInt]
+```
+
+The key point is that `each_item` does not exist on `@field_validator`; item-level logic moves into the item annotation.
+
+## `TypeError` inside a validator
+
+In Pydantic v2, a `TypeError` raised inside a validator is no longer converted into a `ValidationError`. The 2.12 migration guide says:
+
+> “Previously, when raising a `TypeError` within a validator function, that error would be wrapped into a `ValidationError`…”  
+> “However, in Pydantic V2, when a `TypeError` is raised in a validator, it is no longer converted into a `ValidationError`.”
+
+The documented example uses a validator that calls `str.lower(v)`, which raises `TypeError`; the test expects:
+
+```python
+with pytest.raises(TypeError):
+    Model(x=1)
+```
+
+So if you want a normal validation failure, raise `ValueError` or `AssertionError` (or otherwise translate the `TypeError` yourself). A raw `TypeError` escapes model validation as a `TypeError`, which in a web framework can surface as a 500 rather than a 422 validation response.
+
+## Legacy `@root_validator(skip_on_failure=False)`
+
+It is not permitted. For a post-validation root validator (`pre=False`, the default), Pydantic v2 requires `skip_on_failure=True` explicitly. The 2.12 usage-errors page says:
+
+> “If you use `@root_validator` with `pre=False` (the default) you MUST specify `skip_on_failure=True`. The `skip_on_failure=False` option is no longer available.”
+
+So if you temporarily retain the legacy decorator, write:
+
+```python
+from pydantic import root_validator
+
+@root_validator(skip_on_failure=True)
+def check(cls, values):
+    ...
+```
+
+The consequence, per the docs, is that the root validator “will no longer be called if validation fails for any of the fields.” For the preferred migration, use `@model_validator(mode="after")`, which runs after successful field validation and receives the model instance.
+
+**Sources:** Pydantic v2.12 Migration Guide, “Changes to validators: `@validator` and `@root_validator` are deprecated” and “`TypeError` is no longer converted to `ValidationError` in validators,” [https://pydantic.dev/docs/validation/2.12/get-started/migration/](https://pydantic.dev/docs/validation/2.12/get-started/migration/); Pydantic v2.12 Usage Errors, “Root validator, `pre`, `skip_on_failure`,” [https://pydantic.dev/docs/validation/2.12/errors/usage_errors/](https://pydantic.dev/docs/validation/2.12/errors/usage_errors/).
+
+**Limitation:** I did not execute a Pydantic 2.12 environment; the answer is based on the v2.12 documentation. The fetched migration page reached the validator/TpeError sections; the fetched usage-errors page was truncated before the root-validator heading, so that specific wording was confirmed through the search-result excerpt of the same 2.12 page.

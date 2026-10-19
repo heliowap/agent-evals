@@ -1,0 +1,16 @@
+## Request-preparation tool filtering in OpenCode
+
+**Location:** `packages/opencode/src/session/llm/request.ts` — the helper is `resolveTools` (lines 210–216), called by the request-preparation loop at line 148 (`const tools = resolveTools(input)`). The helper filters the already-provided `input.tools` record.
+
+**How it filters (lines 211–215):**
+1. `Permission.disabled(Object.keys(input.tools), Permission.merge(input.agent.permission, input.permission ?? []))` computes a disabled set.
+2. `Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))` keeps a tool only if the per-message toggle isn't explicitly `false` (i.e. the only toggle value that excludes a tool is exactly `false` on the user message's `tools` map; anything else, including `undefined`, keeps the tool) and it isn't in the disabled set.
+
+**Permissions merge order:** `Permission.merge` in `packages/opencode/src/permission/index.ts:200–202` is just `rulesets.flat()` — agent rules first, then session rules (later ones win because lookup is `findLast`).
+
+**Rule selection and disabling** (`permission/index.ts:204–214`):
+- Tool names are grouped: edits = `["edit", "write", "apply_patch"]` → mapped to the `"edit"` permission; MCP resource reading = `["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]` → mapped to `"read"`; other tools use their own name as the permission key (line 209).
+- The matching rule is `ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))` (line 210) — last matching rule wins; a tool is disabled only if that rule has `pattern === "*"` and `action === "deny"` (line 211).
+- The result is a `Set` of disabled tool ids, used by the caller above; a related consumer `visibleTools` (lines 216–219) does the same hiding elsewhere.
+
+Note: this is preparation-only (tools advertised to the LLM); the question's boundary excludes the MCP resource permission asks seen elsewhere in `packages/opencode/src/session/tools.ts` (e.g. lines 172–184), which are runtime `ask` behavior, not this filter. No code was run; only source reads were used.

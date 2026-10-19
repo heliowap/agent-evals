@@ -1,0 +1,120 @@
+### 1. Direct Answer
+**No.** In this HTTPX snapshot, a synchronous `httpx.Client` configured with a supplied custom transport (`transport is not None`), `trust_env=True`, and no explicit proxy (`proxy=None`) **does not** automatically construct any environment-proxy transports.
+
+---
+
+### 2. Constructor & Helper Branches Establishing the Behavior
+
+The constructor and helper branches strictly gate environment-based proxy configuration on whether a custom `transport` was provided:
+
+1. **Gate in `Client.__init__` (`httpx/_client.py:685–686`)**:
+   ```python
+   allow_env_proxies = trust_env and transport is None
+   proxy_map = self._get_proxy_map(proxy, allow_env_proxies)
+   ```
+   Because `transport` is provided (`transport is not None`), `allow_env_proxies` evaluates to `False`, despite `trust_env=True`.
+
+2. **Branch in `BaseClient._get_proxy_map` (`httpx/_client.py:239–251`)**:
+   ```python
+   def _get_proxy_map(
+       self, proxy: ProxyTypes | None, allow_env_proxies: bool
+   ) -> dict[str, Proxy | None]:
+       if proxy is None:
+           if allow_env_proxies:
+               return {
+                   key: None if url is None else Proxy(url=url)
+                   for key, url in get_environment_proxies().items()
+               }
+           return {}
+       else:
+           proxy = Proxy(url=proxy) if isinstance(proxy, (str, URL)) else proxy
+           return {"all://": proxy}
+   ```
+   With `proxy is None` (line 242) and `allow_env_proxies=False`, the `if allow_env_proxies:` branch (line 243) is bypassed. The method hits `return {}` at line 248. `get_environment_proxies()` is never invoked.
+
+3. **Mount construction in `Client.__init__` (`httpx/_client.py:697–710`)**:
+   ```python
+   self._mounts: dict[URLPattern, BaseTransport | None] = {
+       URLPattern(key): None
+       if proxy is None
+       else self._init_proxy_transport(...)
+       for key, proxy in proxy_map.items()
+   }
+   ```
+   Because `proxy_map` is empty (`{}`), the dictionary comprehension produces an empty mapping `{}`. `_init_proxy_transport` is never called, and no proxy mounts are created from environment variables.
+
+---
+
+### 3. Retention of the Supplied Default Transport
+
+The supplied custom transport is retained directly and without modification:
+
+- In `Client.__init__` (`httpx/_client.py:688–696`), the client initializes its default transport:
+  ```python
+  self._transport = self._init_transport(
+      verify=verify,
+      cert=cert,
+      trust_env=trust_env,
+      http1=http1,
+      http2=http2,
+      limits=limits,
+      transport=transport,
+  )
+  ```
+- In `Client._init_transport` (`httpx/_client.py:718–738`):
+  ```python
+  if transport is not None:
+      return transport
+  ```
+  Lines 728–729 immediately return the supplied `transport` object. The constructor does not wrap it or instantiate a default `HTTPTransport` (lines 731–738). The custom transport is saved directly as `self._transport`.
+
+---
+
+### 4. Contrast with an Explicit Proxy Argument
+
+Passing an explicit proxy (e.g., `proxy="http://proxy.example.com"`) changes this flow completely, even when a custom `transport` is provided:
+
+1. **`_get_proxy_map` executes the `else` branch (`httpx/_client.py:249–251`)**:
+   It returns `{"all://": Proxy(url=proxy)}`, completely ignoring `allow_env_proxies`.
+2. **`self._mounts` instantiation (`httpx/_client.py:697–710`)**:
+   In the comprehension, `proxy is None` is `False`. The `else` clause invokes `self._init_proxy_transport(proxy, ...)` (lines 740–758), creating an `HTTPTransport(..., proxy=proxy)`.
+   `self._mounts` is populated with `{URLPattern("all://"): <HTTPTransport proxy=...>}`.
+3. **Dispatch divergence**:
+   While `self._transport` still retains the supplied custom transport, requests routed through `_transport_for_url` (lines 765–767) will match `URLPattern("all://")` and select the proxy `HTTPTransport`, routing traffic through the proxy rather than the custom default transport (unless overridden by mounts).
+
+---
+
+### 5. Effect of Explicit Mounts and Matching `None` Mounts
+
+Explicit mounts (`mounts`) passed to `Client.__init__` affect transport selection through `self._mounts` and `_transport_for_url`:
+
+1. **Registration and ordering (`httpx/_client.py:711–716`)**:
+   ```python
+   if mounts is not None:
+       self._mounts.update(
+           {URLPattern(key): transport for key, transport in mounts.items()}
+       )
+
+   self._mounts = dict(sorted(self._mounts.items()))
+   ```
+   User-supplied mounts are updated into `self._mounts` and sorted by `URLPattern` priority (`httpx/_utils.py:206–224`), which orders patterns from most specific to least specific (port presence, hostname length descending, scheme length descending).
+
+2. **Resolution logic in `Client._transport_for_url` (`httpx/_client.py:760–769`)**:
+   ```python
+   for pattern, transport in self._mounts.items():
+       if pattern.matches(url):
+           return self._transport if transport is None else transport
+
+   return self._transport
+   ```
+   - **Mounted Transport**: If the URL matches a pattern whose mapped value is a transport instance (`transport is not None`), that transport is selected.
+   - **Matching `None` Mount**: If a URL matches a pattern mapped explicitly to `None` (for instance, `mounts={"https://example.com": None}`):
+     Line 767 evaluates `self._transport if transport is None else transport`. Because `transport` is `None`, it evaluates to `self._transport`.
+     This acts as an explicit bypass for higher-level proxy patterns (such as an explicit proxy's `all://`), routing matching URLs back to `self._transport` (which holds the supplied custom transport).
+   - **No Mount Match**: Falls through to line 769, returning `self._transport`.
+
+---
+
+### Unresolved Limitations
+- This analysis is bounded strictly to the closed branches and logic of `httpx/_client.py` and `httpx/_utils.py` in this snapshot without executing live code or tests.
+- Any internal proxy handling or environment variable reading implemented inside a third-party custom transport itself is outside HTTPX's client constructor logic and cannot be determined from HTTPX source branches alone.

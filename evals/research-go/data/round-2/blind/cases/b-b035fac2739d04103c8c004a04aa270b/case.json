@@ -1,0 +1,277 @@
+{
+  "blind_id": "b-b035fac2739d04103c8c004a04aa270b",
+  "task_id": "T1",
+  "prompt": "Research the engineering decision below using official first-party documentation fetched during this run. Start with the supplied official URL(s), follow relevant documentation links, and synthesize at least two distinct official source pages. Do not rely on search-result snippets, secondary sources, or remembered defaults. Do not run software, change files/settings/services, install packages, use credentials, or delegate to other agents.\n\nUse at most 8 inference steps and return at most 400 visible words, including headings and citations. Give a decision with the constraints that materially affect it, rather than a feature summary. Correct incorrect premises. Distinguish documented facts from your recommendations; mark unsupported guarantees or conflicting evidence UNVERIFIED and say what would resolve them. Cite each substantive factual claim with a full usable HTTPS source URL, preferably with a relevant section anchor. Keep all output in English.\n\nWe are reviewing a GitHub repository-webhook receiver before launch. Our framework parses JSON and re-serializes it before signature checking, compares the signature with ordinary string equality, and returns success only after a job that may take 25 seconds. The operations plan assumes GitHub will retry failed deliveries after an outage. The deduplication store treats a requested redelivery as a new event because the team expects a new delivery identifier. We want to preserve legitimate recovery while avoiding unauthorized or duplicate processing.\n\nRecommend the minimum changes to the receiver and recovery plan, using GitHub's documentation rather than generic webhook advice. Explain which incoming evidence establishes authenticity, which identifier behavior matters during redelivery, and which timing/retry assumptions are safe to rely on. Can those documented mechanisms alone justify an exactly-once business-side-effect guarantee across a receiver crash?\n\nStarting URLs\n- https://docs.github.com/en/webhooks",
+  "answer": "## Decision\n\n**Corrected premise first:** GitHub does **not** automatically retry failed deliveries after an outage. Best practices tell *you* to \"redeliver missed webhooks once your server is back up\" — via the UI or API. Your recovery plan must include an explicit redelivery run over missed deliveries, not assume GitHub-initiated retries. ([Best practices — Redeliver missed deliveries](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#redeliver-missed-deliveries))\n\n### Minimum receiver changes (all documented)\n\n1. **Verify on the raw body, before parsing/re-serializing.** The HMAC-SHA256 signature in `X-Hub-Signature-256` is computed over the exact payload bytes with your secret; any re-serialization breaks it. Compute HMAC over `request.body` and compare against the header. ([Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries))\n2. **Replace `==` with constant-time comparison** (e.g. `hmac.compare_digest`, `Rack::Utils.secure_compare`, `crypto.timingSafeEqual`). The docs explicitly say \"Never use a plain `==` operator\" (timing attacks). Same citation, same section.\n3. **Respond 2XX within 10 seconds; process asynchronously via a durable queue.** A 25-second job blocks past the deadline: \"GitHub terminates the connection and considers the delivery a failure.\" Respond immediately after validation/enqueue, run the job in a background queue. ([Best practices — Respond within 10 seconds](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds))\n4. **Check `X-GitHub-Event` and the payload's `action` before processing.** ([Best practices — Check the event type](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#check-the-event-type-and-action-before-processing-the-event))\n\n### Evidence for authenticity and dedup identity\n\n- Authenticity: valid `X-Hub-Signature-256` (HMAC-SHA256 with your secret) proves origin-GitHub and non-tampering — this is the *only* documented authenticity evidence; IP allow lists are auxiliary hardening.\n- **Dedup key bug (your second wrong assumption):** on a requested redelivery, the `X-GitHub-Delivery` header is **the same as the original delivery** — not a new ID. Therefore dedupe on `X-GitHub-Delivery` and redeliveries will be correctly suppressed as the same event. ([Best practices — Use the X-GitHub-Delivery header](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header))\n\nExactly-once across receiver crash: **No.** With 2XX-after-enqueue, a crash between enqueue and effect (or during the 25s job) means GitHub never re-sends, and even a redelivery you trigger will be suppressed by the delivery-ID dedupe. Documented mechanisms give at-most-once per delivery-ID plus at-least-once via manual redelivery — not exactly-once. UNVERIFIED extras (would need further evidence): whether the redelivery REST endpoint must be authenticated and whether GitHub re-sends anything after timeout (delivery-timeout retry behavior is not documented on these pages; check the deliveries/troubleshooting docs next). Recommendation: make the background worker idempotent by recording effect completion keyed on delivery ID, and treat exactly-once as achieved only at the business-effect layer, not by webhooks alone.",
+  "sources": [
+    {
+      "url": "https://docs.github.com/en/webhooks",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s1.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.github.com/en/webhooks",
+      "candidate_visible_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s1.txt"
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s2.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+      "candidate_visible_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s2.txt"
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s3.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+      "candidate_visible_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s3.txt"
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks/using-webhooks/handling-webhook-deliveries",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s4.txt",
+      "status": "fetched",
+      "frozen": false,
+      "citation_support_eligible": true,
+      "fetched_url": "https://docs.github.com/en/webhooks/using-webhooks/handling-webhook-deliveries",
+      "candidate_visible_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s4.txt"
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s5.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s6.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s7.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    },
+    {
+      "url": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries",
+      "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s8.txt",
+      "status": "frozen_reference",
+      "frozen": true,
+      "citation_support_eligible": false
+    }
+  ],
+  "rubric": {
+    "checks": [
+      {
+        "id": "C1",
+        "requirement": "Signature mechanism",
+        "accepted": [
+          "validate the secret-based HMAC-SHA256 in `X-Hub-Signature-256`; equivalent precise algorithm/header terminology is acceptable."
+        ],
+        "contradicted": [
+          "use a plain hash, delivery ID as authentication, or treat the legacy SHA1 header as the recommended SHA256 mechanism. O: only 'verify the signature' without identifying the relevant mechanism."
+        ],
+        "rubric_text": "S: validate the secret-based HMAC-SHA256 in `X-Hub-Signature-256`; equivalent precise algorithm/header terminology is acceptable. X: use a plain hash, delivery ID as authentication, or treat the legacy SHA1 header as the recommended SHA256 mechanism. O: only 'verify the signature' without identifying the relevant mechanism.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#troubleshooting",
+            "quote": "GitHub recommends that you use the `X-Hub-Signature-256` header, which uses the HMAC-SHA256 algorithm.",
+            "source_id": "GH-V",
+            "anchor": "troubleshooting",
+            "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C2",
+        "requirement": "Verify the unchanged payload",
+        "accepted": [
+          "preserve and verify the original request body, before parse/re-serialization can change it."
+        ],
+        "contradicted": [
+          "endorse verifying the re-serialized JSON. Do not require a particular web framework API."
+        ],
+        "rubric_text": "S: preserve and verify the original request body, before parse/re-serialization can change it. X: endorse verifying the re-serialized JSON. Do not require a particular web framework API.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#troubleshooting",
+            "quote": "Make sure that the payload and headers are not modified before verification.",
+            "source_id": "GH-V",
+            "anchor": "troubleshooting",
+            "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C3",
+        "requirement": "Comparison must resist timing leakage",
+        "accepted": [
+          "use constant-time/secure comparison, including `hmac.compare_digest`, `timingSafeEqual` or another suitable primitive."
+        ],
+        "contradicted": [
+          "endorse normal `==` comparison. O: merely 'compare hashes'."
+        ],
+        "rubric_text": "S: use constant-time/secure comparison, including `hmac.compare_digest`, `timingSafeEqual` or another suitable primitive. X: endorse normal `==` comparison. O: merely 'compare hashes'.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries",
+            "quote": "Never use a plain `==` operator.",
+            "source_id": "GH-V",
+            "anchor": "validating-webhook-deliveries",
+            "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s2.txt"
+          }
+        ]
+      },
+      {
+        "id": "C4",
+        "requirement": "Failure recovery is not automatic",
+        "accepted": [
+          "GitHub does not automatically redeliver failures; owner-managed manual redelivery or scheduled API-based recovery is needed. Either recovery approach is acceptable; do not require endpoint trivia."
+        ],
+        "contradicted": [
+          "rely on GitHub's automatic retry/backoff queue."
+        ],
+        "rubric_text": "S: GitHub does not automatically redeliver failures; owner-managed manual redelivery or scheduled API-based recovery is needed. Either recovery approach is acceptable; do not require endpoint trivia. X: rely on GitHub's automatic retry/backoff queue.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries#about-webhook-delivery-failures",
+            "quote": "GitHub does not automatically redeliver failed deliveries.",
+            "source_id": "GH-F",
+            "anchor": "about-webhook-delivery-failures",
+            "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s8.txt"
+          }
+        ]
+      },
+      {
+        "id": "C5",
+        "requirement": "Redelivery identity remains the same",
+        "accepted": [
+          "requested redelivery reuses `X-GitHub-Delivery`, so do not assume a fresh identity; distinguish a repeated delivery from new work."
+        ],
+        "contradicted": [
+          "assert redelivery creates a new value. No points require an invented GitHub attempt-number header."
+        ],
+        "rubric_text": "S: requested redelivery reuses `X-GitHub-Delivery`, so do not assume a fresh identity; distinguish a repeated delivery from new work. X: assert redelivery creates a new value. No points require an invented GitHub attempt-number header.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header",
+            "quote": "If you request a redelivery, the `X-GitHub-Delivery` header will be the same as in the original delivery.",
+            "source_id": "GH-B",
+            "anchor": "use-the-x-github-delivery-header",
+            "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s3.txt"
+          }
+        ]
+      },
+      {
+        "id": "C6",
+        "requirement": "Acknowledge promptly rather than wait 25 seconds",
+        "accepted": [
+          "return 2XX within 10 seconds, separating long work via a queue/asynchronous processing if needed. The single scored fact is the documented response deadline; durable enqueue is a recommendation, not a documented GitHub transaction guarantee."
+        ],
+        "contradicted": [
+          "endorse waiting 25 seconds or assert a different deadline. O: 'respond quickly' with no usable bound."
+        ],
+        "rubric_text": "S: return 2XX within 10 seconds, separating long work via a queue/asynchronous processing if needed. The single scored fact is the documented response deadline; durable enqueue is a recommendation, not a documented GitHub transaction guarantee. X: endorse waiting 25 seconds or assert a different deadline. O: 'respond quickly' with no usable bound.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds",
+            "quote": "Your server should respond with a 2XX response within 10 seconds of receiving a webhook delivery.",
+            "source_id": "GH-B",
+            "anchor": "respond-within-10-seconds",
+            "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s3.txt"
+          }
+        ]
+      }
+    ],
+    "uncertainty": {
+      "id": "U",
+      "requirement": "Application exactly-once is not established",
+      "pass": "these pages establish payload validation, a reusable redelivery ID and a response deadline, not an atomic transaction between this receiver's deduplication state, queue and business side effect. Do not approve exactly-once across crashes from signatures or the header alone; next inspect the application's durable state/transaction and crash-recovery design. This is a bounded entailment judgment about these cited mechanisms, **not** a claim to have searched every GitHub document.",
+      "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+      "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+      "source_evidence": [
+        {
+          "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header",
+          "quote": "To protect against replay attacks, you can use the `X-GitHub-Delivery` header to ensure that each delivery is unique per event.",
+          "source_id": "GH-B",
+          "anchor": "use-the-x-github-delivery-header",
+          "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s3.txt"
+        },
+        {
+          "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds",
+          "quote": "Your server can respond when it receives the webhook, and then process the payload in the background without blocking future webhook deliveries.",
+          "source_id": "GH-B",
+          "anchor": "respond-within-10-seconds",
+          "source_path": "blind/cases/b-b035fac2739d04103c8c004a04aa270b/sources/s3.txt"
+        }
+      ]
+    },
+    "critical_errors": [
+      "approve changed-body verification or normal comparison as secure",
+      "equate delivery ID with authentication",
+      "rely on automatic redelivery",
+      "invent a fresh redelivery ID",
+      "certify exactly-once from these mechanisms. Ignoring a required point is an omission, not one of these assertions."
+    ],
+    "critical_errors_text": "approve changed-body verification or normal comparison as secure; equate delivery ID with authentication; rely on automatic redelivery; invent a fresh redelivery ID; certify exactly-once from these mechanisms. Ignoring a required point is an omission, not one of these assertions.",
+    "source_rules": {
+      "description": "`docs.github.com` only for the required chain. Archive the four exact base URLs above, whole bodies, plus extracted Markdown and section headings. The index and three pages were practical Markdown fetches, untruncated in this session. No API call, token or recovery script execution is necessary. Endpoints/examples linked from the failure page are optional, not hidden requirements.",
+      "allowed_url_patterns": [
+        "https://docs\\.github\\.com/[^?#]*"
+      ],
+      "required_source_urls": [
+        "https://docs.github.com/en/webhooks",
+        "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+        "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+        "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries"
+      ],
+      "minimum_distinct_sources": 4,
+      "minimum_answer_bearing_sources": 3,
+      "discovery_chain": {
+        "description": "webhook index → validation page and best-practices page; index → failed-deliveries page. The index fetched this session links all three by title. Combine validation with recovery/identity rather than cite only the start page. **Minimum distinct content sources: 4 including index; 3 answer-bearing.**",
+        "edges": [
+          {
+            "from": "https://docs.github.com/en/webhooks",
+            "to": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+            "relation": "documentation_link"
+          },
+          {
+            "from": "https://docs.github.com/en/webhooks",
+            "to": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+            "relation": "documentation_link"
+          },
+          {
+            "from": "https://docs.github.com/en/webhooks",
+            "to": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries",
+            "relation": "documentation_link"
+          }
+        ],
+        "minimum_distinct_sources": 4
+      }
+    }
+  },
+  "mechanical": {
+    "attempted": true,
+    "operational_complete": true,
+    "visible_words": 381,
+    "word_cap": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "fetched_two_sources": true,
+    "distinct_fetched_pages": 4,
+    "requested_tool_calls": 4,
+    "fetch_attempts": 4,
+    "truncated_fetches": 0,
+    "semantic_grading": "required; not automatically assigned",
+    "explicit_self_identification_redacted": false
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_service_access.py": "import os, sys, sqlite3, unittest\nsys.path.insert(0, os.getcwd())\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nROWS = [\n    (1, \"acme\", \"alice\", \"A1\", \"body1\", None),\n    (2, \"acme\", \"alice\", \"A2\", \"body2\", \"2026-01-01T00:00:00\"),  # deleted\n    (3, \"acme\", \"bob\", \"B3\", \"body3\", None),                     # other owner\n    (4, \"globex\", \"alice\", \"G4\", \"body4\", None),                 # other tenant\n    (5, \"o'brien\", \"o'neil\", \"Q5\", \"body5\", None),               # quotes in names\n    (6, \"acme\", \"alice\", \"A6\", \"body6\", None),\n]\n\nclass ServiceAccessTests(unittest.TestCase):\n    def setUp(self):\n        self.c = sqlite3.connect(\":memory:\")\n        initialize(self.c)\n        self.c.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", ROWS)\n        self.c.commit()\n\n    def test_get_returns_accessible_document(self):\n        self.assertEqual(get_document(self.c, \"acme\", \"alice\", 1),\n                         {\"id\": 1, \"title\": \"A1\", \"body\": \"body1\"})\n\n    def test_get_hides_cross_owner_cross_tenant_deleted_and_missing_identically(self):\n        self.assertIsNone(get_document(self.c, \"acme\", \"alice\", 3))   # cross-owner\n        self.assertIsNone(get_document(self.c, \"acme\", \"alice\", 4))   # cross-tenant\n        self.assertIsNone(get_document(self.c, \"acme\", \"alice\", 2))   # deleted\n        self.assertIsNone(get_document(self.c, \"acme\", \"alice\", 99))  # missing\n\n    def test_get_requires_both_tenant_and_owner(self):\n        self.assertIsNone(get_document(self.c, \"globex\", \"bob\", 1))\n        self.assertIsNone(get_document(self.c, \"acme\", \"bob\", 1))\n\n    def test_list_filters_by_tenant_and_owner_deleted_excluded_ordered_by_id(self):\n        self.assertEqual(list_documents(self.c, \"acme\", \"alice\"), [\n            {\"id\": 1, \"title\": \"A1\", \"body\": \"body1\"},\n            {\"id\": 6, \"title\": \"A6\", \"body\": \"body6\"},\n        ])\n\n    def test_list_empty_for_wrong_tenant_or_owner(self):\n        self.assertEqual(list_documents(self.c, \"globex\", \"bob\"), [])\n        self.assertEqual(list_documents(self.c, \"acme\", \"nobody\"), [])\n\n    def test_results_have_only_id_title_body(self):\n        for doc in list_documents(self.c, \"acme\", \"alice\") + [get_document(self.c, \"acme\", \"alice\", 1)]:\n            self.assertEqual(set(doc), {\"id\", \"title\", \"body\"})\n            self.assertNotIn(\"deleted_at\", doc)\n\n    def test_quoted_names_are_bound_parameters(self):\n        self.assertEqual(get_document(self.c, \"o'brien\", \"o'neil\", 5),\n                         {\"id\": 5, \"title\": \"Q5\", \"body\": \"body5\"})\n        self.assertEqual(list_documents(self.c, \"o'brien\", \"o'neil\"),\n                         [{\"id\": 5, \"title\": \"Q5\", \"body\": \"body5\"}])\n\n    def test_injection_style_input_does_not_bypass_filters(self):\n        payload = \"x' OR '1'='1\"\n        self.assertIsNone(get_document(self.c, payload, payload, 1))\n        self.assertEqual(list_documents(self.c, payload, \"alice\"), [])\n        self.assertEqual(list_documents(self.c, \"acme\", payload), [])\n        self.assertIsNone(get_document(self.c, \"acme\", \"alice\", \"1 OR 1=1\"))\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents \"\n        \"WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents \"\n            \"WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+      "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+    },
+    "changed_files": [
+      "checks/test_service_access.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 96,
+    "removed_lines": 20
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.06771862501045689
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06175637501291931,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05775570799596608,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

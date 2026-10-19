@@ -1,0 +1,23 @@
+## Located assertions (v4 classic)
+
+All three live in `packages/zod/src/v4/classic/tests/transform.test.ts` (file is 378 lines; these three tests are complete at lines 93–125, and a grep for “coercion”/“async” confirms no other such tests in the file):
+
+1. **Synchronous number→string in an object — “coercion”, lines 93–102.** Schema: `const numToString = z.number().transform((n) => String(n));` (line 94), embedded as `id` in `z.object({ id: numToString })` (95–98), parsed with `.parse({ id: 5 })` (99). Assertion line 101: `expect(data).toEqual({ id: "5" });`. So the exact outcome asserted is a plain object whose `id` is the string `"5"`, produced synchronously — not merely `"5"` and not a number.
+
+2. **Async transform via async parsing — “async coercion”, lines 104–113.** Schema: `z.number().transform(async (n) => String(n))` (105), parsed with `await z.object({ id: numToString }).parseAsync({ id: 5 })` (106–110). Assertion line 112: `expect(data).toEqual({ id: "5" });` — the awaited `parseAsync` resolves to `{ id: "5" }` with no error.
+
+3. **That async transform via sync parsing — “sync coercion async error”, lines 115–125.** Same async transform (116), then `expect(() => z.object({ id: asyncNumberToString }).parse({ id: 5 })).toThrow();` (117–123). Line 124 is a commented-out `// expect(data).toEqual({ id: '5' });`. The test is declared `async` (115) but awaits nothing.
+
+## Core runtime check explaining sync rejection
+
+Instance `.parse()` routes through `packages/zod/src/v4/classic/schemas.ts:297–298` → `packages/zod/src/v4/classic/parse.ts:8–13` → core `_parse` in `packages/zod/src/v4/core/parse.ts:22–37`. `_parse` pins `ctx.async = false` (line 24), runs `schema._zod.run(...)` (25), and if the run returns a Promise throws `core.$ZodAsyncError` (26–28); `_safeParse` has the same guard (71–76), while `_parseAsync` sets `async: true` (48–52). The most proximate guard for this test is inside `$ZodTransform`’s parse (`core/schemas.ts:3844–3864`): with `ctx.async` true it wraps/passes the promise (3850–3855), but under sync parsing `if (_out instanceof Promise) throw new core.$ZodAsyncError();` (3858–3859). An `async` callback always returns a Promise, so this fires for the `id` field; `$ZodObject` runs fields at `schemas.ts:2226–2231` without a try/catch (static reading), so the throw propagates out of `.parse()`. Additional guards exist (`schemas.ts:254–255`, `291`, `315–318`; `parse.ts:26–28`, `74–76`). `$ZodAsyncError` is defined at `core/core.ts:166–170` with message ``Encountered Promise during synchronous parse. Use .parseAsync() instead.`` (168); it sets no `.name` (noted in `core/tests/compile-differential.test.ts:111`), so `.name` reads as `"Error"`.
+
+## Does the rejection test assert an exact error class or message?
+
+**No.** Line 123 is a zero-argument `toThrow()`, which only asserts that *something* is thrown. It does not reference `$ZodAsyncError`, its message, an `Error` base, or issue shape; it also does not assert via `safeParse` that parsing fails with issues, nor which throw site fired. The class/message attribution above is **static implementation inference**, not something this test pins. Elsewhere in the snapshot, tests do assert the class — e.g. `classic/tests/validate.test.ts:120–121` and `:317` (`toThrow(z.core.$ZodAsyncError)`), and `core/tests/compile.test.ts:1468, 1680, 1843` — which highlights how weak the transform test’s assertion is by comparison.
+
+## Unresolved / limited-assertion notes
+
+- **Arbitrary callback behavior is untested here.** The guard checks `_out instanceof Promise`; whether a non-`async` callback that merely returns a native `Promise` triggers the same path, and how non-native thenables behave, is inferred from the `instanceof` check, not asserted. Nor do these tests cover a sync callback that throws, or mixed sync/async fields.
+- Multiple `$ZodAsyncError` throw sites exist under `ctx.async === false` (listed above), and a JIT/compile path refuses async transforms separately (`core/compile.ts:661–663`, `2189–2190`, `2291–2293` throw `ZodCompileAsyncError`), so the exact site that threw in the test is not resolved by the test itself.
+- I read lines 1–243 of the 378-line test file plus targeted greps (`coercion`, `async`, `toThrow`); the tail (244–378) was not exhaustively read, though those greps found no further matching coercion/rejection tests. No code or tests were executed, per instructions.

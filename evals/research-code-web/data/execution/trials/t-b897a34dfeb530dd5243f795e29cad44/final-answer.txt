@@ -1,0 +1,58 @@
+Based on the primary security advisory published by the Requests maintainers (**GHSA-9wx4-h78v-vm56** / **CVE-2024-35195**), here is the assessment of your scenario in Python Requests 2.31.0:
+
+---
+
+### 1. Assessment of Whether CVE-2024-35195 Affects This Scenario
+**Yes, CVE-2024-35195 directly affects this scenario.**
+
+- **Vulnerable Version Range:** The advisory explicitly designates all versions `< 2.32.0` as affected. Python Requests 2.31.0 falls squarely within this vulnerable range.
+- **Trigger Scenario:** The vulnerability occurs specifically when using a persistent `requests.Session` object where the first request to an origin is executed with `verify=False`. In version 2.31.0, this causes TLS verification to remain disabled on subsequent calls to that origin within the same session.
+
+---
+
+### 2. Does the Second Flag Reliably Restore Certificate Verification?
+**No, the second flag does not reliably restore certificate verification.**
+
+In Requests 2.31.0:
+- When a `Session` makes its initial request to an origin with `verify=False`, the underlying TLS connection established without certificate validation is placed into the session’s connection pool.
+- When a subsequent request is made to the same origin with `verify=True`, Requests reuses the existing unverified connection from the pool.
+- The maintainer advisory explicitly warns that *"all subsequent requests to the same origin will continue to ignore cert verification regardless of changes to the value of `verify`."* Consequently, specifying `verify=True` on subsequent calls fails to enforce TLS verification.
+
+---
+
+### 3. How Long the Problematic Behavior Can Persist
+According to the primary advisory, this unverified state persists for **"the lifecycle of the connection in the connection pool."**
+
+Because the session reuses pooled connections:
+- As long as that pooled socket/connection remains open, active, and reused by the adapter for that origin, any subsequent HTTPS traffic sent over it will bypass verification.
+- The unverified state remains in effect until the connection is either evicted, closed by the remote server (e.g., via keep-alive timeouts), or explicitly closed by the application (e.g., calling `session.close()`).
+
+---
+
+### 4. Minimum Patched Release Stated by the Maintainer Advisory
+The primary maintainer advisory lists **`2.32.0`** as the minimum patched release:
+- **Patched versions field:** `2.32.0`
+- **Remediation guidance:** *"Upgrade to `requests>=2.32.0`."*
+
+*(Note: While later ecosystem releases such as 2.32.2 were issued after 2.32.0 and 2.32.1 were yanked due to compatibility conflicts with custom `HTTPAdapter` subclasses, `2.32.0` remains the minimum patched version formally recorded in the maintainer advisory.)*
+
+---
+
+### 5. Advisory-Documented Mitigations for Installations That Cannot Upgrade
+For environments restricted to `requests<2.32.0`, the maintainer advisory documents two workarounds:
+
+1. **Explicit Session Closure:**  
+   Call `close()` on the `Session` object to clear existing connections whenever `verify=False` has been used:
+   ```python
+   session.get("https://example.com", verify=False)
+   session.close()  # Clears pooled unverified connections
+   session.get("https://example.com", verify=True)
+   ```
+2. **Avoid Disabling Verification on the First Host Request:**  
+   Avoid setting `verify=False` on the initial request to a given host when operating through a shared `requests.Session` (for example, by using distinct `Session` instances for verified vs. unverified calls).
+
+---
+
+### Unresolved Limitations
+- **Indeterminate Wall-Clock Duration:** The advisory defines the duration strictly as the "lifecycle of the connection in the connection pool." The exact real-world duration in seconds or minutes cannot be determined without knowing server-side HTTP keep-alive timeouts, connection drop events, or the underlying `urllib3` connection pool configuration.
+- **Yanked Status of 2.32.0:** While `2.32.0` is the canonical minimum patched release defined by the security advisory, standard package managers may encounter `2.32.0` as yanked on PyPI due to downstream adapter compatibility issues fixed in `2.32.2`.

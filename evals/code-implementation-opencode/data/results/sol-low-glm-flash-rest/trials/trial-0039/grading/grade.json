@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\nconst { EventService } = require('../.build/service');\n\n// Fixtures implement the Source/Lease contract from src/source.ts.\nfunction fixture({ values = ['a', 'b', null], readError, closeError, mapper } = {}) {\n  const calls = { opens: 0, reads: 0, closes: 0 };\n  const source = {\n    async open() {\n      calls.opens++;\n      return {\n        async read() {\n          calls.reads++;\n          if (readError) throw readError;\n          return values.shift();\n        },\n        async close() {\n          calls.closes++;\n          if (closeError) throw closeError;\n        },\n      };\n    },\n  };\n  return { calls, stream: new EventService(source, mapper).stream() };\n}\n\nasync function main() {\n  const unopened = fixture();\n  assert.deepEqual(unopened.calls, { opens: 0, reads: 0, closes: 0 });\n  await unopened.stream.return();\n  assert.deepEqual(unopened.calls, { opens: 0, reads: 0, closes: 0 });\n\n  const ordered = fixture();\n  assert.deepEqual(await ordered.stream.next(), { value: 'A', done: false });\n  assert.deepEqual(ordered.calls, { opens: 1, reads: 1, closes: 0 });\n  assert.deepEqual(await ordered.stream.next(), { value: 'B', done: false });\n  assert.deepEqual(ordered.calls, { opens: 1, reads: 2, closes: 0 });\n  assert.equal((await ordered.stream.next()).done, true);\n  await ordered.stream.next();\n  await ordered.stream.return();\n  assert.deepEqual(ordered.calls, { opens: 1, reads: 3, closes: 1 });\n\n  for (const closeError of [undefined, new Error('close')]) {\n    for (const mode of ['exhaustion', 'return', 'break', 'read', 'mapper', 'throw']) {\n      const original = new Error(mode);\n      const test = fixture({\n        closeError,\n        readError: mode === 'read' ? original : undefined,\n        mapper: mode === 'mapper' ? () => { throw original; } : undefined,\n      });\n      const run = async () => {\n        if (mode === 'exhaustion' || mode === 'break') {\n          const found = [];\n          for await (const value of test.stream) {\n            found.push(value);\n            if (mode === 'break') break;\n          }\n          assert.deepEqual(found, mode === 'break' ? ['A'] : ['A', 'B']);\n        } else {\n          await test.stream.next();\n          if (mode === 'return') await test.stream.return();\n          if (mode === 'throw') await test.stream.throw(original);\n        }\n      };\n      const primary = ['read', 'mapper', 'throw'].includes(mode);\n      if (primary || closeError) {\n        await assert.rejects(run(), error => error === (primary ? original : closeError));\n      } else {\n        await run();\n      }\n      await test.stream.next();\n      await test.stream.return();\n      assert.equal(test.calls.closes, 1, mode);\n      assert.equal(test.calls.reads, mode === 'exhaustion' ? 3 : 1, mode);\n    }\n  }\n\n  // Even a thrown undefined is an original exception, not an absent error.\n  const injected = fixture({ closeError: new Error('close') });\n  await injected.stream.next();\n  await assert.rejects(injected.stream.throw(undefined), error => error === undefined);\n  assert.equal(injected.calls.closes, 1);\n\n  const openError = new Error('open');\n  const failedOpen = new EventService({ open: async () => { throw openError; } }).stream();\n  await assert.rejects(failedOpen.next(), error => error === openError);\n}\nmodule.exports = main();\n",
+      "src/service.ts": "import { Source } from './source';\nimport { mapEvent } from './mapper';\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    const lease = await this.source.open();\n    let failed = false;\n    try {\n      for (;;) {\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      failed = true;\n      throw error;\n    } finally {\n      try {\n        await lease.close();\n      } catch (error) {\n        // Cleanup must not replace a read, mapping, or injected exception.\n        if (!failed) throw error;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 113,
+    "removed_lines": 24
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5788218750094529
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06956933400942944,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.062270082999020815,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

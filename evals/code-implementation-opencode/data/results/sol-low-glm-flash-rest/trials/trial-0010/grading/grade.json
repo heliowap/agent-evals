@@ -1,0 +1,62 @@
+{
+  "scope": {
+    "files": {
+      "checks/unified_exporter.py": "\"\"\"Checks for the unified export pipeline (src/exporter.py).\"\"\"\nimport os, sys\nsys.path.insert(0, os.getcwd())\n\nfrom src.exporter import export_rows, normalize_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\n# Exact string rules, unchanged from the pre-unification behavior.\nassert export_csv([{\"id\": 1, \"name\": \"Alice\"}]) == \"id,name\\n1,Alice\\n\"\nassert export_json([{\"id\": 1, \"name\": \"Alice\"}]) == '[{\"id\":\"1\",\"name\":\"Alice\"}]'\nassert export_csv([]) == \"id,name\\n\"  # header present even with no rows\nassert export_json([]) == \"[]\"\n\n# CSV quoting | JSON compact separators | JSON keeps non-ASCII unescaped.\nassert export_csv([{\"id\": 1, \"name\": \"a,b\"}, {\"id\": 2, \"name\": 'x\"y'}]) == 'id,name\\n1,\"a,b\"\\n2,\"x\"\"y\"\\n'\nassert export_json([{\"id\": 1, \"name\": \"a\\nb\"}]) == '[{\"id\":\"1\",\"name\":\"a\\\\nb\"}]'\nuni = export_json([{\"id\": \"café\", \"name\": \"日本語\"}])\nassert uni == '[{\"id\":\"café\",\"name\":\"日本語\"}]'  # ensure_ascii=False\nassert \"\\r\" not in export_csv([{\"id\": 1, \"name\": \"a\\nb\"}])  # LF-only line endings\n\n# Normalization: id/name only, '' for missing/None, str() otherwise, order kept.\nassert normalize_rows([{\"id\": 1, \"name\": 2, \"extra\": \"?\"}]) == [{\"id\": \"1\", \"name\": \"2\"}]\nassert normalize_rows([{}, {\"id\": None}]) == [{\"id\": \"\", \"name\": \"\"}, {\"id\": \"\", \"name\": \"\"}]\n\n# One-shot iterables are fine and inputs are not mutated.\ndef gen():\n    yield {\"id\": 1, \"name\": \"A\"}\n    yield {\"id\": None, \"name\": 2}\nassert export_csv(gen()) == \"id,name\\n1,A\\n,2\\n\"\nrows = [{\"id\": 0, \"name\": \"keep\"}]\nassert export_json(iter(rows)) == '[{\"id\":\"0\",\"name\":\"keep\"}]'\nassert rows == [{\"id\": 0, \"name\": \"keep\"}]\n\n# Shared entry point agrees with the wrappers for both formats.\nfor fmt, expect in ((\"csv\", \"id,name\\n1,A\\n\"), (\"json\", '[{\"id\":\"1\",\"name\":\"A\"}]')):\n    rows = [{\"id\": 1, \"name\": \"A\"}]\n    assert export_rows(rows, fmt) == expect\n    assert export(rows, fmt) == expect\n    assert (export_csv(rows) == expect if fmt == \"csv\" else export_json(rows) == expect)\n\n# Unsupported formats, before rows are consumed.\nfor fn in (export_rows, export):\n    for bad in (\"xml\", \"JSON\", None, 1, \"\"):\n        try:\n            fn([], bad)\n        except ValueError as exc:\n            assert str(exc) == \"unsupported format\", str(exc)\n        else:\n            raise AssertionError(f\"{fn.__name__} accepted {bad!r}\")\n\nprint(\"checks/unified_exporter.py: all assertions passed\")\n",
+      "src/csv_exporter.py": "\"\"\"Public CSV export entry point, backed by the shared exporter pipeline.\"\"\"\n\nfrom . import exporter\n\n\ndef export_csv(rows):\n    \"\"\"Serialize ``rows`` as CSV text (``id,name`` header, LF line endings).\n\n    Delegates to :func:`src.exporter.export_rows` so normalization and\n    serialization live in one place.\n    \"\"\"\n    return exporter.export_rows(rows, \"csv\")\n",
+      "src/dispatcher.py": "\"\"\"Public export dispatcher.\n\nAll formats funnel through :func:`src.exporter.export_rows`; this module\nre-exports the legacy entry points alongside :func:`export`.\n\"\"\"\n\nfrom . import exporter\nfrom .csv_exporter import export_csv  # noqa: F401  (backwards-compatible name)\nfrom .json_exporter import export_json  # noqa: F401  (backwards-compatible name)\n\n\ndef export(rows, format):\n    \"\"\"Serialize ``rows`` as ``format`` ('csv' or 'json'); ValueError otherwise.\"\"\"\n    return exporter.export_rows(rows, format)\n",
+      "src/exporter.py": "\"\"\"Shared export pipeline: row normalization plus CSV/JSON serialization.\n\nThe public wrappers in :mod:`src.csv_exporter` and :mod:`src.json_exporter`\nand the dispatcher in :mod:`src.dispatcher` all funnel through\n:func:`export_rows`, which owns the single copy of the normalization and\nserialization rules.\n\"\"\"\n\nimport csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef normalize_rows(rows):\n    \"\"\"Return rows projected onto ``id`` and ``name``, preserving order.\n\n    Missing or ``None`` values become ``\"\"``; every other value is\n    stringified. ``rows`` is consumed exactly once, so one-shot iterables\n    are supported, and the input is never mutated.\n    \"\"\"\n    return [\n        {key: \"\" if row.get(key) is None else str(row[key]) for key in _FIELDS}\n        for row in rows\n    ]\n\n\ndef _serialize_csv(rows):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow([\"id\", \"name\"])\n    for row in rows:\n        writer.writerow([row[\"id\"], row[\"name\"]])\n    return buffer.getvalue()\n\n\ndef _serialize_json(rows):\n    return json.dumps(rows, ensure_ascii=False, separators=(\",\", \":\"))\n\n\ndef export_rows(rows, format):\n    \"\"\"Serialize ``rows`` in the requested ``format`` ('csv' or 'json').\n\n    Raises ValueError for any other format, before ``rows`` is consumed.\n    \"\"\"\n    if format == \"csv\":\n        return _serialize_csv(normalize_rows(rows))\n    if format == \"json\":\n        return _serialize_json(normalize_rows(rows))\n    raise ValueError(\"unsupported format\")\n",
+      "src/json_exporter.py": "\"\"\"Public JSON export entry point, backed by the shared exporter pipeline.\"\"\"\n\nfrom . import exporter\n\n\ndef export_json(rows):\n    \"\"\"Serialize ``rows`` as compact JSON text (``ensure_ascii=False``).\n\n    Delegates to :func:`src.exporter.export_rows` so normalization and\n    serialization live in one place.\n    \"\"\"\n    return exporter.export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/unified_exporter.py",
+      "src/csv_exporter.py",
+      "src/dispatcher.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 5,
+    "added_lines": 142,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04440625000279397
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04498945799423382,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.044098166981711984,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05052854199311696,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

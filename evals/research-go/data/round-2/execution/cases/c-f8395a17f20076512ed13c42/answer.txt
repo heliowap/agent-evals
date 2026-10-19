@@ -1,0 +1,22 @@
+**Verdict:** adopt long-syntax `depends_on` conditions for startup ordering, but do **not** promise availability through runtime DB failures.
+
+**Recommended (Compose 2.18.0)**
+- db: keep `healthcheck` + `restart: always` ([healthcheck](https://docs.docker.com/reference/compose-file/services/#healthcheck)).
+- migration: `depends_on: db: condition: service_healthy` ([control startup](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)).
+- api: `db: {condition: service_healthy, restart: true}` and `migration: {condition: service_completed_successfully}` ([depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)).
+
+Premise correction: short-form `depends_on` for db guarantees only that the dependency *started*; "Compose does not wait until a container is 'ready', only until it's running" ([control startup](https://docs.docker.com/compose/how-tos/startup-order/#control-startup)).
+
+**Not reliable on 2.18.0**
+- `required: false` for telemetry: introduced in Compose 2.20.0, so unavailable at 2.18.0 ([depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)). Use `profiles` or a separate Compose file instead (recommendation).
+- Runtime crashes: `restart: true` "applies to an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies" ([depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)) — so `restart: always` restarting db will **not** restart api.
+- Whether 2.18.0 accepts `service_completed_successfully`: no version gate is documented — **UNVERIFIED**; resolve via compose-spec/Compose v2.18 release notes.
+
+**Lifecycle split (documented)**
+- Container startup: dependency services started before dependents; health-gated ones verified healthy before dependent creation ([depends_on](https://docs.docker.com/reference/compose-file/services/#depends_on)).
+- Health/readiness: evaluated only when the dependent is created; no continuous enforcement documented.
+- Migration completion: `service_completed_successfully` gates api creation once.
+- Explicit operator restart (`docker compose restart db`): propagates to api via `restart: true` ([startup order](https://docs.docker.com/compose/how-tos/startup-order/#example)).
+- Runtime restart: not propagated (same citation).
+
+**Availability promise:** No. `depends_on` is a startup/Compose-mutation-time ordering mechanism; nothing documented sustains api readiness after db becomes unhealthy, and healthchecks do not trigger restarts. That healthchecks never restart containers is **UNVERIFIED** here; verify in Engine healthcheck docs. Required extras: app-level reconnect/retry, plus external health monitoring/orchestration.

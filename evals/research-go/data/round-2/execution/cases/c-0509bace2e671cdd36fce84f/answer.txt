@@ -1,0 +1,22 @@
+## Runner outcomes (no workspace)
+
+- **Runner A** — `auto` = `local+auto`. Module's `toolchain go1.21.9` is newer than the bundled 1.21.3, so the go command runs go1.21.9: it searches `$PATH`, finds no `go1.21.9`, then **downloads and caches** it. [select](https://go.dev/doc/toolchain#select), [config](https://go.dev/doc/toolchain#config)
+- **Runner B** — `GOTOOLCHAIN=local` always runs the bundled toolchain. A module declaring `go 1.21.9` exceeds 1.21.3, so it **refuses to load** and exits with an error. [select](https://go.dev/doc/toolchain#select)
+- **Runner C** — `GOTOOLCHAIN=go1.21.3+path` sets default=go1.21.3 and **disables the download fallback**. The suggested go1.21.9 is newer; PATH has no `go1.21.9`, so selection stops after the PATH search and **fails**. [select](https://go.dev/doc/toolchain#select)
+
+## go vs toolchain directive
+
+`go` is the **minimum required** version (mandatory since 1.21; toolchains refuse older). `toolchain` is a **suggested** toolchain, takes precedence over `go` when selecting, and **only takes effect in the main module/workspace**. A dependency's `toolchain` line is therefore ignored by downstream consumers; only its `go` line constrains them. [gomod-ref#toolchain](https://go.dev/doc/modules/gomod-ref#toolchain), [gomod-ref#go](https://go.dev/doc/modules/gomod-ref#go)
+
+## Correcting the proposal
+
+- **`GOSUMDB=off` breaks, not enables, auto downloads**: "toolchain downloads fail for lack of verification if GOSUMDB=off." `GOPRIVATE`/`GONOSUMDB` don't apply to toolchains. This also weakens ordinary module verification. [download](https://go.dev/doc/toolchain#download)
+- **`+path` is not "network-free"**: it only disables the *toolchain* download fallback; dependent-module fetches (GOPROXY) and checksum lookups still occur. That claim is **UNVERIFIED/contradicted** — resolve by auditing `go list -m`/`GOPROXY` behavior with tracing.
+
+## Recommendation
+
+Keep verification on: leave `GOSUMDB` at its default, and satisfy toolchain needs by **pre-installing the required `go1.21.9` binary on PATH** (or pinning `toolchain`/`go`), then use `+path` or `local` to forbid downloads. Mirror modules via `GOPROXY` rather than disabling checksums.
+
+## Guarantee not established
+
+Neither `local` nor `+path` verifies a **PATH-provided** toolchain: checksum verification applies to *downloaded* toolchain modules, not to a binary found in `$PATH`. These settings guarantee no-network toolchain selection, **not** toolchain authenticity. [name](https://go.dev/doc/toolchain#name), [download](https://go.dev/doc/toolchain#download)

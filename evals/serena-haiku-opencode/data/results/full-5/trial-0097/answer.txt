@@ -1,0 +1,24 @@
+I implemented batch import in the service and exposed it through the API. The public check and a new import check both pass.
+
+**Changes**
+
+- **`src/repository.py`**: added `contact_exists(connection, email)`. Existing functions are unchanged.
+- **`src/service.py`**: `import_contacts` validates the whole batch before touching the database.
+  - Each row must be a dict with exactly `email` and `name`, both strings.
+  - Both fields are trimmed. Email must contain exactly one `@`, with nonempty sides and no whitespace, and is lowercased. Name must be nonempty.
+  - Duplicate normalized emails in the batch raise `ValueError`.
+  - An empty batch returns `{'inserted': 0, 'updated': 0}`.
+  - All writes run in one `with connection:` block, so any database error rolls back the whole batch. An existing email counts as updated even when its name is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the key `contacts`, then delegates to `import_contacts`. `handle_add` is unchanged.
+- **`checks/import_checks.py`** (new): covers normalization, insert/update counting, empty batches, each rejection path, unchanged data after rejected batches, and rollback after a mid-batch database failure (forced with a trigger).
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/import_checks.py` passes.
+
+**Decisions beyond the spec**
+
+- The envelope check rejects extra top-level keys, not just a missing `contacts`. I read "malformed envelope" strictly; say if you'd rather allow extra keys.
+- `import_contacts` accepts a list or tuple for `rows` and raises `ValueError` otherwise.
+- Non-string `email` or `name` values raise `ValueError`.

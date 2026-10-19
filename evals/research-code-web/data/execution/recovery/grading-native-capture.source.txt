@@ -1,0 +1,169 @@
+import argparse
+import copy
+import datetime
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import urllib.parse
+import urllib.request
+
+HELPER = Path('/tmp/folders/T/opencode/grade-research-jobs.py')
+spec = importlib.util.spec_from_file_location('native_grade_capture_helper',HELPER)
+helper = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helper)
+from preparation.credentials import service_auth
+
+MODEL = {'providerID':'openai','id':'gpt-6.1-sol-fast','variant':'high'}
+
+
+def extract(messages,job,stage):
+    if not job['jobs']:
+        raise ValueError('job already completed; capture replay prohibited')
+    final = [m for m in messages if m['type']=='assistant' and m.get('finish')=='stop']
+    if len(final) != 1 or final[0]['model'] != MODEL:
+        raise ValueError('one completed final message on the exact retained controller is required')
+    message = final[0]
+    texts = [part['text'] for part in message['content'] if part['type']=='text']
+    if len(texts) != 1:
+        raise ValueError('one exact final-text JSON payload is required')
+    text = texts[0]
+    returned = helper.strict_json(text)
+    if isinstance(returned,dict) and len(job['jobs'])==1:
+        returned = [returned]
+    if not isinstance(returned,list) or len(returned)!=len(job['jobs']):
+        raise ValueError('native final judgment cardinality mismatch')
+    for value,item in zip(returned,job['jobs']):
+        packet = item['packet']
+        if value.get('blind_id')!=packet['blind_id'] or value.get('grader')!='openai/gpt-6.1-sol-fast#high':
+            raise ValueError('native final judgment identity/controller mismatch')
+        grade = value if stage=='base' else value.get('grade')
+        normalized,_ = helper.quote_encoding(grade,packet)
+        helper.validate_grade(normalized,packet)
+    return text,message
+
+
+def fetch_messages(session):
+    if not session.startswith('ses_'):
+        raise ValueError('actual subagent session ID required')
+    base,authorization = service_auth()
+    query = {'type':'assistant','limit':'100','order':'asc'}
+    messages,receipts,visited = [],[],set()
+    while True:
+        path = '/api/session/'+session+'/message?'+urllib.parse.urlencode(query)
+        request = urllib.request.Request(base+path,headers={'Authorization':authorization})
+        with urllib.request.urlopen(request,timeout=30) as response:
+            raw = response.read()
+        if authorization and authorization.encode() in raw:
+            raise ValueError('authentication appeared in response; nothing persisted')
+        page = json.loads(raw)
+        messages.extend(page['data'])
+        receipts.append({'path':path,'response_sha256':hashlib.sha256(raw).hexdigest()})
+        cursor = page['cursor']['next']
+        if not cursor:
+            return messages,receipts
+        if cursor in visited:
+            raise ValueError('repeated native-message pagination cursor')
+        visited.add(cursor)
+        query = {'type':'assistant','limit':'100','cursor':cursor}
+
+
+def capture(stage,number,session):
+    job = helper.pending_items(stage,number)
+    target = helper.directory(stage)/'raw'/f'job-{number:03d}.json'
+    receipt_path = helper.directory(stage)/f'job-{number:03d}-native-output.json'
+    if target.exists() or receipt_path.exists():
+        raise ValueError('native output already archived; no overwrite or inference retry')
+    exception = None
+    if stage == 'base' and number == 61:
+        permission_path = helper.directory(stage)/'job-061-regrading-authorization.json'
+        permission = helper.load(permission_path)
+        if (permission.get('semantic_regrading_exception_authorized') is not True
+                or permission.get('authorized_answer_count') != 2
+                or permission.get('pending_job_hash') != helper.digest(job)
+                or permission.get('blind_ids') != [item['packet']['blind_id'] for item in job['jobs']]
+                or permission.get('requested_fresh_controller') != 'openai/gpt-6.1-sol-fast#high'
+                or permission.get('original_failed_session_id') == session):
+            raise ValueError('job61 requires its exact user-authorized fresh grading exception')
+        for name,expected in permission['preservation_sha256'].items():
+            if hashlib.sha256((helper.ROOT/name).read_bytes()).hexdigest() != expected:
+                raise ValueError('a preserved pre-exception grade or record changed')
+        exception = {'path':permission_path.relative_to(helper.ROOT).as_posix(),
+                     'sha256':hashlib.sha256(permission_path.read_bytes()).hexdigest(),
+                     'original_failed_session_id':permission['original_failed_session_id'],
+                     'declared_fresh_grading_exception':True}
+    messages,requests = fetch_messages(session)
+    text,message = extract(messages,job,stage)
+    target.parent.mkdir(parents=True,exist_ok=True)
+    raw = text.encode()
+    with target.open('xb') as stream:
+        stream.write(raw)
+    proof = {
+        'captured_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'stage':stage,'job':number,'actual_session_id':session,
+        'native_message_id':message['id'],'native_controller':message['model'],
+        'native_finish':message['finish'],'source_requests':requests,
+        'raw_path':target.relative_to(helper.ROOT).as_posix(),
+        'raw_sha256':hashlib.sha256(raw).hexdigest(),'pending_job_hash':helper.digest(job),
+        'source':'Exact final assistant text from its scoped native session history.',
+        'semantic_labels_generated_by_collector':False,'json_repaired':False,
+        'new_model_calls':0,'candidate_reruns':0,
+    }
+    if exception:
+        proof['grading_recovery_exception'] = exception
+    helper.save(receipt_path,proof,immutable=True)
+    print(json.dumps({'status':'PASS','stage':stage,'job':number,'actual_session_id':session,
+                      'raw_path':str(target),'raw_sha256':proof['raw_sha256'],
+                      'native_controller':message['model'],'new_model_calls':0},indent=2))
+
+
+def verify():
+    from tests.grading.fixtures import study,base_grades
+    data = study()[4]
+    packets = [p for p in data['packets'].values() if p['completed']][:2]
+    grades = base_grades(data)
+    job = {'jobs':[{'packet':p} for p in packets]}
+    values = [grades[p['blind_id']] for p in packets]
+    message = {'id':'msg_fixture','type':'assistant','finish':'stop','model':MODEL,
+               'content':[{'type':'text','text':json.dumps(values)}]}
+    text,_ = extract([message],job,'base')
+    assert text == message['content'][0]['text']
+    cases = []
+    for name,mutate in [
+        ('wrong_controller',lambda m:m['model'].update(variant='low')),
+        ('incomplete_json',lambda m:m['content'][0].update(text='[{')),
+        ('narrative_instead_of_json',lambda m:m['content'][0].update(text='Saved grades.')),
+        ('wrong_job',lambda m:m['content'][0].update(text=json.dumps([{**values[0],'blind_id':'other'},values[1]]))),
+        ('unfinished_message',lambda m:m.update(finish='error')),
+    ]:
+        changed = copy.deepcopy(message)
+        mutate(changed)
+        try:
+            extract([changed],job,'base')
+        except ValueError:
+            cases.append(name)
+        else:
+            raise AssertionError(name+' accepted')
+    try:
+        extract([message,message],job,'base')
+    except ValueError:
+        cases.append('ambiguous_multiple_finals')
+    else:
+        raise AssertionError('ambiguous final accepted')
+    print(json.dumps({'status':'PASS','exact_fixture_payload_preserved':True,
+                      'rejected_cases':cases,'new_model_calls':0,'real_grades_generated':0},indent=2))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verify',action='store_true')
+    parser.add_argument('--stage',choices=['base','review','adjudication'])
+    parser.add_argument('--job',type=int)
+    parser.add_argument('--session-id')
+    args = parser.parse_args()
+    if args.verify:
+        verify()
+    else:
+        if args.stage is None or args.job is None or args.session_id is None:
+            parser.error('--stage, --job, and --session-id are required for capture')
+        capture(args.stage,args.job,args.session_id)

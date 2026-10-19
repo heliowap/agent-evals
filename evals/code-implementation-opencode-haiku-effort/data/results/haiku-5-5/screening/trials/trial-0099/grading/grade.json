@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { DocumentRepository } = require('../.build/repository');\n        const { DocumentService } = require('../.build/service');\n        const repo = new DocumentRepository([{ id: 'one', tenant: 'a', owner: 'u', deleted: false, archived: false }]);\n        const service = new DocumentService(repo); const admin = { tenant: 'a', user: 'u', role: 'admin' };\n        service.archive(admin, 'one'); assert.equal(repo.documents[0].archived, true);\n        service.archive(admin, 'one'); assert.deepEqual(repo.audit, [{ actor: 'u', document: 'one' }]);\n        assert.throws(() => service.archive(admin, 'missing'), /not found/);\n\n{\n  const { DocumentRepository: R } = require('../.build/repository');\n  const { DocumentService: S } = require('../.build/service');\n  const mk = (docs) => new R(docs);\n  const base = () => [\n    { id: 'own', tenant: 'a', owner: 'e', deleted: false, archived: false },\n    { id: 'other', tenant: 'a', owner: 'x', deleted: false, archived: false },\n    { id: 'del', tenant: 'a', owner: 'e', deleted: true, archived: false },\n    { id: 'foreign', tenant: 'b', owner: 'e', deleted: false, archived: false },\n    { id: 'arch', tenant: 'a', owner: 'x', deleted: false, archived: true },\n  ];\n  const admin = { tenant: 'a', user: 'adm', role: 'admin' };\n  const editor = { tenant: 'a', user: 'e', role: 'editor' };\n  const viewer = { tenant: 'a', user: 'e', role: 'viewer' };\n  // not found for missing/deleted/foreign, even for admin\n  for (const id of ['nope', 'del', 'foreign']) {\n    const r = mk(base()); const s = new S(r);\n    assert.throws(() => s.archive(admin, id), { message: 'not found' });\n    assert.deepEqual(r.audit, []);\n  }\n  // viewer never allowed\n  { const r = mk(base()); assert.throws(() => new S(r).archive(viewer, 'own'), { message: 'forbidden' }); assert.equal(r.documents[0].archived, false); assert.deepEqual(r.audit, []); }\n  // editor only own\n  { const r = mk(base()); assert.throws(() => new S(r).archive(editor, 'other'), { message: 'forbidden' }); assert.deepEqual(r.audit, []); }\n  { const r = mk(base()); new S(r).archive(editor, 'own'); assert.equal(r.documents[0].archived, true); assert.deepEqual(r.audit, [{ actor: 'e', document: 'own' }]); }\n  // admin any visible\n  { const r = mk(base()); new S(r).archive(admin, 'other'); assert.deepEqual(r.audit, [{ actor: 'adm', document: 'other' }]); }\n  // already archived: forbidden still enforced, no-op for permitted\n  { const r = mk(base()); assert.throws(() => new S(r).archive(viewer, 'arch'), { message: 'forbidden' }); assert.deepEqual(r.audit, []); }\n  { const r = mk(base()); new S(r).archive(admin, 'arch'); assert.deepEqual(r.audit, []); }\n  { const r = mk(base()); assert.throws(() => new S(r).archive(editor, 'arch'), { message: 'forbidden' }); assert.deepEqual(r.audit, []); }\n}\n",
+      "src/service.ts": "import { Actor } from './types';\nimport { DocumentRepository } from './repository';\nexport class DocumentService {\n  constructor(private readonly repository: DocumentRepository) {}\n  archive(actor: Actor, id: string): void {\n    const document = this.repository.find(id);\n    // Only active documents in the actor's tenant are visible; everything else is \"not found\".\n    if (!document || document.deleted || document.tenant !== actor.tenant) throw new Error('not found');\n    // Permission is enforced before the no-op check.\n    const allowed =\n      actor.role === 'admin' ||\n      (actor.role === 'editor' && document.owner === actor.user);\n    if (!allowed) throw new Error('forbidden');\n    if (document.archived) return;\n    this.repository.archive(document, actor.user);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 59,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.48961729201255366
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06398512504529208,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.059362542000599205,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

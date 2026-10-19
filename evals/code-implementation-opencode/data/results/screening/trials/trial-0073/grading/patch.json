@@ -1,0 +1,17 @@
+{
+  "files": {
+    "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.resource import Rows\nfrom src.service import stream_rows\nr = Rows([1, 2, 3])\nassert list(stream_rows(r, lambda value: value * 2)) == [2, 4, 6]\nassert (r.reads, r.closes) == (4, 1)\n\nfrom src.consumer import take\nr = Rows([1, 2, 3]); assert take(r, lambda v: v, 2) == [1, 2] and (r.reads, r.closes) == (2, 1)\nr = Rows([1]); assert take(r, lambda v: v, 0) == [] and (r.reads, r.closes) == (0, 0)\nr = Rows([1, 2]); g = stream_rows(r, lambda v: v); g.close(); assert (r.reads, r.closes) == (0, 0)\nr = Rows([1, 2]); g = stream_rows(r, lambda v: v); next(g); g.close(); g.close(); assert (r.reads, r.closes) == (1, 1)\ndef boom(v): raise ValueError(\"t\")\nr = Rows([1, 2])\ndef bad_close(): r.closes += 1; raise RuntimeError(\"c\")\nr.close = bad_close\ntry: list(stream_rows(r, boom)); assert 0\nexcept ValueError: pass\nassert (r.reads, r.closes) == (1, 1)\n",
+    "src/consumer.py": "from .service import stream_rows\n\ndef take(resource, transform, limit):\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    except BaseException:\n        try:\n            stream.close()\n        except BaseException:\n            pass\n        raise\n    stream.close()\n    return result\n",
+    "src/service.py": "def stream_rows(resource, transform):\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            value = transform(row)\n            yield value\n    except GeneratorExit:\n        # explicit close(): cleanup errors propagate\n        resource.close()\n        raise\n    except BaseException:\n        # active iteration/transform error wins over cleanup error\n        try:\n            resource.close()\n        except BaseException:\n            pass\n        raise\n    resource.close()\n"
+  },
+  "changed_files": [
+    "checks/public.py",
+    "src/consumer.py",
+    "src/service.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 3,
+  "added_lines": 60,
+  "removed_lines": 24
+}

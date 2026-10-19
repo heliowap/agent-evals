@@ -1,0 +1,135 @@
+{
+  "id": "trial-0110",
+  "configuration": "haiku-medium-native",
+  "effort": "medium",
+  "arm": "native",
+  "case": "py-atomic-import",
+  "role": "implementation",
+  "rep": 1,
+  "position": 2,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/test_import_contacts.py": "import os, sys, sqlite3, unittest\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\nfrom src.repository import initialize, list_contacts\nfrom src.service import add_contact, import_contacts\nfrom src.api import handle_add, handle_import\n\n\ndef fresh():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    return c\n\n\nclass ImportContactsTests(unittest.TestCase):\n    def test_empty_batch(self):\n        c = fresh()\n        self.assertEqual(import_contacts(c, []), {\"inserted\": 0, \"updated\": 0})\n\n    def test_insert_and_normalize(self):\n        c = fresh()\n        r = import_contacts(c, [{\"email\": \"  A@Example.COM \", \"name\": \"  Alice \"}])\n        self.assertEqual(r, {\"inserted\": 1, \"updated\": 0})\n        self.assertEqual(list_contacts(c), [(\"a@example.com\", \"Alice\")])\n\n    def test_existing_counts_as_updated_even_if_unchanged(self):\n        c = fresh()\n        add_contact(c, \"a@b.c\", \"Alice\")\n        r = import_contacts(c, [{\"email\": \"A@B.C\", \"name\": \"Alice\"}, {\"email\": \"x@y.z\", \"name\": \"X\"}])\n        self.assertEqual(r, {\"inserted\": 1, \"updated\": 1})\n        self.assertEqual(list_contacts(c), [(\"a@b.c\", \"Alice\"), (\"x@y.z\", \"X\")])\n\n    def test_update_name(self):\n        c = fresh()\n        add_contact(c, \"a@b.c\", \"Old\")\n        import_contacts(c, [{\"email\": \"a@b.c\", \"name\": \"New\"}])\n        self.assertEqual(list_contacts(c), [(\"a@b.c\", \"New\")])\n\n    def test_invalid_rows_reject_and_leave_db_unchanged(self):\n        bad_batches = [\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, \"not-a-dict\"],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"p@x.y\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"p@x.y\", \"name\": \"B\", \"extra\": 1}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"a@b@c\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"@c\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"b@\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"a b@c.d\", \"name\": \"B\"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"ab@c.d\", \"name\": \"   \"}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"ab@c.d\", \"name\": 5}],\n            [{\"email\": \"ok@x.y\", \"name\": \"A\"}, {\"email\": \"ok@X.y\", \"name\": \"dup\"}],\n        ]\n        for batch in bad_batches:\n            with self.subTest(batch=batch):\n                c = fresh()\n                add_contact(c, \"keep@x.y\", \"Keep\")\n                with self.assertRaises(ValueError):\n                    import_contacts(c, batch)\n                self.assertEqual(list_contacts(c), [(\"keep@x.y\", \"Keep\")])\n\n    def test_db_failure_rolls_back_whole_batch(self):\n        c = fresh()\n        add_contact(c, \"keep@x.y\", \"Keep\")\n        c.execute(\"CREATE TRIGGER boom BEFORE INSERT ON contacts WHEN NEW.email = 'z@z.z' \"\n                  \"BEGIN SELECT RAISE(ABORT, 'boom'); END\")\n        c.commit()\n        with self.assertRaises(sqlite3.DatabaseError):\n            import_contacts(c, [{\"email\": \"a@a.a\", \"name\": \"A\"},\n                                {\"email\": \"keep@x.y\", \"name\": \"Changed\"},\n                                {\"email\": \"z@z.z\", \"name\": \"Z\"}])\n        self.assertEqual(list_contacts(c), [(\"keep@x.y\", \"Keep\")])\n\n\nclass ApiImportTests(unittest.TestCase):\n    def test_envelope(self):\n        c = fresh()\n        self.assertEqual(handle_import(c, {\"contacts\": [{\"email\": \"a@b.c\", \"name\": \"A\"}]}),\n                         {\"inserted\": 1, \"updated\": 0})\n        for bad in [None, [], {}, {\"contacts\": None}, {\"contacts\": [], \"x\": 1}, {\"rows\": []}]:\n            with self.subTest(bad=bad):\n                with self.assertRaises(ValueError):\n                    handle_import(c, bad)\n\n    def test_add_still_works(self):\n        c = fresh()\n        self.assertEqual(handle_add(c, {\"email\": \"a@b\", \"name\": \"Alice\"}), {\"ok\": True})\n        self.assertEqual(list_contacts(c), [(\"a@b\", \"Alice\")])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+        "src/api.py": "from .service import add_contact, import_contacts\n\ndef handle_add(connection, payload):\n    add_contact(connection, payload[\"email\"], payload[\"name\"])\n    return {\"ok\": True}\n\ndef handle_import(connection, payload):\n    if not isinstance(payload, dict) or set(payload) != {\"contacts\"}:\n        raise ValueError(\"payload must be an object with exactly a 'contacts' field\")\n    contacts = payload[\"contacts\"]\n    if not isinstance(contacts, list):\n        raise ValueError(\"contacts must be a list\")\n    return import_contacts(connection, contacts)\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE contacts (email TEXT PRIMARY KEY, name TEXT NOT NULL)\")\n    connection.commit()\n\ndef list_contacts(connection):\n    return connection.execute(\"SELECT email, name FROM contacts ORDER BY email\").fetchall()\n\ndef put_contact(connection, email, name):\n    connection.execute(\"INSERT INTO contacts VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET name=excluded.name\", (email, name))\n\ndef find_existing_emails(connection, emails):\n    emails = list(emails)\n    found = set()\n    for start in range(0, len(emails), 500):\n        chunk = emails[start:start + 500]\n        placeholders = \",\".join(\"?\" * len(chunk))\n        rows = connection.execute(\n            f\"SELECT email FROM contacts WHERE email IN ({placeholders})\", chunk\n        ).fetchall()\n        found.update(row[0] for row in rows)\n    return found\n",
+        "src/service.py": "from .repository import find_existing_emails, put_contact\n\n_ROW_FIELDS = frozenset({\"email\", \"name\"})\n\ndef add_contact(connection, email, name):\n    with connection:\n        put_contact(connection, email, name)\n\ndef _normalize_row(row):\n    if not isinstance(row, dict):\n        raise ValueError(\"row must be an object\")\n    keys = set(row)\n    if keys != _ROW_FIELDS:\n        missing = sorted(_ROW_FIELDS - keys)\n        unknown = sorted(str(k) for k in keys - _ROW_FIELDS)\n        raise ValueError(f\"row must have exactly email and name; missing={missing} unknown={unknown}\")\n    email, name = row[\"email\"], row[\"name\"]\n    if not isinstance(email, str) or not isinstance(name, str):\n        raise ValueError(\"email and name must be strings\")\n    email = email.strip().lower()\n    name = name.strip()\n    if email.count(\"@\") != 1:\n        raise ValueError(f\"email must contain exactly one '@': {email!r}\")\n    local, domain = email.split(\"@\")\n    if not local or not domain:\n        raise ValueError(f\"email must have nonempty sides around '@': {email!r}\")\n    if any(ch.isspace() for ch in email):\n        raise ValueError(f\"email must not contain whitespace: {email!r}\")\n    if not name:\n        raise ValueError(\"name must not be empty\")\n    return email, name\n\ndef import_contacts(connection, rows):\n    if not isinstance(rows, (list, tuple)):\n        raise ValueError(\"rows must be a list\")\n    normalized = []\n    seen = set()\n    for row in rows:\n        email, name = _normalize_row(row)\n        if email in seen:\n            raise ValueError(f\"duplicate email in batch: {email!r}\")\n        seen.add(email)\n        normalized.append((email, name))\n    if not normalized:\n        return {\"inserted\": 0, \"updated\": 0}\n    with connection:\n        existing = find_existing_emails(connection, seen)\n        inserted = updated = 0\n        for email, name in normalized:\n            if email in existing:\n                updated += 1\n            else:\n                inserted += 1\n            put_contact(connection, email, name)\n    return {\"inserted\": inserted, \"updated\": updated}\n"
+      },
+      "changed_files": [
+        "checks/test_import_contacts.py",
+        "src/api.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 4,
+      "added_lines": 178,
+      "removed_lines": 25
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.04329220799263567
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.0467015000176616,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.04448120796587318,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 47.96684524999,
+  "preparation_s": 1.4715878329589032,
+  "export_s": 0.31084062496665865,
+  "grading_s": 0.2800059170112945,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "used": false,
+    "tool_calls": 0,
+    "useful_successful_calls": 0,
+    "errors": 0,
+    "catalog_ready_s": null
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 5,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_06b42c7bfce3512723ec",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "medium"
+  },
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 4377,
+    "reasoning_tokens": 2965,
+    "cached_input_tokens": 14522,
+    "cache_write_tokens": 8743
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 4,
+  "error_events": [],
+  "reported_cost_usd": 0.004910095,
+  "total_trial_s": 50.11122904199874
+}

@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { OrderHandler } = require('../.build/handler');\n        const { OrderRepository } = require('../.build/repository');\n        const handler = new OrderHandler(new OrderRepository([\n          { id: 'b', tenant: 'a', createdAt: '2026-01-02', total: 2 },\n          { id: 'x', tenant: 'b', createdAt: '2026-01-01', total: 3 },\n          { id: 'a', tenant: 'a', createdAt: '2026-01-01', total: 1 }\n        ]));\n        assert.deepEqual(handler.list({ tenant: 'a', limit: 1 }).items.map(x => x.id), ['a']);\n        assert.throws(() => handler.list({ tenant: 'a', limit: 0 }), /invalid request/);\n\nassert.equal(handler.list({ tenant: 'a', limit: 1 }).nextCursor, '2026-01-01|a');\nassert.deepEqual(handler.list({ tenant: 'a', limit: 1, cursor: '2026-01-01|a' }), {\n  items: [{ id: 'b', tenant: 'a', createdAt: '2026-01-02', total: 2 }], nextCursor: null\n});\n\nconst rows = Object.freeze([\n  { id: 'b', tenant: 'a', createdAt: '2026-01-01', total: 1 },\n  { id: 'z', tenant: 'b', createdAt: '2026-01-02', total: 2 },\n  { id: 'a', tenant: 'a', createdAt: '2026-01-01', total: 3 },\n  { id: 'Z', tenant: 'a', createdAt: '2026-01-01', total: 4 },\n  { id: 'c', tenant: 'a', createdAt: '2026-01-02', total: 5 }\n].map(Object.freeze));\nconst snapshot = JSON.stringify(rows);\nconst paginated = new OrderHandler(new OrderRepository(rows));\nlet cursor;\nconst ids = [];\ndo {\n  const page = paginated.list({ tenant: 'a', limit: 1, cursor });\n  ids.push(...page.items.map(row => row.id));\n  cursor = page.nextCursor;\n} while (cursor !== null);\nassert.deepEqual(ids, ['Z', 'a', 'b', 'c']);\nassert.equal(JSON.stringify(rows), snapshot);\n// Resume using the pair, not a lookup: the row may be absent or in another tenant.\nassert.deepEqual(paginated.list({ tenant: 'a', limit: 100, cursor: '2026-01-01|aa' }).items.map(row => row.id), ['b', 'c']);\nassert.deepEqual(paginated.list({ tenant: 'a', limit: 100, cursor: '2026-01-02|z' }), { items: [], nextCursor: null });\nassert.deepEqual(paginated.list({ tenant: 'missing', limit: 1 }), { items: [], nextCursor: null });\nassert.equal(paginated.list({ tenant: 'a', limit: 4 }).nextCursor, null);\nfor (const cursor of ['', '|', 'date|', '|id', 'date', 'date|id|extra', null, 42]) {\n  assert.throws(() => paginated.list({ tenant: 'a', limit: 1, cursor }), /^Error: invalid request$/);\n}\nfor (const limit of [0, -1, 101, 1.5, NaN, Infinity, '1']) {\n  assert.throws(() => paginated.list({ tenant: 'a', limit }), /^Error: invalid request$/);\n}\nassert.throws(() => paginated.list({ tenant: '', limit: 1 }), /^Error: invalid request$/);\n",
+      "src/handler.ts": "import { OrderRepository } from './repository';\nimport { ListRequest, Order, Page } from './types';\nexport class OrderHandler {\n  constructor(private readonly repository: OrderRepository) {}\n  list(request: ListRequest): Page {\n    if (!request.tenant || !Number.isInteger(request.limit) || request.limit < 1 || request.limit > 100) {\n      throw new Error('invalid request');\n    }\n    let after: Pick<Order, 'createdAt' | 'id'> | undefined;\n    if (request.cursor !== undefined) {\n      if (typeof request.cursor !== 'string') throw new Error('invalid request');\n      const parts = request.cursor.split('|');\n      if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error('invalid request');\n      after = { createdAt: parts[0], id: parts[1] };\n    }\n    const remaining = this.repository.list(request.tenant, after);\n    const items = remaining.slice(0, request.limit);\n    const last = items[items.length - 1];\n    return {\n      items,\n      nextCursor: remaining.length > items.length ? `${last.createdAt}|${last.id}` : null\n    };\n  }\n}\n",
+      "src/repository.ts": "import { Order } from './types';\nexport class OrderRepository {\n  constructor(private readonly rows: Order[]) {}\n  list(tenant: string, after?: Pick<Order, 'createdAt' | 'id'>): Order[] {\n    return this.rows.filter(row => row.tenant === tenant)\n      .filter(row => !after || row.createdAt > after.createdAt ||\n        (row.createdAt === after.createdAt && row.id > after.id))\n      .sort((a, b) =>\n        a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/handler.ts",
+      "src/repository.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 82,
+    "removed_lines": 30
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5096533749892842
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.049491292011225596,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.050525958999060094,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

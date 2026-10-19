@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/transfer.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, balance\nfrom src.service import transfer\nfrom src.events import Recorder\n\ndef setup():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\n    c.commit()\n    return c\n\ndef state(c):\n    return (balance(c, \"a\"), balance(c, \"b\"), c.execute(\"SELECT count(*) FROM ledger\").fetchone()[0])\n\nfor args in [(\"a\",\"a\",1),(\"a\",\"x\",1),(\"x\",\"a\",1),(\"a\",\"b\",0),(\"a\",\"b\",-1),(\"a\",\"b\",True),(\"a\",\"b\",1.0),(\"a\",\"b\",101)]:\n    c = setup(); p = Recorder()\n    try: transfer(c, p, *args); raise SystemExit(\"no error %r\" % (args,))\n    except ValueError: pass\n    assert state(c) == (100, 20, 0) and p.events == [] and not c.in_transaction\n\nc = setup(); p = Recorder(); transfer(c, p, \"a\", \"b\", 100)\nassert state(c) == (0, 120, 1) and len(p.events) == 1\n\nclass Bad:\n    def publish(self, e): raise RuntimeError(\"x\")\nc = setup()\ntry: transfer(c, Bad(), \"a\", \"b\", 5); raise SystemExit(\"no error\")\nexcept RuntimeError: pass\nassert state(c) == (95, 25, 1) and not c.in_transaction\n\nclass Conn:\n    def __init__(self, c, fail): self.c, self.fail = c, fail\n    def execute(self, sql, *a):\n        if self.fail in sql: raise sqlite3.OperationalError(\"boom\")\n        return self.c.execute(sql, *a)\n    def commit(self):\n        if self.fail == \"COMMIT\": raise sqlite3.OperationalError(\"boom\")\n        self.c.commit()\n    def rollback(self): self.c.rollback()\nfor fail in [\"UPDATE accounts SET balance=balance-\", \"UPDATE accounts SET balance=balance+\", \"INSERT\", \"COMMIT\"]:\n    c = setup(); p = Recorder()\n    try: transfer(Conn(c, fail), p, \"a\", \"b\", 5); raise SystemExit(\"no error\")\n    except sqlite3.OperationalError: pass\n    assert state(c) == (100, 20, 0) and p.events == [], fail\nprint(\"ok\")\n",
+      "src/repository.py": "def initialize(connection):\n    connection.executescript(\"CREATE TABLE accounts(id TEXT PRIMARY KEY, balance INTEGER NOT NULL); CREATE TABLE ledger(source TEXT, target TEXT, amount INTEGER);\")\n    connection.commit()\n\ndef balance(connection, account):\n    row = connection.execute(\"SELECT balance FROM accounts WHERE id=?\", (account,)).fetchone()\n    return None if row is None else row[0]\n\ndef move(connection, source, target, amount):\n    \"\"\"Validate and apply a transfer inside the caller's open transaction.\n\n    Raises ValueError (before any write) for missing accounts or insufficient funds.\n    \"\"\"\n    src = balance(connection, source)\n    if src is None or balance(connection, target) is None:\n        raise ValueError(\"unknown account\")\n    if amount > src:\n        raise ValueError(\"insufficient funds\")\n    connection.execute(\"UPDATE accounts SET balance=balance-? WHERE id=?\", (amount, source))\n    connection.execute(\"UPDATE accounts SET balance=balance+? WHERE id=?\", (amount, target))\n    connection.execute(\"INSERT INTO ledger VALUES (?, ?, ?)\", (source, target, amount))\n",
+      "src/service.py": "from .repository import move\n\n\ndef transfer(connection, publisher, source, target, amount):\n    if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n    try:\n        connection.execute(\"BEGIN IMMEDIATE\")\n        move(connection, source, target, amount)\n        connection.commit()\n    except BaseException:\n        connection.rollback()\n        raise\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\n"
+    },
+    "changed_files": [
+      "checks/transfer.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 85,
+    "removed_lines": 18
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.054288540995912626
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.048144041997147724,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05344283301383257,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,19 @@
+{
+  "files": {
+    "checks/exporter.py": "import copy\nimport os\nimport sys\nfrom unittest.mock import patch\n\nsys.path.insert(0, os.getcwd())\nfrom src.csv_exporter import export_csv\nfrom src.dispatcher import export\nfrom src.exporter import export_rows\nfrom src.json_exporter import export_json\n\nrows = [\n    {\"id\": 0, \"name\": 'Zoë, \"hello\"\\nworld', \"extra\": \"ignored\"},\n    {\"id\": None, \"name\": False},\n    {\"name\": None},\n    {\"id\": 12},\n]\noriginal = copy.deepcopy(rows)\nexpected = {\n    \"csv\": 'id,name\\n0,\"Zoë, \"\"hello\"\"\\nworld\"\\n,False\\n,\\n12,\\n',\n    \"json\": '[{\"id\":\"0\",\"name\":\"Zoë, \\\\\"hello\\\\\"\\\\nworld\"},'\n    '{\"id\":\"\",\"name\":\"False\"},{\"id\":\"\",\"name\":\"\"},'\n    '{\"id\":\"12\",\"name\":\"\"}]',\n}\nfor format, wrapper in ((\"csv\", export_csv), (\"json\", export_json)):\n    for entry in (wrapper, lambda rows: export_rows(rows, format),\n                  lambda rows: export(rows, format)):\n        assert entry(iter(rows)) == expected[format]\n        assert entry(iter(())) == (\"id,name\\n\" if format == \"csv\" else \"[]\")\nassert rows == original\n\nfor entry in (export_rows, export):\n    try:\n        entry(None, \"xml\")\n    except ValueError as error:\n        assert str(error) == \"unsupported format\"\n    else:\n        raise AssertionError(\"unsupported format accepted\")\n\nfor module, wrapper, format in (\n    (\"src.csv_exporter\", export_csv, \"csv\"),\n    (\"src.json_exporter\", export_json, \"json\"),\n):\n    with patch(module + \".export_rows\", return_value=\"shared\") as shared:\n        assert wrapper(rows) == \"shared\"\n        shared.assert_called_once_with(rows, format)\n",
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/exporter.py": "import csv\nimport io\nimport json\n\n\ndef _normalize_rows(rows):\n    for row in rows:\n        yield {\n            key: \"\" if row.get(key) is None else str(row[key])\n            for key in (\"id\", \"name\")\n        }\n\n\ndef export_rows(rows, format):\n    if format not in (\"csv\", \"json\"):\n        raise ValueError(\"unsupported format\")\n\n    clean = _normalize_rows(rows)\n    if format == \"json\":\n        return json.dumps(list(clean), ensure_ascii=False, separators=(\",\", \":\"))\n\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow([\"id\", \"name\"])\n    writer.writerows((row[\"id\"], row[\"name\"]) for row in clean)\n    return buffer.getvalue()\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "checks/exporter.py",
+    "src/csv_exporter.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 4,
+  "added_lines": 82,
+  "removed_lines": 18
+}

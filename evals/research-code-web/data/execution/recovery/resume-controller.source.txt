@@ -1,0 +1,321 @@
+import argparse
+from collections import Counter
+import copy
+import datetime
+import fcntl
+import hashlib
+import importlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+
+ROOT = Path('~/VSCode/Lab/evals/research-eval-design-20261007T184125Z')
+sys.path.insert(0, str(ROOT))
+from preparation.credentials import load
+from preparation.freeze import check
+from preparation.run import public_task, gate_status
+from harness.core.audit import audit_execution
+from harness.core.storage import reserve, terminal, write, sanitize, secrets
+from harness.core.supervisor import supervise_trial
+
+
+def now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def reconcile(index, schedule, reservations, terminals, records):
+    expected = schedule['trials']
+    if len(expected) != 648 or len({t['id'] for t in expected}) != 648:
+        raise ValueError('schedule count or identity differs from authorization')
+    ids = [row['trial_id'] for row in reservations]
+    if len(ids) != len(set(ids)):
+        raise ValueError('duplicate reservations')
+    if ids != [t['id'] for t in expected[:len(ids)]]:
+        raise ValueError('reservations do not form the frozen schedule prefix')
+    ended = [row['trial_id'] for row in terminals]
+    if len(ended) != len(set(ended)) or set(ended) != set(ids):
+        raise ValueError('unclosed/ambiguous reservation; automatic replay prohibited')
+    if set(records) != set(ids):
+        raise ValueError('record inventory mismatch')
+    paths = []
+    gates = {}
+    for trial in expected[:len(ids)]:
+        record = records[trial['id']]
+        if record['trial'] != trial or record['status'] == 'running':
+            raise ValueError('record is nonterminal or does not match frozen trial')
+        if record.get('stop_dispatch') or record.get('attempted') is False:
+            raise ValueError('mandatory prior stop requires a separately revised protocol')
+        paths.append(f"execution/trials/{trial['id']}/record.json")
+        key = trial['suite'] + '/' + trial['configuration_id']
+        gates.setdefault(key, {'trial_id': trial['id'], 'status': gate_status(record)})
+    if index.get('stop') or index['status'] not in ('running', 'interrupted'):
+        raise ValueError('prior explicit stop or completed study cannot be resumed here')
+    if index['records'] != paths[:len(index['records'])]:
+        raise ValueError('index does not match ledger prefix')
+    if index['terminal_trials'] != len(index['records']) or index['attempted_trials'] != len(ids):
+        raise ValueError('index counters need more than terminal reconciliation')
+    result = copy.deepcopy(index)
+    result.update(records=paths, terminal_trials=len(ids), attempted_trials=len(ids), gates=gates)
+    return result
+
+
+def no_active_workers():
+    pattern = r'harness.core.worker|preparation.run|preparation.finalize|resume-research-eval\.py --execute'
+    result = subprocess.run(['pgrep', '-fl', pattern], capture_output=True, text=True)
+    if result.returncode not in (0, 1):
+        raise RuntimeError('cannot establish absence of active workers')
+    pids = []
+    for line in result.stdout.splitlines():
+        pid = int(line.split(' ', 1)[0])
+        if pid != os.getpid():
+            pids.append(pid)
+    if pids:
+        raise RuntimeError('existing evaluation process detected: ' + str(pids))
+    return {'observed_utc': now(), 'other_matching_processes': 0,
+            'scope': 'Present-time process absence, not a claim about historical wait/drain.'}
+
+
+def audit_real():
+    check(ROOT)
+    directory = ROOT / 'execution'
+    runtime = json.loads((ROOT / 'contracts/runtime.json').read_text())
+    schedule = json.loads((ROOT / 'schedule.json').read_text())
+    index = json.loads((directory / 'index.json').read_text())
+    rows = [json.loads(line) for line in (directory / 'ledger.jsonl').read_text().splitlines() if line.strip()]
+    reserved = [row for row in rows if row['event'] == 'reserve']
+    ended = [row for row in rows if row['event'] == 'terminal']
+    records = {}
+    missing_receipts = []
+    ended_map = {row['trial_id']: row for row in ended}
+    for row in reserved:
+        path = directory / 'trials' / row['trial_id'] / 'record.json'
+        if row['trial_id'] not in ended_map:
+            raise RuntimeError('unterminated trial: no inference or replay permitted')
+        if hashlib.sha256(path.read_bytes()).hexdigest() != ended_map[row['trial_id']]['record_sha256']:
+            raise RuntimeError('immutable terminal hash mismatch')
+        record = json.loads(path.read_text())
+        records[row['trial_id']] = record
+        receipt = path.parent / 'supervisor-receipt.json'
+        if receipt.exists():
+            value = json.loads(receipt.read_text())
+            if value.get('stop_dispatch') or not all(value.get('cleanup', {}).get(k) for k in ('group_absent','drained','waited')):
+                raise RuntimeError('recorded supervisor cleanup fault')
+        else:
+            missing_receipts.append(record['trial']['index'])
+    repaired = reconcile(index, schedule, reserved, ended, records)
+    if missing_receipts and missing_receipts != [len(reserved)]:
+        raise RuntimeError('missing receipts extend beyond interrupted final checkpoint')
+    for trial in schedule['trials'][len(reserved):]:
+        path = directory / 'trials' / trial['id']
+        if path.exists():
+            raise RuntimeError('unreserved future trial directory: review before resuming')
+    audit = audit_execution(directory, runtime)
+    if audit['status'] != 'passed' or audit['trials'] != len(records):
+        raise RuntimeError('execution audit failed: ' + json.dumps(audit))
+    process_proof = no_active_workers()
+    observation = {'observed_utc': now(), 'durable_terminals': len(records),
+                   'indexed_terminals_before_recovery': index['terminal_trials'],
+                   'next_trial_index': len(records) + 1, 'remaining_trials': 648-len(records),
+                   'execution_audit': audit, 'present_process_proof': process_proof,
+                   'historically_missing_supervisor_receipts': missing_receipts,
+                   'historical_wait_drain': 'UNVERIFIED for missing receipt; no receipt is fabricated.',
+                   'interruption_cause': 'UNVERIFIED: original task output unavailable.',
+                   'candidate_calls_during_recovery_validation': 0}
+    return repaired, schedule, runtime, observation
+
+
+def validate_service(credentials, search):
+    if credentials['service_url'] != search['service_base_url']:
+        raise RuntimeError('frozen search service changed; no inference dispatched')
+    headers = {'Authorization': credentials['WEBSEARCH_SERVICE_AUTH']}
+    base = search['service_base_url']
+    def get(path):
+        with urllib.request.urlopen(urllib.request.Request(base+path, headers=headers), timeout=20) as response:
+            return json.loads(response.read())
+    info = get('/api/info')
+    if info.get('version') != search['service_version']:
+        raise RuntimeError('search service version changed; no inference dispatched')
+    query = urllib.parse.urlencode({'location[directory]': search['location_directory']})
+    providers = get('/api/websearch/provider?'+query)
+    if search['provider_id'] not in {item['id'] for item in providers['data']}:
+        raise RuntimeError('fixed existing search provider is not registered')
+    return {'observed_utc': now(), 'version': info['version'], 'fixed_provider': search['provider_id'],
+            'metadata_get_requests': 2, 'search_requests': 0, 'candidate_calls': 0}
+
+
+def hygiene(directory, credentials):
+    hidden = [credentials['opencode-go'], credentials['cli_proxy_google'], credentials['WEBSEARCH_SERVICE_AUTH']]
+    hidden.append(credentials['WEBSEARCH_SERVICE_AUTH'].split(' ',1)[-1])
+    leaks = []
+    for path in directory.rglob('*'):
+        if path.is_file():
+            raw = path.read_bytes()
+            if any(value.encode() in raw for value in hidden if value):
+                leaks.append(path.relative_to(ROOT).as_posix())
+    return {'secret_matches': len(leaks), 'paths': leaks, 'credential_store_copied': False,
+            'worker_store_access': False, 'credential_sources': 'unchanged parent-owned existing credential plumbing'}
+
+
+def execute():
+    directory = ROOT / 'execution'
+    recovery = directory / 'recovery'
+    recovery.mkdir(exist_ok=True, mode=0o700)
+    with (recovery / 'controller.lock').open('a+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        index, schedule, runtime, observation = audit_real()
+        credentials = load()
+        search = json.loads((ROOT / 'contracts/search.json').read_text())
+        service = validate_service(credentials, search)
+        cleanliness = hygiene(directory, credentials)
+        if cleanliness['secret_matches']:
+            raise RuntimeError('credential hygiene failed; no inference dispatched')
+        review = json.loads((recovery / 'preflight-review.json').read_text())
+        if not review.get('passed') or review.get('script_sha256') != hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
+            raise RuntimeError('resume controller lacks an independent passing review')
+        timestamp = now().replace(':','').replace('.','-')
+        prefix = 'resume-' + timestamp
+        before = {'index': json.loads((directory / 'index.json').read_text()), 'observation': observation,
+                  'service_validation': service, 'hygiene': cleanliness,
+                  'authorization': 'User: retome o trial; resume only never-reserved slots, no replay.',
+                  'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+        write(recovery, prefix+'-checkpoint.json', before, exclusive=True)
+        index.update(status='running', resumed_utc=now(), recovery_log='execution/recovery/runner.log',
+                     interruptions=[*index.get('interruptions',[]), observation],
+                     recovery_controller={'pid': os.getpid(), 'pgid': os.getpgrp(), 'start_utc': now()})
+        historical_limit = index.get('recovery_integrity_limit')
+        if observation['historically_missing_supervisor_receipts']:
+            historical_limit = {'reason':'supervisor_cleanup_failure',
+                                'trial_indices':observation['historically_missing_supervisor_receipts'],
+                                'scope':'Historical wait/drain cannot be certified; present process absence permits only explicitly authorized never-reserved trials.',
+                                'resolved_for_safe_resume':True,'historical_integrity_verified':False}
+            index['recovery_integrity_limit'] = historical_limit
+        write(directory, 'index.json', index)
+        tasks = {}
+        for suite in ('web','code'):
+            tasks.update({item['id']: public_task(item) for item in json.loads((ROOT/f'tasks/{suite}/tasks.json').read_text())})
+        configurations = {item['id']: item for item in runtime['configurations']}
+        stop = None
+        print(json.dumps({'resumed_from':observation['next_trial_index'], 'preserved_trials':observation['durable_terminals'],
+                          'remaining_trials':observation['remaining_trials'],'original_candidate_code_unchanged':True}),flush=True)
+        try:
+            for trial in schedule['trials'][observation['durable_terminals']:]:
+                task = tasks[trial['task_id']]
+                module = importlib.import_module('harness.tools.'+trial['suite'])
+                context = {'search_contract':search} if trial['suite']=='web' else {
+                    'snapshot_root':str((ROOT/'corpus'/task['snapshot_id']).resolve()),
+                    'manifest':json.loads((ROOT/'corpus-manifests'/(task['snapshot_id']+'.json')).read_text())}
+                case = directory/'trials'/trial['id']
+                spec = {'trial':trial,'task':task,'configuration':configurations[trial['configuration_id']],
+                        'runtime':runtime,'tools':module.tools(),'tool_context':context,
+                        'directory':str(case),'ledger_path':str(directory/'ledger.jsonl')}
+                if stop:
+                    record = reserve(spec,{})
+                    record.update(status='not_run_stop', errors=[{'study_stop':stop}], attempted=False)
+                    record = terminal(spec,record,[])
+                else:
+                    route = {'api_key':credentials[configurations[trial['configuration_id']]['provider']]}
+                    if trial['suite']=='web':
+                        route['environment']={'WEBSEARCH_SERVICE_AUTH':credentials['WEBSEARCH_SERVICE_AUTH']}
+                    index['attempted_trials'] += 1
+                    write(directory,'index.json',index)
+                    record = supervise_trial(spec,route)
+                    receipt_path = case/'supervisor-receipt.json'
+                    receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
+                    if record.get('stop_dispatch'):
+                        stop = {'trial_id':trial['id'],'index':trial['index'],'reason':record['status']}
+                    elif not receipt or receipt.get('stop_dispatch') or not all(receipt.get('cleanup',{}).get(k) for k in ('group_absent','drained','waited')):
+                        stop = {'trial_id':trial['id'],'index':trial['index'],'reason':'supervisor_cleanup_failure'}
+                    print(json.dumps({'index':trial['index'],'suite':trial['suite'],'configuration':trial['configuration_id'],
+                                      'status':record['status'],'wall_seconds':round(record['wall_seconds'],2),
+                                      'requests':len(record['requests']),'tools':len(record['tool_calls'])}),flush=True)
+                key = trial['suite']+'/'+trial['configuration_id']
+                index['gates'].setdefault(key,{'trial_id':trial['id'],
+                                              'status':gate_status(record) if record.get('attempted') is not False else 'not_run'})
+                index['records'].append((case/'record.json').relative_to(ROOT).as_posix())
+                index['terminal_trials'] += 1
+                index['stop'] = stop
+                write(directory,'index.json',index)
+            final_stop = stop or historical_limit
+            index.update(status='incomplete' if final_stop else 'candidate_execution_complete',
+                         stop=final_stop,finished_utc=now())
+            index['status_counts']=dict(Counter(json.loads((ROOT/name).read_text())['status'] for name in index['records']))
+            index['credential_hygiene']=hygiene(directory,credentials)
+            if index['credential_hygiene']['secret_matches']:
+                index.update(status='incomplete',stop={'reason':'credential_hygiene_failure'})
+            check(ROOT)
+            write(directory,'index.json',index)
+            write(recovery,prefix+'-finished.json',{'status':index['status'],'terminal_trials':index['terminal_trials'],
+                                                  'attempted_trials':index['attempted_trials'],'stop':index['stop'],
+                                                  'freeze_unchanged':True},exclusive=True)
+            print(json.dumps({k:index[k] for k in ('status','terminal_trials','attempted_trials','status_counts','stop')},indent=2),flush=True)
+        except BaseException as error:
+            # Do not manufacture a terminal or replay any in-flight reservation.
+            index['status']='interrupted'
+            index['recovery_failure_utc']=now()
+            index['recovery_failure']=sanitize(type(error).__name__+': '+str(error),secrets(credentials))
+            write(directory,'index.json',index)
+            print(json.dumps({'status':'interrupted','error':index['recovery_failure'],'retries':0}),flush=True)
+            raise
+
+
+def verify():
+    schedule = {'trials':[{'id':f't-{n}','index':n,'suite':'web','configuration_id':'fixture'} for n in range(1,649)]}
+    trial = schedule['trials'][0]
+    record = {'trial':trial,'status':'completed','requests':[],'tool_calls':[],'operational_complete':True}
+    index = {'status':'running','stop':None,'records':[],'terminal_trials':0,'attempted_trials':1}
+    repaired = reconcile(index,schedule,[{'trial_id':'t-1'}],[{'trial_id':'t-1'}],{'t-1':record})
+    assert repaired['terminal_trials']==1 and index['terminal_trials']==0
+    assert repaired['records']==['execution/trials/t-1/record.json']
+    cases = [([],{}),([{'trial_id':'t-1'},{'trial_id':'t-1'}],{'t-1':record})]
+    for ended, records in cases:
+        try:
+            reconcile(index,schedule,[{'trial_id':'t-1'}],ended,records)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('unsafe reconciliation accepted')
+    for field,value in [('stop_dispatch',True),('attempted',False)]:
+        invalid={**record,field:value}
+        try:
+            reconcile(index,schedule,[{'trial_id':'t-1'}],[{'trial_id':'t-1'}],{'t-1':invalid})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('prior mandatory fault replay accepted')
+    repaired,schedule,runtime,observation=audit_real()
+    print(json.dumps({'status':'PASS','offline_reconciliation_tests':5,'observation':observation},indent=2))
+
+
+def launch_and_wait():
+    recovery=ROOT/'execution/recovery'
+    recovery.mkdir(exist_ok=True,mode=0o700)
+    path=recovery/'runner.log'
+    with path.open('ab',buffering=0) as log:
+        process=subprocess.Popen([sys.executable,'-B',str(Path(__file__).resolve()),'--execute'],
+                                 cwd=ROOT,stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
+        write(recovery,'launcher.json',{'pid':process.pid,'pgid':process.pid,'launched_utc':now(),
+                                       'log':str(path),'detached_process_group':True,
+                                       'scope':'No daemon, service, installed package or OpenCode configuration change.'})
+    print(json.dumps({'launched_pid':process.pid,'persistent_log':str(path),'detached_process_group':True}),flush=True)
+    result=process.wait()
+    print(json.dumps({'controller_exit_code':result,'persistent_log':str(path)}),flush=True)
+    return result
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    group=parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--verify',action='store_true')
+    group.add_argument('--execute',action='store_true')
+    group.add_argument('--launch-and-wait',action='store_true')
+    args=parser.parse_args()
+    if args.verify:
+        verify()
+    elif args.execute:
+        execute()
+    else:
+        raise SystemExit(launch_and_wait())

@@ -1,0 +1,262 @@
+import argparse
+from collections import Counter
+import copy
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+ROOT = Path('~/VSCode/Lab/evals/research-eval-design-20261007T184125Z')
+WORK = ROOT / 'controller-work/agent-grading'
+sys.path.insert(0, str(ROOT))
+from preparation.controller import strict_json
+from preparation.finalize import quote_encoding, batches
+from preparation.freeze import check
+from grading import pack_jobs, validate_grade, seal_base, seal_final
+from grading.common import load, save, digest, verify_signed
+from grading.sealing import _decisions, review_obligations, validate_sealed
+from analysis import write_artifacts, audit_artifacts
+
+
+def bundle():
+    value = load(ROOT / 'blind/bundle.json')
+    verify_signed(value)
+    return value
+
+
+def directory(stage):
+    return WORK / stage
+
+
+def plans(stage):
+    path = directory(stage) / 'jobs.json'
+    if path.exists():
+        return load(path)
+    data = bundle()
+    if stage == 'base':
+        jobs = batches(pack_jobs(data, batch_size=2))
+    elif stage == 'review':
+        base = load(ROOT / 'grades/base-seal.json')
+        verify_signed(base)
+        jobs = batches(pack_jobs(data, batch_size=2, review=True, base_grades=base['grades']))
+        for job in jobs:
+            for item in job['jobs']:
+                item.pop('base_grade', None)
+    else:
+        base = load(ROOT / 'grades/base-seal.json')
+        reviews = [load(path) for path in sorted((ROOT/'grades/review').glob('*.json'))]
+        different = [review for review in reviews if _decisions(review['grade']) != _decisions(base['grades'].get(review['blind_id']))]
+        jobs = [{'fresh_session_required':True,'grader':'openai/gpt-6.1-sol-fast#high','jobs':[{
+            'packet':data['packets'][review['blind_id']], 'kind':'adjudication',
+            'original_grade':base['grades'].get(review['blind_id']), 'independent_review':review,
+            'base_grade_hash':digest(base['grades'].get(review['blind_id'])), 'review_hash':digest(review)}]} for review in different]
+    save(path, jobs, immutable=True)
+    return jobs
+
+
+def pending_items(stage, number):
+    jobs = plans(stage)
+    if number < 1 or number > len(jobs):
+        raise ValueError('job index out of range')
+    job = copy.deepcopy(jobs[number-1])
+    job['jobs'] = [item for item in job['jobs'] if not (ROOT/'grades'/stage/(item['packet']['blind_id']+'.json')).exists()]
+    return job
+
+
+def show(stage, number, identity=None, source=None, offset=0, limit=12000):
+    job = pending_items(stage, number)
+    if identity:
+        packet = next(item['packet'] for item in job['jobs'] if item['packet']['blind_id'] == identity)
+        evidence = next(item for item in packet['candidate_evidence'] if item['id'] == source)
+        text = evidence['text']
+        print(json.dumps({'blind_id':identity,'source_id':source,'tool':evidence['tool'],
+                          'status':evidence['status'],'support_eligible':evidence['support_eligible'],
+                          'offset':offset,'next_offset':offset+limit if offset+limit<len(text) else None,
+                          'total_characters':len(text)}))
+        print(text[offset:offset+limit])
+        return
+    for item in job['jobs']:
+        packet = item['packet']
+        evidence = packet.pop('candidate_evidence')
+        packet['candidate_evidence_index'] = [{'id':e['id'],'tool':e['tool'],'status':e['status'],
+            'support_eligible':e['support_eligible'],'characters':len(e['text']),'preview':e['text'][:450]} for e in evidence]
+    print(json.dumps(job, indent=2, ensure_ascii=False))
+
+
+def flag_strings(value, pointer=''):
+    if isinstance(value, str):
+        if 'RUBRIC_REVIEW_REQUIRED' in value:
+            return [{'json_pointer':pointer,'sha256':hashlib.sha256(value.encode()).hexdigest()}]
+        return []
+    if isinstance(value, list):
+        return [item for n, child in enumerate(value) for item in flag_strings(child,pointer+'/'+str(n))]
+    if isinstance(value, dict):
+        return [item for key, child in value.items() for item in flag_strings(child,pointer+'/'+key.replace('~','~0').replace('/','~1'))]
+    return []
+
+
+def authorize_recorded_caveat(stage, number, source, returned, job, session):
+    flags = flag_strings(returned)
+    if not flags:
+        return None
+    path = directory(stage)/f'job-{number:03d}-rubric-resolution.json'
+    if not path.exists():
+        raise ValueError('rubric correction requires separate consistent review; not silently applied')
+    approval = load(path)
+    if (approval.get('resolution') != 'existing_alternative_no_criterion_change'
+            or approval.get('criteria_changed') is not False
+            or approval.get('original_judgment_preserved') is not True
+            or approval.get('labels_changed') is not False
+            or approval.get('stage') != stage or approval.get('job') != number
+            or approval.get('raw_path') != source.relative_to(ROOT).as_posix()
+            or approval.get('raw_sha256') != hashlib.sha256(source.read_bytes()).hexdigest()
+            or approval.get('job_hash') != digest(job)
+            or approval.get('flagged_strings') != flags
+            or approval.get('independent_reviewer_model') != 'openai/gpt-6.1-sol-fast#high'
+            or not approval.get('independent_reviewer_session','').startswith('ses_')
+            or approval['independent_reviewer_session'] == session):
+        raise ValueError('rubric-alert resolution does not authorize this exact unchanged judgment')
+    review_path = (ROOT/approval['source_review_path']).resolve()
+    if (not review_path.is_relative_to(WORK.resolve())
+            or hashlib.sha256(review_path.read_bytes()).hexdigest() != approval['source_review_sha256']):
+        raise ValueError('independent source-review evidence changed')
+    flagged_ids = set()
+    for flag in flags:
+        segments = flag['json_pointer'].split('/')
+        if len(segments) != 5 or segments[2] != 'units' or segments[4] != 'rationale':
+            raise ValueError('resolution only permits a reviewed unit-rationale alert')
+        value = returned[int(segments[1])]
+        grade = value if stage == 'base' else value.get('grade')
+        if not isinstance(grade,dict) or grade.get('uncertain') is not True:
+            raise ValueError('reviewed attribution caveat must retain its independent-review trigger')
+        unit = grade['units'][int(segments[3])]
+        if unit['id'] not in approval.get('reviewed_unit_ids',[]):
+            raise ValueError('alert is outside the independently reviewed criterion')
+        flagged_ids.add(grade['blind_id'])
+    if sorted(flagged_ids) != approval.get('mandatory_independent_review_ids'):
+        raise ValueError('independent-review obligations do not match the reviewed alerts')
+    return {'path':path.relative_to(ROOT).as_posix(),
+            'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+            'original_flag_and_labels_preserved':True,
+            'mandatory_independent_review_ids':sorted(flagged_ids)}
+
+
+def submit(stage, number, source, session):
+    job = pending_items(stage, number)
+    if not job['jobs']:
+        raise ValueError('job already completed; replay prohibited')
+    if not session.startswith('ses_'):
+        raise ValueError('actual subagent session ID required')
+    source = Path(source).resolve()
+    if not source.is_relative_to(WORK.resolve()) or source.is_symlink():
+        raise ValueError('raw judgments must be in owned controller-work/agent-grading')
+    returned = strict_json(source.read_text())
+    if isinstance(returned, dict) and len(job['jobs']) == 1:
+        returned = [returned]
+    if not isinstance(returned, list) or len(returned) != len(job['jobs']):
+        raise ValueError('raw judgment cardinality mismatch')
+    resolution = authorize_recorded_caveat(stage,number,source,returned,job,session)
+    prepared = []
+    encoding = []
+    for value, item in zip(returned, job['jobs']):
+        packet = item['packet']
+        if value.get('blind_id') != packet['blind_id']:
+            raise ValueError('judgment identity differs from blind packet')
+        grade = value if stage == 'base' else value.get('grade')
+        grade, changes = quote_encoding(grade, packet)
+        grade = validate_grade(grade, packet)
+        if stage == 'base':
+            value = grade
+        else:
+            value['grade'] = grade
+            if value.get('base_grade_hash') != item['base_grade_hash']:
+                raise ValueError('original-grade hash mismatch')
+            if stage == 'review':
+                if value.get('session_id') not in (session, '__ORCHESTRATOR_SESSION_ID__'):
+                    raise ValueError('review session provenance mismatch')
+                value['session_id'] = session
+            elif value.get('review_hash') != item['review_hash']:
+                raise ValueError('review hash mismatch')
+        prepared.append((packet['blind_id'], value))
+        encoding.extend(changes)
+    provenance = {'stage':stage,'job':number,'actual_session_id':session,
+                  'requested_model':'openai/gpt-6.1-sol-fast#high','raw_path':source.relative_to(ROOT).as_posix(),
+                  'raw_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
+                  'job_hash':digest(job),'encoding_only_corrections':encoding,
+                  'saved_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  'transport':'OpenCode subagent tool, fresh session; model/provider unchanged',
+                  'native_usage_version_upstream_attempts':'UNVERIFIED / not exposed by tool'}
+    if resolution:
+        provenance['rubric_alert_resolution'] = resolution
+    for identity, value in prepared:
+        save(ROOT/'grades'/stage/(identity+'.json'),value,immutable=True)
+    save(directory(stage)/f'job-{number:03d}-provenance.json',provenance,immutable=True)
+    print(json.dumps({'status':'PASS','stage':stage,'job':number,'accepted':len(prepared),'session_id':session}))
+
+
+def seal(stage):
+    data = bundle()
+    if stage == 'base':
+        grades = {p.stem:load(p) for p in (ROOT/'grades/base').glob('*.json')}
+        result = seal_base(data, grades)
+        save(ROOT/'grades/base-seal.json', result, immutable=True)
+        print(json.dumps({'status':'PASS','base_grades':len(grades)}))
+    else:
+        base = load(ROOT/'grades/base-seal.json')
+        reviews = [load(p) for p in (ROOT/'grades/review').glob('*.json')]
+        adjudications = [load(p) for p in (ROOT/'grades/adjudication').glob('*.json')]
+        result = seal_final(data,base,reviews,adjudications)
+        validate_sealed(result)
+        save(ROOT/'grades/final-seal.json',result,immutable=True)
+        print(json.dumps({'status':'PASS','review_accounting':result['review_accounting']}))
+
+
+def finalize():
+    check(ROOT)
+    records = load(ROOT/'private/normalized-records.json')
+    schedule = load(ROOT/'schedule.json')
+    tasks = []
+    for suite in ('web','code'):
+        tasks.extend(load(ROOT/f'tasks/{suite}/tasks.json'))
+    final = load(ROOT/'grades/final-seal.json')
+    validate_sealed(final)
+    write_artifacts(ROOT/'report',records,final,schedule,tasks,draws=10000)
+    audit = audit_artifacts(ROOT/'report')
+    check(ROOT)
+    proof = sorted(WORK.rglob('*-provenance.json'))
+    save(ROOT/'report/analysis-audit.json',audit,immutable=True)
+    save(ROOT/'report/grading-recovery.json',{
+        'model':'openai/gpt-6.1-sol-fast#high','fresh_agent_sessions':len(proof),
+        'model_switch':False,'candidate_reruns':0,
+        'failed_stateless_broker_requests':2,'failed_broker_error':'Model unavailable: openai/gpt-6.1-sol-fast',
+        'grading_transport_recovery':'Same requested controller through fresh OpenCode subagents instead of unavailable stateless broker.',
+        'same_backend_AI_review_not_human_calibration':True,
+        'provenance_files':{p.relative_to(ROOT).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in proof},
+        'all_frozen_inputs_unchanged':True,'semantic_truth_certified_by_hash_audit':False},immutable=True)
+    print(json.dumps({'status':'PASS','analysis_audit':audit,'controller_sessions':len(proof)},indent=2))
+
+
+def plan(stage):
+    jobs = plans(stage)
+    remaining = [n for n in range(1,len(jobs)+1) if pending_items(stage,n)['jobs']]
+    print(json.dumps({'stage':stage,'total_jobs':len(jobs),'pending_jobs':remaining,
+                      'output_directory':str(directory(stage)/'raw')}))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command',choices=['plan','show','submit','seal','finalize'])
+    parser.add_argument('--stage',choices=['base','review','adjudication'],default='base')
+    parser.add_argument('--job',type=int)
+    parser.add_argument('--identity')
+    parser.add_argument('--source')
+    parser.add_argument('--offset',type=int,default=0)
+    parser.add_argument('--limit',type=int,default=12000)
+    parser.add_argument('--session-id')
+    args = parser.parse_args()
+    if args.command == 'plan': plan(args.stage)
+    elif args.command == 'show': show(args.stage,args.job,args.identity,args.source,args.offset,args.limit)
+    elif args.command == 'submit': submit(args.stage,args.job,args.source,args.session_id)
+    elif args.command == 'seal': seal(args.stage)
+    else: finalize()

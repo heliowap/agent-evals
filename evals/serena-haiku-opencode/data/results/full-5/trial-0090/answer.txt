@@ -1,0 +1,21 @@
+I replaced the float-based parsing in `src/money.py` and made `make_invoice` in `src/api.py` apply the same rules. `python3 checks/public.py` passes, and the new unittest suite passes 18/18.
+
+**`src/money.py`**
+- `parse_amount` accepts `Decimal`, non-bool `int`, and strings matching `[+-]?[0-9]+(\.[0-9]+)?`. Every other type, including floats, raises `ValueError`.
+- It rejects non-finite values, zero, negatives, values above `1000000.00`, and any value with a nonzero digit below the cent. Nothing is rounded.
+- Trailing zeros are accepted, and the result is a `Decimal` with exponent -2.
+- Quantizing uses a private `Context`, so the global decimal context is never read or changed.
+- `format_amount` is unchanged. I exported `MAX_AMOUNT` so the API can share the limit.
+
+**`src/api.py`**
+- `make_invoice` parses each item with `parse_amount`, so the item rules are identical.
+- It sums with a private context, rejects a total above `1000000.00`, and returns `{'total': ..., 'count': N}`. An empty list gives `0.00`.
+- The input is copied with `list(...)` and never mutated.
+
+**Checks**
+- `checks/test_money_api.py` covers accepted and rejected inputs, boundary values, the no-rounding rule, input and global-context immutability, and behavior under a reduced global precision. Run it with `python3 -m unittest checks/test_money_api.py`.
+- Against the original code, the same tests produce 60 failures and 4 errors, so they do exercise the change.
+
+**Decisions to confirm**
+- Strings like `"1."` and `".5"` are rejected, since the spec says "plain decimal" and I read that strictly.
+- `make_invoice` accepts any iterable, not only a list; a non-iterable input raises `TypeError`.

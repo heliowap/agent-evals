@@ -1,0 +1,62 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.dispatcher import export\nassert export([{\"id\": 1, \"name\": \"Alice\"}], \"csv\") == \"id,name\\n1,Alice\\n\"\nassert export([{\"id\": 1, \"name\": \"Alice\"}], \"json\") == '[{\"id\":\"1\",\"name\":\"Alice\"}]'\nassert export([], \"csv\") == \"id,name\\n\"\nassert export([], \"json\") == \"[]\"\n\n# Shared pipeline checks\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nrows = [{\"id\": 1, \"name\": None, \"extra\": \"x\"}, {\"name\": 'a,\"b\"\\nc'}, {\"id\": \"é\", \"name\": \"ü\"}]\norig = [dict(r) for r in rows]\nassert export_csv(rows) == export_rows(rows, \"csv\") == 'id,name\\n1,\\n,\"a,\"\"b\"\"\\nc\"\\né,ü\\n'\nassert export_json(rows) == export_rows(rows, \"json\") == '[{\"id\":\"1\",\"name\":\"\"},{\"id\":\"\",\"name\":\"a,\\\\\"b\\\\\"\\\\nc\"},{\"id\":\"é\",\"name\":\"ü\"}]'\nassert rows == orig\nassert export_csv(iter(rows)) == export_csv(rows)\nassert export_json(r for r in rows) == export_json(rows)\nassert export_rows([], \"csv\") == \"id,name\\n\" and export_rows(iter([]), \"json\") == \"[]\"\nfor bad in (\"xml\", \"CSV\", None, [\"csv\"]):\n    for fn in (lambda b: export_rows([], b), lambda b: export([], b)):\n        try:\n            fn(bad)\n        except ValueError:\n            pass\n        else:\n            raise AssertionError(bad)\nprint(\"ok\")\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/dispatcher.py": "from .csv_exporter import export_csv\nfrom .json_exporter import export_json\n\n_EXPORTERS = {\"csv\": export_csv, \"json\": export_json}\n\n\ndef export(rows, format):\n    try:\n        exporter = _EXPORTERS[format]\n    except (KeyError, TypeError):\n        raise ValueError(\"unsupported format\") from None\n    return exporter(rows)\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\nFIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Yield new dicts holding only id and name as strings ('' if missing/None).\"\"\"\n    for row in rows:\n        yield {key: \"\" if row.get(key) is None else str(row[key]) for key in FIELDS}\n\n\ndef _serialize_csv(clean):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(FIELDS)\n    for row in clean:\n        writer.writerow([row[key] for key in FIELDS])\n    return buffer.getvalue()\n\n\ndef _serialize_json(clean):\n    return json.dumps(list(clean), ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\"csv\": _serialize_csv, \"json\": _serialize_json}\n\n\ndef export_rows(rows, format):\n    try:\n        serializer = _SERIALIZERS[format]\n    except (KeyError, TypeError):\n        raise ValueError(\"unsupported format\") from None\n    return serializer(_normalize(rows))\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/public.py",
+      "src/csv_exporter.py",
+      "src/dispatcher.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 5,
+    "added_lines": 86,
+    "removed_lines": 34
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04976595801417716
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04865687497658655,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.051926457992522046,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05003266700077802,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

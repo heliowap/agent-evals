@@ -1,0 +1,21 @@
+`parse_amount` no longer uses floats. The public check and 10 new unit tests all pass.
+
+**`src/money.py`**
+- Accepts `Decimal`, `int` (not `bool`), and strings matching `[+-]?[0-9]+(\.[0-9]+)?`. Anything else raises `ValueError`, including floats, bools, `None`, bytes, and lists.
+- Rejects non-finite values, zero, negatives, and values above `1000000.00`.
+- Checks exact cent representability with a `ROUND_DOWN` quantize and an exact equality test, so no fractional cent is ever rounded.
+- Returns a `Decimal` with exponent -2. Extra trailing zeros such as `"12.500"` are accepted.
+- All arithmetic uses a private `Context`, so the global decimal context is never read or changed.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies the input into a list, so the caller's sequence is never touched and generators work.
+- Each item goes through `parse_amount`. The running total is added in the private context and checked against `1000000.00` after each addition, so an over-limit total raises `ValueError`.
+- An empty list returns `{"total": "0.00", "count": 0}`.
+
+**`checks/test_money_api.py`** (new)
+- Covers accepted and rejected inputs for `parse_amount`, the invoice total limit, input immutability, and that the global context is unchanged, including under a custom `prec` and `rounding`.
+
+Decisions to confirm:
+- Strings like `".5"` and `"5."` are rejected, since "plain decimal" was read as digits on both sides of the point.
+- Rejected types raise `ValueError` rather than `TypeError`, as the spec asked.

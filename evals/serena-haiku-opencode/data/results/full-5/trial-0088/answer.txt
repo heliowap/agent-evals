@@ -1,0 +1,12 @@
+I changed `get_document` and `list_documents` so they only return documents that match the tenant, the owner, and `deleted_at IS NULL`. Both checks pass.
+
+**Changes**
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Each query filters on both, plus `deleted_at IS NULL`, and every value goes through `?` placeholders. `listing` still orders by `id`. Results still contain only `id`, `title`, and `body`.
+- **`src/service.py`**: passes `tenant` and `owner` through to the repository. Previously it ignored `tenant` and `owner` in `get_document` and filtered only by owner in `list_documents`.
+- **`checks/scope.py`** (new): covers accessible reads, cross-tenant, cross-owner, deleted, and missing IDs (all return `None`), names with quotes (including SQL-injection-style strings), list scoping, deleted-row exclusion, and ordering by `id`.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 checks/scope.py` passes.
+
+Both checks use an in-memory SQLite database. I did not run them against any other database backend.

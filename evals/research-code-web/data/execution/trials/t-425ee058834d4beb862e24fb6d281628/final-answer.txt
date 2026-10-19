@@ -1,0 +1,37 @@
+## The test
+
+The relevant test is `test_invoked_subcommand` in `tests/test_commands.py:279-299`. The group is declared `@click.group(invoke_without_command=True)` (`tests/test_commands.py:280`) with no `chain=` argument, so it is a non-chained group. The group callback (`tests/test_commands.py:280-287`) branches on `ctx.invoked_subcommand`: if it is `None` it echoes `"no subcommand, use default"` and manually calls `ctx.invoke(sync)` (lines 284-285); otherwise it echoes `"invoke subcommand"` (line 287). The child `sync` command echoes `"in subcommand"` (`tests/test_commands.py:289-291`).
+
+**Explicit child selection** (`tests/test_commands.py:293-295`): `runner.invoke(cli, ["sync"])`; the test asserts `not result.exception` and `result.output == "invoke subcommand\nin subcommand\n"`.
+
+**No selection** (`tests/test_commands.py:297-299`): `runner.invoke(cli)`; again asserts no exception and `result.output == "no subcommand, use default\nin subcommand\n"`.
+
+Key point the assertions establish: in *both* cases `sync` runs — in the explicit case via the group machinery, in the no-selection case only because the user's own callback calls `ctx.invoke(sync)`. Click's `Group` does not itself auto-invoke a "default" child; the test exercises the `invoked_subcommand` sentinel plus a hand-rolled fallback.
+
+## The implementation (`src/click/core.py`, `Group.invoke`, lines 2052-2086)
+
+**No-subcommand path** (`core.py:2058-2066`): if `ctx._protected_args` is empty and `invoke_without_command` is set, the group callback alone is run via `with ctx: rv = super().invoke(ctx)` (lines 2063-2065), then `_process_result([] if self.chain else rv)` (line 2065). `ctx.invoked_subcommand` is never set here — which is exactly why the test's callback sees `None`.
+
+**Explicit selection, non-chained path** (`core.py:2076-2086`). Ordering within `with ctx:` (line 2079):
+
+1. `resolve_command(ctx, args)` resolves the child name/command (line 2080);
+2. `ctx.invoked_subcommand = cmd_name` is set **before** the group callback runs (line 2082) — this is what makes the callback's `else` branch fire;
+3. `super().invoke(ctx)` runs the group callback (line 2083);
+4. only after the group callback, the child context is created: `sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)` (line 2084), entered with `with sub_ctx:` (line 2085), and the child's own `invoke` runs with `_process_result` wrapping its return (line 2086).
+
+So the group callback executes **before** the child context exists, and the child context is built via `Command.make_context` with `parent=ctx`, not via `Context.invoke`. The args that feed `resolve_command` were split earlier in `Group.parse_args` (`core.py:2044-2050`): for non-chained groups, the first remaining token becomes `ctx._protected_args` and the rest `ctx.args`.
+
+By contrast, the test's *manual* `ctx.invoke(sync)` goes through `Context.invoke` (`core.py:887-940`): because the argument is a `Command`, it builds a child via `self._make_sub_context(other_cmd)` (line 917), fills exposed params with defaults (lines 919-931), and calls the callback under `augment_usage_errors` and the new context (lines 939-940).
+
+## Assertions read vs. untested generalizations
+
+**Actually asserted by the test:** only two things per invocation — absence of exception and the exact combined output string. Nothing about return values, context objects, or ordering APIs.
+
+**Read from the implementation but not asserted anywhere in the test** (so treat as verified-by-code-reading, not test-backed):
+
+- That the group callback runs before the child context is created/entered (ordering is inferred from output sequence plus `core.py:2082-2086`).
+- That `ctx.invoked_subcommand` is set to `"sync"` for explicit selection — the test only observes the callback's branch, not the attribute.
+- That `_process_result`/result-callback logic (`core.py:2053-2056`) applies — the test defines no result callback.
+- Chained-group behavior (`core.py:2088+`) is entirely outside this test.
+
+**Not inspected at all:** the body of `Context._make_sub_context` (referenced at `core.py:917`), so I cannot describe its internals from evidence here. Nothing was executed; all statements are drawn from the cited file reads.

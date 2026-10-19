@@ -1,0 +1,21 @@
+## Decision
+
+**Correct the two premises first (documented facts):**
+
+1. **`withSession()` does not "always begin with the latest data."** It is identical to `withSession("first-unconstrained")`: the first query routes to *any* instance (primary or replica), and it is explicitly recommended only when you "do not need to start the Session with the most up-to-date data." Latest data requires `withSession("first-primary")` or a bookmark. (https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)
+2. **`withSession("first-primary")` does not pin the session to the primary.** Only the *first* query is directed to the primary; subsequent queries "may use read replicas," still under sequential consistency. The proposal's description is wrong, though the choice of option is fine where latest data is needed. (https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession-4)
+
+Also note: with the current code (`env.DB.prepare(...).run()` directly), replication is unused — without the Sessions API "all queries will continue to be executed only by the primary database." (https://developers.cloudflare.com/d1/worker-api/d1-database/#guidance-3)
+
+**Recommended contract:**
+
+- **Carry the bookmark across requests.** After the checkout write, call `session.getBookmark()` and return it (e.g., an `x-d1-bookmark` response header); in the follow-up read request, create the session with `withSession(bookmark)`. This guarantees the session starts "at least as up-to-date as the provided bookmark" — a replica must wait until it has caught up before serving the read. This is the only pattern that gives useful replica reads *and* preserves read-your-own-writes from the earlier write request. (https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)
+- Use `first-primary` only when no bookmark exists and you need the latest version; use `first-unconstrained` for latency-insensitive reads. All writes go to the primary regardless of session mode. (https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas)
+- **Checkout failure handling: the team's expectation is incorrect.** `batch()` is documented as a SQL transaction: "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence." Earlier statements do *not* remain committed. If partial-commit behavior is required, split into separate `batch()`/`prepare().run()` calls — but then document that this trades atomicity for partial commits. (https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)
+
+**Product claims to reject or qualify:**
+
+- "Globally latest reads" — **not supported** as stated. Only bookmarked or `first-primary` session starts guarantee latest data; unconstrained sessions deliberately do not. (https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-with-all-latest-data)
+- "Maximum 100 ms replica-lag guarantee after commit" — **UNVERIFIED / not supported.** Docs say replicas are "asynchronously replicated" and "at any given time... may be arbitrarily out of date," with no lag bound or SLA. Resolution would require an official Cloudflare SLA/limits page stating a lag bound; none exists in the pages fetched.
+
+Consistency guarantee within a session is **sequential consistency** (monotonic reads/writes, read-my-own-writes) — cite that, not "global latest." (https://developers.cloudflare.com/d1/best-practices/read-replication/#sessions-api-provides-sequential-consistency)

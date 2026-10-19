@@ -1,0 +1,65 @@
+Based on the official Pydantic documentation (including the Pydantic V1 to V2 migration guide):
+
+---
+
+### 1. Replacement Decorators
+
+* **Field validators:**  
+  The legacy `@validator` decorator is deprecated in Pydantic V2 and replaced by **`@field_validator`** (imported from `pydantic`).
+* **Whole-model / root validators:**  
+  The legacy `@root_validator` decorator is deprecated in Pydantic V2 and replaced by **`@model_validator`** (imported from `pydantic`).
+
+---
+
+### 2. Validating List Items (`each_item=True` Replacement)
+
+* **Can `@field_validator` take `each_item=True`?**  
+  **No.** The `@field_validator` decorator does not support the `each_item` parameter. In Pydantic V2, constraints are no longer pushed down to container elements through field decorators or outer field definitions.
+* **Replacement item-type annotation:**  
+  To validate individual items within generic collections, you annotate the inner type argument using `typing.Annotated` paired with constraint metadata such as `Field(ge=0)` (or functional validators such as `AfterValidator`).
+
+#### Relevant Annotation:
+```python
+from typing import Annotated
+from pydantic import Field
+
+# Type annotation for a list where each integer must be non-negative:
+list[Annotated[int, Field(ge=0)]]
+```
+*(Alternatively, with `typing.List` on older Python versions: `List[Annotated[int, Field(ge=0)]]`)*.
+
+---
+
+### 3. Handling of `TypeError` Raised Inside Validators
+
+* **In Pydantic V1:**  
+  When a `TypeError` was raised within a validator function, Pydantic caught and automatically wrapped it into a `ValidationError`. This frequently led to unintended behavior—such as internal programming bugs or incorrect helper signatures being exposed to end users (for example, in FastAPI response schemas) as input validation errors.
+* **In Pydantic V2 (including v2.12):**  
+  `TypeError` is **no longer converted** into a `ValidationError`. If a `TypeError` occurs inside a validator (whether `@field_validator`, `@model_validator`, or functional validator), it propagates unaltered as an unhandled standard Python `TypeError`.  
+* **To trigger a validation error instead:**  
+  Validation logic intended to fail data parsing must raise a `ValueError`, an `AssertionError`, or custom errors designed for Pydantic (such as `pydantic_core.PydanticCustomError`).
+
+---
+
+### 4. Retaining a Legacy Post-Validation `@root_validator`
+
+* **Is `skip_on_failure=False` permitted?**  
+  **No.** Due to underlying architectural changes in `pydantic-core` validation logic, Pydantic V2 cannot run post-validation root validators if earlier field validations have failed.
+* **Required setting:**  
+  Because `skip_on_failure=False` was the default behavior in Pydantic V1, if you temporarily keep the deprecated `@root_validator` decorator, you must **explicitly specify `skip_on_failure=True`**:
+  ```python
+  from pydantic import root_validator
+
+  @root_validator(skip_on_failure=True)
+  def legacy_root_val(cls, values):
+      ...
+      return values
+  ```
+  Attempting to run a deprecated post-validation `@root_validator` without setting `skip_on_failure=True` will raise an error.
+
+---
+
+### Unresolved Limitations & Migration Considerations
+
+* **Deprecation Warnings:** Retaining `@root_validator` or `@validator` in Pydantic v2.12 will emit `PydanticDeprecatedSince20` deprecation warnings during model definition.
+* **Root Validator Input Types:** When migrating from `@root_validator(skip_on_failure=True)` to `@model_validator(mode='after')`, the validator receives the initialized model instance (`Self`) rather than a dictionary of field values (`dict[str, Any]`), requiring modifications to value-lookup syntax (e.g., `self.field` instead of `values.get('field')`).

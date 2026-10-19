@@ -1,0 +1,19 @@
+{
+  "files": {
+    "checks/exporter_equivalence.py": "import csv, io, json, os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.dispatcher import export\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.exporter import export_rows\nimport src.csv_exporter as ce, src.json_exporter as je\n\n\n# Original (pre-refactor) implementations, used as the reference.\ndef old_csv(rows):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow([\"id\", \"name\"])\n    for row in rows:\n        writer.writerow([\"\" if row.get(k) is None else str(row[k]) for k in (\"id\", \"name\")])\n    return buffer.getvalue()\n\n\ndef old_json(rows):\n    clean = [{k: \"\" if row.get(k) is None else str(row[k]) for k in (\"id\", \"name\")} for row in rows]\n    return json.dumps(clean, ensure_ascii=False, separators=(\",\", \":\"))\n\n\ncases = [\n    [],\n    [{\"id\": 1, \"name\": \"Alice\"}],\n    [{\"id\": None, \"name\": None}, {}, {\"extra\": 5}],\n    [{\"id\": 2, \"name\": 'Bo, \"B\"\\nline', \"x\": 1}, {\"id\": 3.5, \"name\": \"Zoë ✓\"}],\n    [{\"name\": \"first\", \"id\": 0}, {\"id\": False, \"name\": \"\"}],\n]\nfor rows in cases:\n    snapshot = [dict(r) for r in rows]\n    for fn, ref, fmt in ((export_csv, old_csv, \"csv\"), (export_json, old_json, \"json\")):\n        expected = ref(rows)\n        assert fn(rows) == expected, (fmt, rows)\n        assert export_rows(rows, fmt) == expected\n        assert export(rows, fmt) == expected\n        assert fn(iter(rows)) == expected  # one-shot iterable\n        assert fn(r for r in rows) == expected\n    assert rows == snapshot  # inputs not mutated\n\nfor bad in (\"xml\", \"CSV\", \"\", None):\n    for call in (lambda: export_rows([], bad), lambda: export([], bad)):\n        try:\n            call()\n        except ValueError:\n            pass\n        else:\n            raise AssertionError(bad)\n\n# Wrappers delegate to the shared entry point.\ncalls = []\nfor mod in (ce, je):\n    orig = mod.export_rows\n    mod.export_rows = lambda rows, fmt, _o=orig: calls.append(fmt) or _o(rows, fmt)\n    try:\n        export([{\"id\": 1}], \"csv\" if mod is ce else \"json\")\n    finally:\n        mod.export_rows = orig\nassert calls == [\"csv\", \"json\"], calls\nprint(\"ok\")\n",
+    "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+    "src/exporter.py": "import csv\nimport io\nimport json\n\nFIELDS = (\"id\", \"name\")\n\n\ndef _normalize(row):\n    \"\"\"Return a new dict with only the export fields, stringified; '' for missing/None.\"\"\"\n    clean = {}\n    for key in FIELDS:\n        value = row.get(key)\n        clean[key] = \"\" if value is None else str(value)\n    return clean\n\n\ndef _to_csv(rows):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(FIELDS)\n    for row in rows:\n        writer.writerow([row[key] for key in FIELDS])\n    return buffer.getvalue()\n\n\ndef _to_json(rows):\n    return json.dumps(list(rows), ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\"csv\": _to_csv, \"json\": _to_json}\n\n\ndef export_rows(rows, format):\n    serializer = _SERIALIZERS.get(format) if isinstance(format, str) else None\n    if serializer is None:\n        raise ValueError(\"unsupported format\")\n    return serializer(_normalize(row) for row in rows)\n",
+    "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+  },
+  "changed_files": [
+    "checks/exporter_equivalence.py",
+    "src/csv_exporter.py",
+    "src/exporter.py",
+    "src/json_exporter.py"
+  ],
+  "violations": [],
+  "scope_correct": true,
+  "file_count": 4,
+  "added_lines": 109,
+  "removed_lines": 18
+}

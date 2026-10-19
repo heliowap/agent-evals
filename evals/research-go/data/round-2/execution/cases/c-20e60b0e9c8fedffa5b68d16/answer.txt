@@ -1,0 +1,24 @@
+I'll fetch the version-matched permission docs and the security policy first.
+
+Both key pages fetched. There's a worker-inheritance conflict to resolve. Let me check the CLI flag reference and worker_threads docs.
+
+## Decision
+
+Do not deploy this as designed. Node.js documentation explicitly states the Permission Model **cannot** be the sole tenant-isolation boundary for untrusted code. It is a "seat belt" that "does not provide security guarantees in the presence of malicious code" ([permissions.html#permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions)), and the security policy calls it a blast-radius reducer "not… a security boundary against intentional misuse or a compromised process" ([SECURITY.md](https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md)). Customer-uploaded JavaScript is exactly the trusted-code assumption this model rejects.
+
+## Assumptions requiring change
+
+- **`--permission-audit` in staging denies nothing.** It only publishes violations to diagnostics channels; execution continues ([#audit-mode](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#audit-mode)). It discovers required permissions; it is not a safety control.
+- **`/srv/jobs/*.js` is far broader than intended.** "After passing a wildcard character (`*`) all subsequent characters will be ignored… `/home/*.js` will work similar to `/home/*`" ([#file-system-permissions](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions)). This grants the whole `/srv/jobs` tree.
+- **`--env-file` is not gated by the model.** Such flags read files before environment initialization and "are not subject to the rules of the Permission Model" ([#permission-model-constraints](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints)); its secrets reach the job via `process.env`.
+- **Passing an already-open FD bypasses the model.** "Using existing file descriptors via the `node:fs` module bypasses the Permission Model" (same section).
+- **Relative symlinks escape the grant.** "Relative symbolic links may allow access to arbitrary files… you must ensure that no paths to which access has been granted contain relative symbolic links" ([#limitations-and-known-issues](https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues)).
+- Also relevant: `node:sqlite` and `process._debugProcess()` can reach resources with no grants (same pages).
+
+## Worker inheritance — inconsistent
+
+Sources conflict: permissions.html lists "The model does not inherit to a worker thread," while SECURITY.md says workers inherit the parent's restrictions and `execArgv` cannot expand them. **UNVERIFIED** — resolve against the v24 Node.js source/tests or a `worker_threads` issue before relying on it.
+
+## Certification
+
+No. These documents do not let you certify tenant isolation; use OS-level isolation (separate users, seccomp/AppArmor, containers). The model is useful only for trusted application code as defense-in-depth alongside `permission.drop()` and audit-mode discovery.

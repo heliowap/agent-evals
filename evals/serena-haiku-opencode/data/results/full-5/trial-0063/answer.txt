@@ -1,0 +1,19 @@
+`parse_amount` now validates and parses without floats, and `make_invoice` applies the same rules. `python3 checks/public.py` passes, and the new unit tests (8 tests) pass.
+
+**`src/money.py`**
+- `amount_to_cents(value)` does all validation and returns an integer count of cents. `parse_amount` wraps it and returns a `Decimal` with exponent -2.
+- Accepted types: `Decimal`, `int` (not `bool`), and `str` matching `[+-]?[0-9]+(\.[0-9]+)?` in full. Everything else raises `ValueError`, including floats, `bool`, `None`, lists, and bytes.
+- Rejected values: non-finite, zero, negative, above `1000000.00`, and any nonzero digit below the cent. Trailing zeros are stripped before the cent check, so `"12.5000"` is fine and `"0.001"` is rejected rather than rounded.
+- Validation uses integer and tuple arithmetic, and output is built from a string. The decimal context is never read for arithmetic, rounding, or traps.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies its input with `list(amounts)`, so the caller's list is never mutated. It sums integer cents with the same validator, rejects a total above `1000000.00`, and returns `{"total": "x.xx", "count": N}`. An empty list gives `{"total": "0.00", "count": 0}`.
+
+**Checks**
+- `checks/test_amounts.py` covers accepted and rejected inputs, the total limit, the input not being mutated, and the global context staying unchanged.
+- It also runs under a low-precision local context to confirm results don't depend on the caller's precision.
+
+**Decisions to confirm**
+- Strings like `".5"` and `"5."` are rejected, since "plain decimal" was read as digits with an optional fractional part.
+- `make_invoice` accepts any iterable, not only lists, because it converts the input to a list first.

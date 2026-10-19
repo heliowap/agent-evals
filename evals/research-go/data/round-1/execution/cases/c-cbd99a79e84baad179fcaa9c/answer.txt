@@ -1,0 +1,23 @@
+I'll start with the D1 overview and follow the read-replication documentation links.
+
+Now the Sessions API reference and the batching/transaction semantics pages.
+
+Let me check the bookmark/time-travel reference and the e-commerce tutorial for the lag claim.
+
+## Decision
+
+**Routing contract.** Read replication only applies if you use the Sessions API; otherwise every query runs on the primary ([read-replication](https://developers.cloudflare.com/d1/best-practices/read-replication/), "Use Sessions API"). Give each request a session and thread the bookmark:
+
+- **Checkout write request:** `env.DB.withSession("first-primary")`, run inserts via `session.batch([...])`. After success, `session.getBookmark()` and return it (header/cookie).
+- **Later read request:** `env.DB.withSession(bookmark)` — this guarantees the session starts "at least as up-to-date as the provided bookmark" ([withSession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)). Use `first-primary` only when no bookmark exists.
+- **Other read-only requests:** `env.DB.withSession("first-unconstrained")` for low latency; carry the bookmark forward to keep monotonic reads.
+
+**Premise corrections.**
+- `withSession("first-primary")` routes **only the first query** to the primary; "Subsequent queries in the Session may use read replicas" — so the session is **not** wholly pinned to the primary. Your proposal's description is wrong ([withSession parameters](https://developers.cloudflare.com/d1/worker-api/d1-database/#parameters-4)).
+- `withSession()` defaults to `first-unconstrained`, routing the first query to **any** instance, primary or replica; it is **not** "always the latest data" ([start without constraints](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)). Your teammate is wrong.
+- Because the checkout read carries no session context today, the bookmark is the actual fix; the write is always forwarded to the primary regardless.
+- **Batch is not partial.** "Batched statements are SQL transactions. If a statement in the sequence fails, then an error is returned ... and it aborts or rolls back the entire sequence" ([batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)). Your team's expectation that the header insert stays committed when a line-item insert fails is **wrong** — it rolls back. Design for all-or-nothing, and retry idempotently.
+
+**Product claims.** "Globally latest reads" and a **100 ms** post-commit lag guarantee are **UNVERIFIED** — no official page states either. Docs say a replica "may be arbitrarily out of date," and only sequential consistency *within a session* is promised ([replica lag](https://developers.cloudflare.com/d1/best-practices/read-replication/#replica-lag-and-consistency-model)). Resolve by: asking Cloudflare support for an SLA, and measuring `meta.served_by_primary`/`served_by_region` ([observability](https://developers.cloudflare.com/d1/best-practices/read-replication/#observability)).
+
+**Recommendation (mine):** bookmarks > session-wide pinning; never advertise latency guarantees the docs don't state.

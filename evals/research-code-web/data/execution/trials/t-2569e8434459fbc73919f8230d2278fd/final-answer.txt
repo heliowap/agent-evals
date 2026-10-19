@@ -1,0 +1,32 @@
+Based on the maintainer security advisory (**GHSA-9wx4-h78v-vm56** / **CVE-2024-35195**) published by the Python Requests project, here is the assessment for the described scenario:
+
+---
+
+### 1. Does CVE-2024-35195 Affect This Scenario?
+**Yes.** 
+CVE-2024-35195 directly affects Python Requests version 2.31.0 (and all versions `< 2.32.0`). The vulnerability specifically describes this exact pattern: when making requests using a `requests.Session`, if the first request to a given origin/host is made with `verify=False`, certificate verification remains disabled for that host.
+
+---
+
+### 2. Does the Second Flag Reliably Restore Certificate Verification?
+**No.** 
+Setting `verify=True` on subsequent requests to that same origin does **not** reliably restore certificate verification. According to the advisory, all subsequent requests to the same origin continue to ignore TLS certificate verification regardless of changes to the `verify` parameter.
+
+---
+
+### 3. How Long Can the Problematic Behavior Persist?
+The insecure behavior persists for the **entire lifecycle of the underlying connection in the session's connection pool**. Because `requests.Session` reuses pooled HTTP/HTTPS connections for requests to the same origin, the connection retains the initial TLS context established during the first request (which had verification disabled).
+
+---
+
+### 4. Minimum Patched Release Stated by the Maintainer Advisory
+* **2.32.0** 
+*(The advisory lists affected versions as `< 2.32.0` and explicitly designates `2.32.0` as the patched release / recommends `requests>=2.32.0`).*
+
+---
+
+### 5. Advisory-Documented Mitigations (for installations unable to upgrade)
+For environments running `requests < 2.32.0` that cannot immediately upgrade, the maintainer advisory documents the following mitigations:
+
+1. **Call `close()` on the `Session` object:** Call `session.close()` to clear existing connections from the pool after making any request with `verify=False`.
+2. **Avoid initial unverified requests:** Avoid setting `verify=False` on the first request made to a host while using a `requests.Session`.

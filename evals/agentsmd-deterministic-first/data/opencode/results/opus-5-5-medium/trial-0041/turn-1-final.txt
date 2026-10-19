@@ -1,0 +1,10 @@
+I added `eval` to the forbidden list in `checks.json`, so any new direct `eval(...)` call in `src` will now fail the check you run with `python3 check.py`.
+
+I didn't need to change `check.py`. It already reads the code's structure instead of searching the text, and it only flags direct calls to a bare `eval`. So comments, strings and `obj.eval(...)` method calls still pass.
+
+I tested it on a temporary copy of the repo:
+- **Should pass:** a file with `eval` in a comment, in a string, and as `obj.eval(...)` passed (exit code 0).
+- **Should fail:** a file containing `eval("1+1")` failed and was reported by name (exit code 1).
+- **The real repo:** still passes, since there are no `eval` calls in `src`.
+
+Because it only checks code structure, it won't catch indirect uses such as `builtins.eval(...)` or `f = eval; f(...)`. That matches how the check already treats any forbidden built-in.

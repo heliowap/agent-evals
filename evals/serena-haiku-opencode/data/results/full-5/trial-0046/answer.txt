@@ -1,0 +1,18 @@
+Both functions are now scoped to tenant, owner and `deleted_at IS NULL`. The existing public check and a new access check both pass.
+
+**Changes**
+
+- **`src/repository.py`**
+  - `find(connection, document_id, tenant, owner)` matches on id, tenant and owner, and requires `deleted_at IS NULL`. It returns `None` for every unavailable case, so cross-tenant, cross-owner and deleted records look the same.
+  - `listing(connection, tenant, owner)` applies the same filters and orders by `id`.
+  - All values are passed as bound parameters, so names containing quotes are safe.
+  - `decode` is unchanged, so results still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` now pass tenant and owner through to the repository. Their signatures are unchanged.
+- **`checks/test_access.py`** (new): covers the visible document, deleted, cross-tenant and cross-owner cases, a quoted title and body, a quote in the owner name, ordering by id, the exact result keys, and an unknown owner returning an empty list.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/test_access.py` passes.
+
+The project is not a git repository, so I did not produce a diff.

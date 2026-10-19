@@ -1,0 +1,137 @@
+{
+  "id": "trial-0091",
+  "configuration": "haiku-medium-native",
+  "effort": "medium",
+  "arm": "native",
+  "case": "py-money-contract",
+  "role": "implementation",
+  "rep": 2,
+  "position": 3,
+  "status": "completed",
+  "passed": false,
+  "grade": {
+    "passed": false,
+    "scope": {
+      "files": {
+        "checks/test_money_rules.py": "import copy\nimport decimal\nimport os\nimport sys\nimport unittest\nfrom decimal import Decimal\n\nsys.path.insert(0, os.getcwd())\nfrom src.money import parse_amount, format_amount\nfrom src.api import make_invoice\n\n\nclass ParseAmountTests(unittest.TestCase):\n    def test_accepted_inputs(self):\n        cases = [\n            (Decimal(\"12.5\"), \"12.50\"),\n            (Decimal(\"0.01\"), \"0.01\"),\n            (7, \"7.00\"),\n            (1000000, \"1000000.00\"),\n            (\"12.50\", \"12.50\"),\n            (\"12.5000\", \"12.50\"),\n            (\"3\", \"3.00\"),\n            (\"+4.10\", \"4.10\"),\n            (\"5.\", \"5.00\"),\n            (\".75\", \"0.75\"),\n            (Decimal(\"1000000.000\"), \"1000000.00\"),\n            (Decimal(\"1E+2\"), \"100.00\"),\n        ]\n        for value, expected in cases:\n            with self.subTest(value=value):\n                result = parse_amount(value)\n                self.assertIsInstance(result, Decimal)\n                self.assertEqual(result.as_tuple().exponent, -2)\n                self.assertEqual(format_amount(result), expected)\n\n    def test_rejected_inputs(self):\n        bad = [\n            1.5, 0.1, float(\"nan\"), float(\"inf\"),\n            True, False, None, [1], b\"1.00\", 1 + 0j,\n            Decimal(\"NaN\"), Decimal(\"Infinity\"), Decimal(\"-Infinity\"), Decimal(\"sNaN\"),\n            \"NaN\", \"inf\", \"1e2\", \"1E2\", \" 1.00\", \"1.00 \", \"1,00\", \"\", \"-\", \".\",\n            \"1.00\\n\", \"\\u0661.00\", \"0x10\", \"--1\",\n            0, \"0\", \"0.00\", Decimal(\"-0\"), \"-0.00\",\n            -1, \"-1.00\", Decimal(\"-0.01\"),\n            1000001, \"1000000.01\", Decimal(\"1000000.001\"), \"1000000.005\",\n            \"0.001\", \"1.005\", Decimal(\"0.0001\"), Decimal(\"1E-999999\"),\n            \"1.2345\",\n        ]\n        for value in bad:\n            with self.subTest(value=value):\n                with self.assertRaises(ValueError):\n                    parse_amount(value)\n\n    def test_no_rounding_of_fractional_cents(self):\n        with self.assertRaises(ValueError):\n            parse_amount(\"2.675\")\n        with self.assertRaises(ValueError):\n            parse_amount(Decimal(\"2.675\"))\n\n\nclass MakeInvoiceTests(unittest.TestCase):\n    def test_totals(self):\n        self.assertEqual(make_invoice([]), {\"total\": \"0.00\", \"count\": 0})\n        self.assertEqual(make_invoice([\"1.20\", \"2.30\"]), {\"total\": \"3.50\", \"count\": 2})\n        self.assertEqual(make_invoice([\"0.10\", \"0.20\"]), {\"total\": \"0.30\", \"count\": 2})\n        self.assertEqual(make_invoice([500000, \"500000.00\"]), {\"total\": \"1000000.00\", \"count\": 2})\n\n    def test_total_over_limit_rejected(self):\n        with self.assertRaises(ValueError):\n            make_invoice([600000, \"400000.01\"])\n\n    def test_item_rules_applied(self):\n        for bad in [[\"1.0\", 1.5], [\"0.001\"], [0], [\"-1\"], [True], [\"1e3\"]]:\n            with self.subTest(bad=bad):\n                with self.assertRaises(ValueError):\n                    make_invoice(bad)\n\n    def test_input_not_mutated(self):\n        amounts = [\"3.00\", \"1.00\", Decimal(\"2\")]\n        snapshot = copy.deepcopy(amounts)\n        make_invoice(amounts)\n        self.assertEqual(amounts, snapshot)\n        self.assertEqual(type(amounts), list)\n\n    def test_global_context_not_mutated(self):\n        before = decimal.getcontext().copy()\n        parse_amount(\"1.00\")\n        make_invoice([\"1.00\", \"2.00\"])\n        after = decimal.getcontext()\n        self.assertEqual(before.prec, after.prec)\n        self.assertEqual(before.rounding, after.rounding)\n        self.assertEqual(before.traps, after.traps)\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+        "src/api.py": "from .money import MAX_CENTS, amount_to_cents, cents_to_decimal, format_amount\n\n\ndef make_invoice(amounts):\n    items = list(amounts)  # copy; never mutate the caller's sequence\n    total = 0\n    for item in items:\n        total += amount_to_cents(item)\n    if total > MAX_CENTS:\n        raise ValueError(\"invoice total exceeds 1000000.00\")\n    return {\"total\": format_amount(cents_to_decimal(total)), \"count\": len(items)}\n",
+        "src/money.py": "import re\nfrom decimal import Decimal\n\nMAX_CENTS = 100_000_000  # 1000000.00\n_MAX_AMOUNT = Decimal(\"1000000.00\")\n_PLAIN_DECIMAL = re.compile(r\"[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)\")\n\n\ndef amount_to_cents(value):\n    \"\"\"Validate an amount and return it as an exact integer number of cents.\n\n    Pure integer/exact-comparison arithmetic: no float conversion, no rounding,\n    and no dependence on (or mutation of) the global decimal context.\n    \"\"\"\n    if isinstance(value, bool):\n        raise ValueError(\"boolean is not a valid amount\")\n    if isinstance(value, int):\n        if value <= 0:\n            raise ValueError(\"amount must be positive\")\n        if value > 1_000_000:\n            raise ValueError(\"amount exceeds 1000000.00\")\n        return value * 100\n    if isinstance(value, Decimal):\n        d = value\n    elif isinstance(value, str):\n        if not _PLAIN_DECIMAL.fullmatch(value):\n            raise ValueError(f\"invalid amount string: {value!r}\")\n        d = Decimal(value)\n    else:\n        raise ValueError(f\"unsupported amount type: {type(value).__name__}\")\n\n    if not d.is_finite():\n        raise ValueError(\"amount must be finite\")\n    if d <= 0:\n        raise ValueError(\"amount must be positive\")\n    if d > _MAX_AMOUNT:\n        raise ValueError(\"amount exceeds 1000000.00\")\n\n    # Exact representation: value = coeff * 10**exp. Strip trailing zeros so\n    # that any remaining fractional digit beyond the cent makes exp < -2.\n    _, digits, exp = d.as_tuple()\n    coeff = int(\"\".join(map(str, digits)))\n    while coeff % 10 == 0:\n        coeff //= 10\n        exp += 1\n    if exp < -2:\n        raise ValueError(\"amount is not exactly representable in cents\")\n    return coeff * 10 ** (exp + 2)\n\n\ndef cents_to_decimal(cents):\n    \"\"\"Build an exact Decimal with exponent -2 from an integer cent count.\"\"\"\n    return Decimal(f\"{cents // 100}.{cents % 100:02d}\")\n\n\ndef parse_amount(value):\n    return cents_to_decimal(amount_to_cents(value))\n\n\ndef format_amount(value):\n    return format(value, \".2f\")\n"
+      },
+      "changed_files": [
+        "checks/test_money_rules.py",
+        "src/api.py",
+        "src/money.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 168,
+      "removed_lines": 12
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.04541225003777072
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.04475995904067531,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": false,
+        "exit_code": 1,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"/workspace/.runner-acceptance.py\", line 2, in <module>\n    runpy.run_path('.acceptance.py', run_name='__main__')\n  File \"<frozen runpy>\", line 291, in run_path\n  File \"<frozen runpy>\", line 98, in _run_module_code\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \".acceptance.py\", line 18, in <module>\n    raise AssertionError(\"invalid amount accepted: \" + repr(value))\nAssertionError: invalid amount accepted: '.1'\n",
+        "wall_s": 0.04494608397362754,
+        "check_completed": false
+      }
+    },
+    "patch_correct": false,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 52.938454999995884,
+  "preparation_s": 1.3964412090135738,
+  "export_s": 0.31292829097947106,
+  "grading_s": 0.28310095902998,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "used": false,
+    "tool_calls": 0,
+    "useful_successful_calls": 0,
+    "errors": 0,
+    "catalog_ready_s": null
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 6,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_4bca71cbfcf0cb6856b4",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "medium"
+  },
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 4147,
+    "reasoning_tokens": 5924,
+    "cached_input_tokens": 26497,
+    "cache_write_tokens": 11083
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 6,
+  "error_events": [],
+  "reported_cost_usd": 0.006687045,
+  "total_trial_s": 55.020237374992575
+}

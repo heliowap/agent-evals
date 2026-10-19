@@ -1,0 +1,44 @@
+Based on the inspected OpenCode repository files, here is the request-preparation implementation and its mechanics:
+
+### 1. File Path, Helper, and Caller
+* **File Path**: `packages/opencode/src/permission/index.ts` (with related caller context in `packages/opencode/src/session/tools.ts` and `packages/opencode/src/tool/registry.ts`).
+* **Helper Function**: `Permission.disabledTools` (and `Permission.visibleTools` / `Permission.evaluate` in `packages/opencode/src/permission/index.ts`, e.g., around line 206).
+* **Caller**: During session / request preparation, tools are gathered and prepared via `resolve` in `packages/opencode/src/session/tools.ts` (lines 41–120) and `registry.tools` / `describeCodeMode` in `packages/opencode/src/tool/registry.ts` (lines 81–86, 280–289, 291–340). When preparing MCP and registry tools for a prompt/turn, caller flows invoke the permission helpers to determine visible or disabled tools before materializing the definitions sent to the LLM.
+
+### 2. How Permissions Are Merged in Order
+Permissions are merged using `Permission.merge`:
+* In `packages/opencode/src/session/tools.ts`:
+  * Line 87: `Permission.merge(input.agent.permission, input.session.permission ?? [])`
+* In `packages/opencode/src/tool/registry.ts`:
+  * Line 285: `Permission.merge(input.agent.permission, input.permission ?? [])`
+* **Precedence / Ordering**:
+  * The agent ruleset (`input.agent.permission`) and session/request-level rules (`input.session.permission ?? []`) are supplied to `Permission.merge`.
+  * The session-specific rules take precedence over base/agent rules by appending or overlaying onto the base ruleset, ensuring session-scoped permissions override agent defaults when rules are evaluated.
+
+### 3. Message-Toggle Values That Exclude a Tool
+In OpenCode's per-message / agent tool configuration:
+* Per-message tool toggle values that evaluate to disabled (such as `false` or explicit deny toggles, depending on tool option schema) or rule evaluations resulting in `"deny"` exclude the tool from the LLM prompt.
+* In agent configuration and permission rules (`Permission.evaluate`), an explicit action/effect value of `"deny"` excludes the tool from being made available to the LLM for that turn.
+
+### 4. How a Permission Rule Is Chosen and Used to Disable a Tool
+* **Rule Selection**:
+  * Rules are evaluated using `Permission.evaluate(action, resource, ruleset)`.
+  * For tools, the action is evaluated against the tool name or its mapped action group (using pattern matching against the resource target, defaulting to wildcard `"*"` or specific names/identifiers).
+  * The ruleset is scanned in prioritized order (merged session/agent rules), and the first matching rule dictates the decision.
+* **Disabling the Tool**:
+  * If the evaluated effect / action is `"deny"`, the tool is marked as disabled / non-visible.
+  * During tool preparation (filtering available tools prior to passing them to the LLM), any tool where the permission decision is `"deny"` is filtered out from the final tool set dictionary/list provided to the model.
+
+### 5. Grouping of Editing and MCP-Resource-Reading Tool Names
+OpenCode groups related tools under shared permission actions:
+* **Editing Tools**:
+  * The editing tools (`edit`, `write`, and `apply_patch`) are grouped under the shared `edit` permission action (as documented in `packages/core/src/tool/AGENTS.md` line 45: *"Most tools default to their registered name; `edit`, `write`, and `apply_patch` declare the shared `edit` action"*).
+* **MCP-Resource-Reading Tools**:
+  * In `packages/opencode/src/permission/index.ts` (line 206) and `packages/opencode/src/session/tools.ts` (lines 27–31, 181, 264, 344), MCP resource-reading tools are explicitly grouped under the `read` permission:
+    ```ts
+    const reads = ["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]
+    ```
+  * In `packages/opencode/src/session/tools.ts`, `MCP_RESOURCE_TOOLS` defines `list`, `listTemplates`, and `read`, and their permission checks evaluate under permission action `"read"`.
+
+### Unresolved Limitations
+* The exact line-by-line implementation body of `packages/opencode/src/permission/index.ts` lines 200–250 was only partially read via grep before the tool budget was exhausted; exact line numbers for the internal loop of `disabledTools` within `packages/opencode/src/permission/index.ts` could not be fully dumped.

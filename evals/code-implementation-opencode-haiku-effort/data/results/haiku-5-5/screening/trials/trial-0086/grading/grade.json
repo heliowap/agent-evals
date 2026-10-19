@@ -1,0 +1,62 @@
+{
+  "scope": {
+    "files": {
+      "checks/exporter_checks.py": "import copy, os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\nrows = [{\"id\": 1, \"name\": \"Alice\", \"extra\": \"x\"}, {\"id\": None, \"name\": 2.5}, {\"name\": \"Zoë\"}]\nassert export_rows(rows, \"csv\") == \"id,name\\n1,Alice\\n,2.5\\n,Zoë\\n\"\nassert export_rows(rows, \"json\") == '[{\"id\":\"1\",\"name\":\"Alice\"},{\"id\":\"\",\"name\":\"2.5\"},{\"id\":\"\",\"name\":\"Zoë\"}]'\nassert export_csv(rows) == export_rows(rows, \"csv\")\nassert export_json(rows) == export_rows(rows, \"json\")\nassert export([], \"csv\") == \"id,name\\n\" and export([], \"json\") == \"[]\"\nassert export_csv(iter([{\"id\": 1, \"name\": \"a\"}])) == \"id,name\\n1,a\\n\"\nassert export_json(iter([{\"id\": 1, \"name\": \"a\"}])) == '[{\"id\":\"1\",\"name\":\"a\"}]'\nassert export_csv([{\"id\": 'q\"x', \"name\": \"a,b\"}]) == 'id,name\\n\"q\"\"x\",\"a,b\"\\n'\nbefore = copy.deepcopy(rows)\nexport_rows(rows, \"csv\"); export_rows(rows, \"json\")\nassert rows == before\nfor bad in [\"xml\", \"CSV\", None]:\n    try:\n        export_rows([], bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(f\"expected ValueError for {bad!r}\")\nprint(\"EXPORTER_CHECKS_OK\")\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/dispatcher.py": "from .exporter import export_rows\n\n\ndef export(rows, format):\n    return export_rows(rows, format)\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Return new dicts holding only id and name; missing/None become ''.\n\n    Consumes ``rows`` exactly once (works for one-shot iterables) and never\n    mutates the input rows.\n    \"\"\"\n    clean = []\n    for row in rows:\n        clean.append({\n            key: \"\" if row.get(key) is None else str(row.get(key))\n            for key in _FIELDS\n        })\n    return clean\n\n\ndef _to_csv(clean):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(list(_FIELDS))\n    for row in clean:\n        writer.writerow([row[key] for key in _FIELDS])\n    return buffer.getvalue()\n\n\ndef _to_json(clean):\n    return json.dumps(clean, ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\n    \"csv\": _to_csv,\n    \"json\": _to_json,\n}\n\n\ndef export_rows(rows, format):\n    serialize = _SERIALIZERS.get(format) if isinstance(format, str) else None\n    if serialize is None:\n        raise ValueError(\"unsupported format\")\n    return serialize(_normalize(rows))\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/exporter_checks.py",
+      "src/csv_exporter.py",
+      "src/dispatcher.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 5,
+    "added_lines": 88,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04301704198587686
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04531916597625241,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04467883298639208,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04604250000556931,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

@@ -1,0 +1,46 @@
+## Answer
+
+### Primary source
+Kubernetes v1.34 documentation, "Version Skew Policy," static snapshot at `https://v1-34.docs.kubernetes.io/releases/version-skew-policy/` (fetched successfully). All quotes below are from that page unless noted. Search results independently corroborated the same wording.
+
+### General client/server minor-skew rule
+The policy states, verbatim:
+
+> "`kubectl` is supported within one minor version (older or newer) of `kube-apiserver`."
+
+So the rule is **±1 minor version**: kubectl may be one minor newer or one minor older than the kube-apiserver. This is a *skew* rule only (the user explicitly excludes release-support/vendor policy).
+
+### All kube-apiserver instances at 1.34
+The page's worked example:
+
+> - `kube-apiserver` is at 1.34
+> - `kubectl` is supported at 1.35, 1.34, and 1.33
+
+**Permitted kubectl minor versions: 1.33, 1.34, and 1.35.**
+
+### During an HA upgrade (servers at both 1.33 and 1.34)
+The page adds:
+
+> "If version skew exists between `kube-apiserver` instances in an HA cluster, this narrows the supported `kubectl` versions."
+> - `kube-apiserver` instances are at 1.34 and 1.33
+> - `kubectl` is supported at 1.34 and 1.33 (other versions would be more than one minor version skewed from one of the `kube-apiserver` components)
+
+Deriving the intersection explicitly:
+- A 1.33 apiserver permits kubectl {1.32, 1.33, 1.34}.
+- A 1.34 apiserver permits kubectl {1.33, 1.34, 1.35}.
+- Intersection = **{1.33, 1.34}**.
+
+**Is kubectl 1.35 supported then? No.** 1.35 is two minor versions newer than the 1.33 apiserver instance, exceeding the ±1 skew rule; the page states such versions "would be more than one minor version skewed from one of the `kube-apiserver` components." (For the same reason, kubectl 1.32 is excluded: it is two minors older than the 1.34 instance.)
+
+### Reassessment once every server reaches 1.34
+Once the last 1.33 apiserver is upgraded so all instances are 1.34, the narrowing condition no longer applies, and the plain rule governs: a 1.34 apiserver permits kubectl 1.33, 1.34, and 1.35. **Thus kubectl 1.35 becomes supported at that point.** This matches the page's standalone example ("kube-apiserver is at 1.34 … kubectl is supported at 1.35, 1.34, and 1.33").
+
+### Why the HA nuance matters (operator guidance)
+The narrowed intersection means an operator using a single kubectl version across an in-progress 1.33→1.34 HA upgrade should choose **1.34** (or 1.33), not 1.35. Only after the control plane is fully at 1.34 does 1.35 come into skew-compliance. If you must use one kubectl throughout the whole upgrade window, **1.34 is the safest single choice**, since it is valid against both 1.33 and 1.34 servers.
+
+### Unresolved limitations and caveats
+1. **Skew vs. support distinction.** The v1.34 page's "Supported versions" section also states the project "maintains release branches for the most recent three minor releases (1.36, 1.35, 1.34)" and that 1.19+ get ~1 year of patch support. That is *release-support* information; per your instructions it was not applied. The kubectl skew conclusion is independent of it — a kubectl 1.35 is skew-compliant against a 1.34 server regardless of whether 1.35 is still patched.
+2. **Static snapshot.** The v1.34 page is an unmaintained static snapshot ("no longer actively maintained"; "Last modified August 07, 2023"), but its stated policy text is what you asked to apply for v1.34. A live page now shows a newer minor (1.36/1.37), which was disregarded.
+3. **Tool/vendor restrictions excluded.** The page itself notes that "Specific cluster deployment tools may place additional restrictions on version skew." Such vendor rules (e.g., the TKGI/Broadcom material surfaced in search) were deliberately not applied.
+4. **Patch-level skew** is not addressed here; the policy is stated at minor-version granularity only.
+5. The second fetch (API concepts page) was truncated and contributed no additional relevant evidence; the authoritative evidence is the v1.34 version-skew page plus corroborating search snippets.

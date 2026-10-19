@@ -1,0 +1,17 @@
+## Decision
+
+**Corrected premise first:** GitHub does **not** automatically retry failed deliveries after an outage. Best practices tell *you* to "redeliver missed webhooks once your server is back up" — via the UI or API. Your recovery plan must include an explicit redelivery run over missed deliveries, not assume GitHub-initiated retries. ([Best practices — Redeliver missed deliveries](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#redeliver-missed-deliveries))
+
+### Minimum receiver changes (all documented)
+
+1. **Verify on the raw body, before parsing/re-serializing.** The HMAC-SHA256 signature in `X-Hub-Signature-256` is computed over the exact payload bytes with your secret; any re-serialization breaks it. Compute HMAC over `request.body` and compare against the header. ([Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries))
+2. **Replace `==` with constant-time comparison** (e.g. `hmac.compare_digest`, `Rack::Utils.secure_compare`, `crypto.timingSafeEqual`). The docs explicitly say "Never use a plain `==` operator" (timing attacks). Same citation, same section.
+3. **Respond 2XX within 10 seconds; process asynchronously via a durable queue.** A 25-second job blocks past the deadline: "GitHub terminates the connection and considers the delivery a failure." Respond immediately after validation/enqueue, run the job in a background queue. ([Best practices — Respond within 10 seconds](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds))
+4. **Check `X-GitHub-Event` and the payload's `action` before processing.** ([Best practices — Check the event type](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#check-the-event-type-and-action-before-processing-the-event))
+
+### Evidence for authenticity and dedup identity
+
+- Authenticity: valid `X-Hub-Signature-256` (HMAC-SHA256 with your secret) proves origin-GitHub and non-tampering — this is the *only* documented authenticity evidence; IP allow lists are auxiliary hardening.
+- **Dedup key bug (your second wrong assumption):** on a requested redelivery, the `X-GitHub-Delivery` header is **the same as the original delivery** — not a new ID. Therefore dedupe on `X-GitHub-Delivery` and redeliveries will be correctly suppressed as the same event. ([Best practices — Use the X-GitHub-Delivery header](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header))
+
+Exactly-once across receiver crash: **No.** With 2XX-after-enqueue, a crash between enqueue and effect (or during the 25s job) means GitHub never re-sends, and even a redelivery you trigger will be suppressed by the delivery-ID dedupe. Documented mechanisms give at-most-once per delivery-ID plus at-least-once via manual redelivery — not exactly-once. UNVERIFIED extras (would need further evidence): whether the redelivery REST endpoint must be authenticated and whether GitHub re-sends anything after timeout (delivery-timeout retry behavior is not documented on these pages; check the deliveries/troubleshooting docs next). Recommendation: make the background worker idempotent by recording effect completion keyed on delivery ID, and treat exactly-once as achieved only at the business-effect layer, not by webhooks alone.

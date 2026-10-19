@@ -1,0 +1,17 @@
+I'll start with the D1 documentation hub and the read-replication pages.
+
+Now the Sessions API reference and the batch/transaction semantics.
+
+## Decision
+
+**Routing/session contract.** Adopt the documented bookmark pattern: pass the session bookmark across requests via a header, rather than `first-primary` on every request. `first-primary` routes only the *first* query to the primary — "Subsequent queries in the Session may use read replicas" — so describing the whole session as pinned to the primary is wrong ([withSession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)). Your teammate is also wrong: `withSession()` equals `withSession("first-unconstrained")` and routes the first query to *any* instance, possibly a lagging replica, so it does not "always begin with the latest data" ([read replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)).
+
+For checkout: after the write, capture `session.getBookmark()` and return it (e.g. `x-d1-bookmark`). In the later request, call `env.DB.withSession(bookmark)`, which guarantees a version "at least as up-to-date as the previous session" while still permitting replica reads. That preserves prior write context without forcing every request to the primary ([bookmark](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)).
+
+**Failure handling.** The team's expectation is contradicted. `batch()` is auto-commit and statements are SQL transactions: "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence." Earlier statements do **not** stay committed. Put header + line-items in one `batch()` and treat it as atomic; retry/idempotency must handle full rollback ([batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)).
+
+**Supported claims.** Documented: sequential consistency with monotonic reads, read-my-own-writes, and cross-request continuity via bookmarks ([consistency model](https://developers.cloudflare.com/d1/best-practices/read-replication/#sessions-api-provides-sequential-consistency)).
+
+**Not supported.** "Globally latest reads" is false: replicas replicate asynchronously and "a read replica may be arbitrarily out of date." A 100 ms maximum replica-lag guarantee is **UNVERIFIED** — no such bound appears; replicas are documented as arbitrarily stale, and D1 explicitly declines such commitments. Next evidence target: Cloudflare's blog "Sequential consistency without borders" and any D1 limits page stating a lag SLO.
+
+**Recommendation (mine):** default `first-unconstrained` + bookmarks; escalate to `first-primary` only for read-after-write across requests lacking a bookmark.

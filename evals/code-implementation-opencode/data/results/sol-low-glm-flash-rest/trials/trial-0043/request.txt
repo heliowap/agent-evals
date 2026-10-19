@@ -1,0 +1,11 @@
+Fix PaymentService.pay in src/service.ts and Ledger.apply in src/ledger.ts so retries
+never duplicate a debit. Idempotency is scoped by tenant and key; a repeated equal
+amount returns the original receipt, including during concurrent calls. Reusing that
+tenant/key with another amount throws Error('key conflict') without another debit.
+Acknowledgement is external and may throw Transient after the debit committed.
+Retry only Transient, up to attempts total tries, forwarding the same receipt each time.
+Preserve the final thrown exception if retries are exhausted; do not retry other errors.
+Validate nonempty tenant/key, positive integer cents and attempts integer 1..5 before
+any ledger or transport action; invalid input throws Error('invalid payment').
+
+You may change src/ and add or update checks/. Preserve public interfaces unless the request explicitly changes them. Run tsc -p tsconfig.json && node checks/public.cjs and describe the change.

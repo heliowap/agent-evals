@@ -1,0 +1,24 @@
+## Decision (recommended contract)
+
+**Session routing: use a bookmark carried across HTTP requests, not `withSession("first-primary")` everywhere.**
+
+- Server-side checkout writes: use `env.DB.withSession("first-unconstrained")` (writes always go to the primary anyway — replicas forward writes [1]) and set the `session.getBookmark()` on the checkout response.
+- Later read requests (order confirmation, etc.): read the bookmark from the request and call `withSession(bookmark)`. D1 guarantees the session starts **at least as up-to-date as the bookmark**, then keeps sequential consistency for all queries in that session [1][2]. This gives read-my-own-writes without pinning every query to the primary.
+
+**Correcting the two premises:**
+
+1. `withSession("first-primary")` does **not** pin the session to the primary. It only directs the *first* query of the session to the primary; *subsequent* queries may use replicas, with sequential consistency [2]. So "the entire session is pinned to the primary" is factually wrong. It is also wasteful: it costs a primary round-trip for every first query even when the carried bookmark already provides the needed currency — the plain `withSession()`/bookmark approach is strictly better here.
+2. `withSession()` (defaults to `"first-unconstrained"`) does **not** "begin with the latest data." The first query may be served by any instance, including a stale replica; only *within-session* ordering is guaranteed [1][2]. Your teammate is wrong for the request that must see the checkout write — but that is solved by the bookmark, not by `first-primary` per request.
+
+**Failure handling for the batched checkout:** the team's expectation is incorrect. `batch()` runs as a SQL transaction: if any statement fails, the error aborts/rolls back the entire sequence — earlier statements are **not** kept committed [3]. Structure checkout so the header insert and all line-item inserts are one `batch()` on one session instance, treated as atomic.
+
+**What's documented for product's claims:**
+- ✅ Supported: sequential consistency, monotonic reads, writes-follow-reads, read-my-own-writes — within sessions [1][2].
+- ✅ Reads refer to "latest data": documented phrasing says `withSession()` without parameters routes the first query to *any* instance and is for when the latest version isn't required [1].
+- ❌ **UNVERIFIED / not supported:** a "maximum 100 ms replica-lag guarantee." Docs explicitly state replicas are asynchronously replicated and "at any given time, a read replica may be arbitrarily out of date" [1]; no lag SLA exists anywhere I fetched. Advertising it would be unsubstantiated. For "globally latest reads," only sessions started with a bookmark or `first-primary` guarantee up-to-date reads; unconstrained sessions do not.
+- Session API is Worker-binding only, not the REST API [2].
+
+**Sources**
+1. https://developers.cloudflare.com/d1/best-practices/read-replication/ (sections: replica lag and consistency model; start-a-session-without-constraints; with-sessions-api)
+2. https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession (withSession parameters; getBookmark)
+3. https://developers.cloudflare.com/d1/worker-api/d1-database/#batch (transaction/rollback semantics)

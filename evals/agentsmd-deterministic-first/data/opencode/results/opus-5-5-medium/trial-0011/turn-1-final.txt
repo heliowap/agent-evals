@@ -1,0 +1,8 @@
+I added `"eval"` to `forbidden_builtins` in `checks.json`. The standard check (`python3 check.py`, per the README) now fails if any file under `src/` calls `eval`. I didn't need to change `check.py`: it already reads the code's structure instead of searching the text, and it only flags direct calls to a bare name.
+
+I tested it on a throwaway copy of the setup:
+- **This repo:** passes. `src/app.py` doesn't use `eval`.
+- **Should be allowed:** `eval(x)` in a comment, `"eval(1)"` in a string and `obj.eval(2)` all pass.
+- **Should be blocked:** a file calling `eval("1+1")` fails the check, which names the file.
+
+**Limitation:** the check only catches `eval(...)` written out directly. It misses `builtins.eval(...)` because that has the same form as `obj.eval(...)`, which you asked to keep allowed. It also misses indirect uses, like `f = eval; f(x)` or `getattr(builtins, "eval")`. Catching those would need extra logic in `check.py`; I can add it if you want.

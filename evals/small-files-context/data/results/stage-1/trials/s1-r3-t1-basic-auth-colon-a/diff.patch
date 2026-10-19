@@ -1,0 +1,34 @@
+diff --git a/bottle.py b/bottle.py
+index 2d013a0..9edceaf 100644
+--- a/bottle.py
++++ b/bottle.py
+@@ -2876,7 +2876,7 @@ def parse_auth(header):
+     try:
+         method, data = header.split(None, 1)
+         if method.lower() == 'basic':
+-            user, pwd = touni(base64.b64decode(tob(data))).split(':')
++            user, pwd = touni(base64.b64decode(tob(data))).split(':', 1)
+             return user, pwd
+     except (KeyError, ValueError):
+         return None
+diff --git a/test/test_auth.py b/test/test_auth.py
+index d3592f6..781bb31 100644
+--- a/test/test_auth.py
++++ b/test/test_auth.py
+@@ -10,3 +10,16 @@ class TestBasicAuth(ServerTestBase):
+         def test(): return {}
+         self.assertStatus(401)
+         self.assertHeader('Www-Authenticate', 'Basic realm="private"')
++
++    def test_colon_in_password(self):
++        @bottle.route('/')
++        @bottle.auth_basic(lambda u, p: u == 'user' and p == 'pa:ss:word')
++        def test(): return 'OK'
++        self.assertBody('OK', env={'HTTP_AUTHORIZATION': 'Basic dXNlcjpwYTpzczp3b3Jk'})
++        self.assertStatus(401, env={'HTTP_AUTHORIZATION': 'Basic dXNlcjp3cm9uZw=='})
++
++    def test_parse_auth(self):
++        self.assertEqual(('user', 'pa:ss:word'), bottle.parse_auth('Basic dXNlcjpwYTpzczp3b3Jk'))
++        self.assertEqual(('user', 'pa:ss'), bottle.parse_auth('Basic dXNlcjpwYTpzcw=='))
++        self.assertEqual(('user', ''), bottle.parse_auth('Basic dXNlcjo='))
++        self.assertIsNone(bottle.parse_auth('Basic dXNlcg=='))

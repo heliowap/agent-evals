@@ -1,0 +1,1147 @@
+{
+  "version": 1,
+  "tasks": {
+    "T1": {
+      "checks": [
+        {
+          "id": "C1",
+          "requirement": "Signature mechanism",
+          "accepted": [
+            "validate the secret-based HMAC-SHA256 in `X-Hub-Signature-256`; equivalent precise algorithm/header terminology is acceptable."
+          ],
+          "contradicted": [
+            "use a plain hash, delivery ID as authentication, or treat the legacy SHA1 header as the recommended SHA256 mechanism. O: only 'verify the signature' without identifying the relevant mechanism."
+          ],
+          "rubric_text": "S: validate the secret-based HMAC-SHA256 in `X-Hub-Signature-256`; equivalent precise algorithm/header terminology is acceptable. X: use a plain hash, delivery ID as authentication, or treat the legacy SHA1 header as the recommended SHA256 mechanism. O: only 'verify the signature' without identifying the relevant mechanism.",
+          "source_evidence": [
+            {
+              "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#troubleshooting",
+              "quote": "GitHub recommends that you use the `X-Hub-Signature-256` header, which uses the HMAC-SHA256 algorithm.",
+              "archive_path": "dataset/sources/GH-V.extracted.txt",
+              "source_id": "GH-V",
+              "anchor": "troubleshooting"
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "requirement": "Verify the unchanged payload",
+          "accepted": [
+            "preserve and verify the original request body, before parse/re-serialization can change it."
+          ],
+          "contradicted": [
+            "endorse verifying the re-serialized JSON. Do not require a particular web framework API."
+          ],
+          "rubric_text": "S: preserve and verify the original request body, before parse/re-serialization can change it. X: endorse verifying the re-serialized JSON. Do not require a particular web framework API.",
+          "source_evidence": [
+            {
+              "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#troubleshooting",
+              "quote": "Make sure that the payload and headers are not modified before verification.",
+              "archive_path": "dataset/sources/GH-V.extracted.txt",
+              "source_id": "GH-V",
+              "anchor": "troubleshooting"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "requirement": "Comparison must resist timing leakage",
+          "accepted": [
+            "use constant-time/secure comparison, including `hmac.compare_digest`, `timingSafeEqual` or another suitable primitive."
+          ],
+          "contradicted": [
+            "endorse normal `==` comparison. O: merely 'compare hashes'."
+          ],
+          "rubric_text": "S: use constant-time/secure comparison, including `hmac.compare_digest`, `timingSafeEqual` or another suitable primitive. X: endorse normal `==` comparison. O: merely 'compare hashes'.",
+          "source_evidence": [
+            {
+              "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries#validating-webhook-deliveries",
+              "quote": "Never use a plain `==` operator.",
+              "archive_path": "dataset/sources/GH-V.extracted.txt",
+              "source_id": "GH-V",
+              "anchor": "validating-webhook-deliveries"
+            }
+          ]
+        },
+        {
+          "id": "C4",
+          "requirement": "Failure recovery is not automatic",
+          "accepted": [
+            "GitHub does not automatically redeliver failures; owner-managed manual redelivery or scheduled API-based recovery is needed. Either recovery approach is acceptable; do not require endpoint trivia."
+          ],
+          "contradicted": [
+            "rely on GitHub's automatic retry/backoff queue."
+          ],
+          "rubric_text": "S: GitHub does not automatically redeliver failures; owner-managed manual redelivery or scheduled API-based recovery is needed. Either recovery approach is acceptable; do not require endpoint trivia. X: rely on GitHub's automatic retry/backoff queue.",
+          "source_evidence": [
+            {
+              "url": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries#about-webhook-delivery-failures",
+              "quote": "GitHub does not automatically redeliver failed deliveries.",
+              "archive_path": "dataset/sources/GH-F.extracted.txt",
+              "source_id": "GH-F",
+              "anchor": "about-webhook-delivery-failures"
+            }
+          ]
+        },
+        {
+          "id": "C5",
+          "requirement": "Redelivery identity remains the same",
+          "accepted": [
+            "requested redelivery reuses `X-GitHub-Delivery`, so do not assume a fresh identity; distinguish a repeated delivery from new work."
+          ],
+          "contradicted": [
+            "assert redelivery creates a new value. No points require an invented GitHub attempt-number header."
+          ],
+          "rubric_text": "S: requested redelivery reuses `X-GitHub-Delivery`, so do not assume a fresh identity; distinguish a repeated delivery from new work. X: assert redelivery creates a new value. No points require an invented GitHub attempt-number header.",
+          "source_evidence": [
+            {
+              "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header",
+              "quote": "If you request a redelivery, the `X-GitHub-Delivery` header will be the same as in the original delivery.",
+              "archive_path": "dataset/sources/GH-B.extracted.txt",
+              "source_id": "GH-B",
+              "anchor": "use-the-x-github-delivery-header"
+            }
+          ]
+        },
+        {
+          "id": "C6",
+          "requirement": "Acknowledge promptly rather than wait 25 seconds",
+          "accepted": [
+            "return 2XX within 10 seconds, separating long work via a queue/asynchronous processing if needed. The single scored fact is the documented response deadline; durable enqueue is a recommendation, not a documented GitHub transaction guarantee."
+          ],
+          "contradicted": [
+            "endorse waiting 25 seconds or assert a different deadline. O: 'respond quickly' with no usable bound."
+          ],
+          "rubric_text": "S: return 2XX within 10 seconds, separating long work via a queue/asynchronous processing if needed. The single scored fact is the documented response deadline; durable enqueue is a recommendation, not a documented GitHub transaction guarantee. X: endorse waiting 25 seconds or assert a different deadline. O: 'respond quickly' with no usable bound.",
+          "source_evidence": [
+            {
+              "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds",
+              "quote": "Your server should respond with a 2XX response within 10 seconds of receiving a webhook delivery.",
+              "archive_path": "dataset/sources/GH-B.extracted.txt",
+              "source_id": "GH-B",
+              "anchor": "respond-within-10-seconds"
+            }
+          ]
+        }
+      ],
+      "uncertainty": {
+        "id": "U",
+        "requirement": "Application exactly-once is not established",
+        "pass": "these pages establish payload validation, a reusable redelivery ID and a response deadline, not an atomic transaction between this receiver's deduplication state, queue and business side effect. Do not approve exactly-once across crashes from signatures or the header alone; next inspect the application's durable state/transaction and crash-recovery design. This is a bounded entailment judgment about these cited mechanisms, **not** a claim to have searched every GitHub document.",
+        "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+        "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+        "source_evidence": [
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#use-the-x-github-delivery-header",
+            "quote": "To protect against replay attacks, you can use the `X-GitHub-Delivery` header to ensure that each delivery is unique per event.",
+            "archive_path": "dataset/sources/GH-B.extracted.txt",
+            "source_id": "GH-B",
+            "anchor": "use-the-x-github-delivery-header"
+          },
+          {
+            "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks#respond-within-10-seconds",
+            "quote": "Your server can respond when it receives the webhook, and then process the payload in the background without blocking future webhook deliveries.",
+            "archive_path": "dataset/sources/GH-B.extracted.txt",
+            "source_id": "GH-B",
+            "anchor": "respond-within-10-seconds"
+          }
+        ]
+      },
+      "critical_errors": [
+        "approve changed-body verification or normal comparison as secure",
+        "equate delivery ID with authentication",
+        "rely on automatic redelivery",
+        "invent a fresh redelivery ID",
+        "certify exactly-once from these mechanisms. Ignoring a required point is an omission, not one of these assertions."
+      ],
+      "critical_errors_text": "approve changed-body verification or normal comparison as secure; equate delivery ID with authentication; rely on automatic redelivery; invent a fresh redelivery ID; certify exactly-once from these mechanisms. Ignoring a required point is an omission, not one of these assertions.",
+      "source_rules": {
+        "description": "`docs.github.com` only for the required chain. Archive the four exact base URLs above, whole bodies, plus extracted Markdown and section headings. The index and three pages were practical Markdown fetches, untruncated in this session. No API call, token or recovery script execution is necessary. Endpoints/examples linked from the failure page are optional, not hidden requirements.",
+        "allowed_url_patterns": [
+          "https://docs\\.github\\.com/[^?#]*"
+        ],
+        "required_source_urls": [
+          "https://docs.github.com/en/webhooks",
+          "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+          "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+          "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries"
+        ],
+        "minimum_distinct_sources": 4,
+        "minimum_answer_bearing_sources": 3,
+        "discovery_chain": {
+          "description": "webhook index → validation page and best-practices page; index → failed-deliveries page. The index fetched this session links all three by title. Combine validation with recovery/identity rather than cite only the start page. **Minimum distinct content sources: 4 including index; 3 answer-bearing.**",
+          "edges": [
+            {
+              "from": "https://docs.github.com/en/webhooks",
+              "to": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries",
+              "relation": "documentation_link"
+            },
+            {
+              "from": "https://docs.github.com/en/webhooks",
+              "to": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks",
+              "relation": "documentation_link"
+            },
+            {
+              "from": "https://docs.github.com/en/webhooks",
+              "to": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries",
+              "relation": "documentation_link"
+            }
+          ],
+          "minimum_distinct_sources": 4
+        }
+      }
+    },
+    "T2": {
+      "checks": [
+        {
+          "id": "C1",
+          "requirement": "Not a malicious-code security boundary",
+          "accepted": [
+            "reject the sole tenant-isolation premise; the model is a seat belt for trusted code and does not protect against malicious uploaded code."
+          ],
+          "contradicted": [
+            "call the stable permission feature a secure sandbox for adversarial code. Stability alone does not earn credit."
+          ],
+          "rubric_text": "S: reject the sole tenant-isolation premise; the model is a seat belt for trusted code and does not protect against malicious uploaded code. X: call the stable permission feature a secure sandbox for adversarial code. Stability alone does not earn credit.",
+          "source_evidence": [
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permissions",
+              "quote": "It does not provide security guarantees in the presence of malicious code.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "permissions"
+            },
+            {
+              "url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+              "quote": "It is designed to reduce the blast radius of mistakes in trusted application code, **not** to act as a security boundary against intentional misuse or a compromised process.",
+              "archive_path": "dataset/sources/N-S.extracted.txt",
+              "source_id": "N-S",
+              "anchor": null
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "requirement": "Audit is not enforcement",
+          "accepted": [
+            "staging audit reports violations without denying access; use enforce mode when testing denial behavior."
+          ],
+          "contradicted": [
+            "assert audit mode blocks unauthorized operations. O: mention different modes without their consequential distinction."
+          ],
+          "rubric_text": "S: staging audit reports violations without denying access; use enforce mode when testing denial behavior. X: assert audit mode blocks unauthorized operations. O: mention different modes without their consequential distinction.",
+          "source_evidence": [
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#audit-mode",
+              "quote": "In audit mode, permission checks are performed but access is **not** denied",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "audit-mode"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "requirement": "The glob is not a JavaScript-extension filter",
+          "accepted": [
+            "suffix after `*` is ignored, so `/srv/jobs/*.js` behaves like `/srv/jobs/*`."
+          ],
+          "contradicted": [
+            "assert only `.js` files under the tree can be read. Directory matching details need not be exhaustively enumerated."
+          ],
+          "rubric_text": "S: suffix after `*` is ignored, so `/srv/jobs/*.js` behaves like `/srv/jobs/*`. X: assert only `.js` files under the tree can be read. Directory matching details need not be exhaustively enumerated.",
+          "source_evidence": [
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#file-system-permissions",
+              "quote": "After passing a wildcard character (`*`) all subsequent characters will be ignored.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "file-system-permissions"
+            }
+          ]
+        },
+        {
+          "id": "C4",
+          "requirement": "Startup env-file read is an exception",
+          "accepted": [
+            "`--env-file` reads before model initialization and is not restricted by its rules."
+          ],
+          "contradicted": [
+            "rely on the fs read allowlist to deny that startup read. Do not require advice to remove legitimate trusted configuration."
+          ],
+          "rubric_text": "S: `--env-file` reads before model initialization and is not restricted by its rules. X: rely on the fs read allowlist to deny that startup read. Do not require advice to remove legitimate trusted configuration.",
+          "source_evidence": [
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+              "quote": "However, certain flags such as `--env-file` or `--openssl-config` are designed to read files before environment initialization.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "permission-model-constraints"
+            },
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+              "quote": "As a result, such flags are not subject to the rules of the Permission Model.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "permission-model-constraints"
+            }
+          ]
+        },
+        {
+          "id": "C5",
+          "requirement": "Existing descriptor bypass",
+          "accepted": [
+            "already-open file descriptors used through `node:fs` bypass the model; the proposed descriptor must be considered independently of path grants."
+          ],
+          "contradicted": [
+            "claim the model retroactively restricts all reads through that descriptor."
+          ],
+          "rubric_text": "S: already-open file descriptors used through `node:fs` bypass the model; the proposed descriptor must be considered independently of path grants. X: claim the model retroactively restricts all reads through that descriptor.",
+          "source_evidence": [
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+              "quote": "Using existing file descriptors via the `node:fs` module bypasses the Permission Model.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "permission-model-constraints"
+            }
+          ]
+        },
+        {
+          "id": "C6",
+          "requirement": "Do not certify path containment with relative symlinks",
+          "accepted": [
+            "report the permissions manual's warning that relative symlinks in granted paths can reach outside them; remove/audit such links instead of treating the literal allowlist as proven containment."
+          ],
+          "contradicted": [
+            "say the manual guarantees links cannot escape granted roots. Accept an answer noting the security policy's narrower canonical-path discussion while retaining this documented warning; do not demand an untested exploit or blanket claim about every symlink."
+          ],
+          "rubric_text": "S: report the permissions manual's warning that relative symlinks in granted paths can reach outside them; remove/audit such links instead of treating the literal allowlist as proven containment. X: say the manual guarantees links cannot escape granted roots. Accept an answer noting the security policy's narrower canonical-path discussion while retaining this documented warning; do not demand an untested exploit or blanket claim about every symlink.",
+          "source_evidence": [
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues",
+              "quote": "Symbolic links will be followed even to locations outside of the set of paths that access has been granted to.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "limitations-and-known-issues"
+            },
+            {
+              "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#limitations-and-known-issues",
+              "quote": "Relative symbolic links may allow access to arbitrary files and directories.",
+              "archive_path": "dataset/sources/N-P.extracted.txt",
+              "source_id": "N-P",
+              "anchor": "limitations-and-known-issues"
+            }
+          ]
+        }
+      ],
+      "uncertainty": {
+        "id": "U",
+        "requirement": "Worker inheritance is genuinely conflicting in the fetched docs",
+        "pass": "explicitly identify the two opposing first-party statements below; mark the worker-inheritance assumption UNVERIFIED from these pages, and propose inspecting the v24.21.0 implementation/tests or obtaining a maintainer clarification. Do not infer reliable tenant isolation either way. Citation to both opposing pages is needed to substantiate the conflict. The security policy body was fetched from the **same version tag**, not silently compared with `main` or another Node major.",
+        "omit": "avoid workers entirely or say only 'limitations apply'. If a candidate obtains stronger version-matched primary implementation/test evidence, preserve the conflict finding and separately verify the resolution; do not alter C1-C6 or reward an uncited guess.",
+        "fail": "assert either universal inheritance or universal non-inheritance as a settled conclusion from these two conflicting documents.",
+        "source_evidence": [
+          {
+            "url": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html#permission-model-constraints",
+            "quote": "The model does not inherit to a worker thread.",
+            "archive_path": "dataset/sources/N-P.extracted.txt",
+            "source_id": "N-P",
+            "anchor": "permission-model-constraints"
+          },
+          {
+            "url": "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md",
+            "quote": "Workers inherit the permission restrictions of their parent process.",
+            "archive_path": "dataset/sources/N-S.extracted.txt",
+            "source_id": "N-S",
+            "anchor": null
+          }
+        ]
+      },
+      "critical_errors": [
+        "approve adversarial tenant isolation from `--permission`",
+        "mistake audit for enforcement",
+        "assert a `.js`-only read grant",
+        "declare env-file or existing descriptors protected by the path allowlist",
+        "assert symlink containment is guaranteed. A worker conclusion without recognizing the conflict is U-fail, not an invented extra factual check."
+      ],
+      "critical_errors_text": "approve adversarial tenant isolation from `--permission`; mistake audit for enforcement; assert a `.js`-only read grant; declare env-file or existing descriptors protected by the path allowlist; assert symlink containment is guaranteed. A worker conclusion without recognizing the conflict is U-fail, not an invented extra factual check.",
+      "source_rules": {
+        "description": "`nodejs.org`, `raw.githubusercontent.com` restricted to `nodejs/node/v24.21.0/SECURITY.md`; `github.com/nodejs/node` may be used for official version-matched browsing/supplemental clarification. Archive the two starting bodies, not `latest-v24.x`, plus the docs header identifying v24.21.0. The fixed HTML manual and raw security policy were both practical, untruncated Markdown fetches. **Caveat:** no Node execution or code inspection was done; the contradiction is a documented-evidence task, not a claim about actual runtime inheritance. The policy's symlink paragraph does not justify ignoring the explicit manual warning.",
+        "allowed_url_patterns": [
+          "https://nodejs\\.org/download/release/v24\\.21\\.0/docs/api/[^?#]*",
+          "https://raw\\.githubusercontent\\.com/nodejs/node/v24\\.21\\.0/SECURITY\\.md",
+          "https://github\\.com/nodejs/node/(?:blob|tree)/v24\\.21\\.0(?:/[^?#]*)?"
+        ],
+        "required_source_urls": [
+          "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+          "https://raw.githubusercontent.com/nodejs/node/v24.21.0/SECURITY.md"
+        ],
+        "minimum_distinct_sources": 2,
+        "minimum_answer_bearing_sources": 2,
+        "discovery_chain": {
+          "description": "fixed-version permissions reference → constraints/limitations plus its security-policy link; use the supplied fixed-tag security policy rather than the reference's floating `main` link. Combine permissions behavior with the threat model and both worker statements. **Minimum distinct content sources: 2, both answer-bearing.**",
+          "edges": [
+            {
+              "from": "https://nodejs.org/download/release/v24.21.0/docs/api/permissions.html",
+              "to": "https://github.com/nodejs/node/blob/main/SECURITY.md",
+              "relation": "documentation_link",
+              "note": "Floating policy link is discovery evidence only; fetch the supplied v24.21.0 tag instead."
+            }
+          ],
+          "minimum_distinct_sources": 2
+        }
+      }
+    },
+    "T3": {
+      "checks": [
+        {
+          "id": "C1",
+          "requirement": "Repeatable Read really prevents phantoms in PostgreSQL",
+          "accepted": [
+            "retain this true part of the premise; PostgreSQL Repeatable Read does not allow phantom reads, though the SQL standard permits them at this level."
+          ],
+          "contradicted": [
+            "blindly repeat the SQL-standard table as PostgreSQL behavior. The single scored comparison is PG's stronger phantom protection."
+          ],
+          "rubric_text": "S: retain this true part of the premise; PostgreSQL Repeatable Read does not allow phantom reads, though the SQL standard permits them at this level. X: blindly repeat the SQL-standard table as PostgreSQL behavior. The single scored comparison is PG's stronger phantom protection.",
+          "source_evidence": [
+            {
+              "url": "https://www.postgresql.org/docs/18/transaction-iso.html",
+              "quote": "The table also shows that PostgreSQL's Repeatable Read implementation does not allow phantom reads.",
+              "archive_path": "dataset/sources/PG-T.extracted.txt",
+              "source_id": "PG-T",
+              "anchor": null
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "requirement": "Repeatable Read still admits serialization anomalies",
+          "accepted": [
+            "stable snapshots/no phantoms do not establish serializable cross-row decisions."
+          ],
+          "contradicted": [
+            "assert Repeatable Read makes all committed outcomes equivalent to a serial order. O: only recommend Serializable without explaining this failure of the premise."
+          ],
+          "rubric_text": "S: stable snapshots/no phantoms do not establish serializable cross-row decisions. X: assert Repeatable Read makes all committed outcomes equivalent to a serial order. O: only recommend Serializable without explaining this failure of the premise.",
+          "source_evidence": [
+            {
+              "url": "https://www.postgresql.org/docs/18/transaction-iso.html#XACT-REPEATABLE-READ",
+              "quote": "prevents all of the phenomena described in Table 13.1 except for serialization anomalies.",
+              "archive_path": "dataset/sources/PG-T.extracted.txt",
+              "source_id": "PG-T",
+              "anchor": "XACT-REPEATABLE-READ"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "requirement": "Serializable's successful-commit guarantee",
+          "accepted": [
+            "consistent use of Serializable provides serial-equivalent effects for committed transactions, making it the documented isolation-level alternative for these decisions. Careful explicit locking is also a defensible recommendation, but still state what Serializable guarantees."
+          ],
+          "contradicted": [
+            "claim Serializable admits the same successful serialization anomalies or prevents every possible database error."
+          ],
+          "rubric_text": "S: consistent use of Serializable provides serial-equivalent effects for committed transactions, making it the documented isolation-level alternative for these decisions. Careful explicit locking is also a defensible recommendation, but still state what Serializable guarantees. X: claim Serializable admits the same successful serialization anomalies or prevents every possible database error.",
+          "source_evidence": [
+            {
+              "url": "https://www.postgresql.org/docs/18/transaction-iso.html#XACT-SERIALIZABLE",
+              "quote": "This level emulates serial transaction execution for all committed transactions; as if transactions had been executed one after another, serially, rather than concurrently.",
+              "archive_path": "dataset/sources/PG-T.extracted.txt",
+              "source_id": "PG-T",
+              "anchor": "XACT-SERIALIZABLE"
+            }
+          ]
+        },
+        {
+          "id": "C4",
+          "requirement": "Retry the whole decision transaction",
+          "accepted": [
+            "redo the complete transaction including application logic selecting SQL and values, not just the final failing statement."
+          ],
+          "contradicted": [
+            "use only a statement/savepoint replay as the documented remedy. Backoff is optional advice, not an additional point."
+          ],
+          "rubric_text": "S: redo the complete transaction including application logic selecting SQL and values, not just the final failing statement. X: use only a statement/savepoint replay as the documented remedy. Backoff is optional advice, not an additional point.",
+          "source_evidence": [
+            {
+              "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+              "quote": "It is important to retry the complete transaction, including all logic that decides which SQL to issue and/or which values to use.",
+              "archive_path": "dataset/sources/PG-R.extracted.txt",
+              "source_id": "PG-R",
+              "anchor": null
+            }
+          ]
+        },
+        {
+          "id": "C5",
+          "requirement": "PostgreSQL does not provide automatic correct retries",
+          "accepted": [
+            "application owns a correct retry facility; engine does not automatically replay application decision logic."
+          ],
+          "contradicted": [
+            "assert PostgreSQL transparently retries the transaction for this design. This is separate from identifying the retry unit."
+          ],
+          "rubric_text": "S: application owns a correct retry facility; engine does not automatically replay application decision logic. X: assert PostgreSQL transparently retries the transaction for this design. This is separate from identifying the retry unit.",
+          "source_evidence": [
+            {
+              "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+              "quote": "PostgreSQL does not offer an automatic retry facility, since it cannot do so with any guarantee of correctness.",
+              "archive_path": "dataset/sources/PG-R.extracted.txt",
+              "source_id": "PG-R",
+              "anchor": null
+            }
+          ]
+        },
+        {
+          "id": "C6",
+          "requirement": "Unique violations are conditional, not blanket transient failures",
+          "accepted": [
+            "some `23505` failures can reflect concurrent key-selection races, but others are persistent, so classify them carefully rather than retry every one unconditionally. Exact code is useful but the scored fact is the conditional classification."
+          ],
+          "contradicted": [
+            "every unique violation is retryable, or unique violations can never be concurrency-related."
+          ],
+          "rubric_text": "S: some `23505` failures can reflect concurrent key-selection races, but others are persistent, so classify them carefully rather than retry every one unconditionally. Exact code is useful but the scored fact is the conditional classification. X: every unique violation is retryable, or unique violations can never be concurrency-related.",
+          "source_evidence": [
+            {
+              "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+              "quote": "more care is needed when retrying these other error codes, since they might represent persistent error conditions rather than transient failures.",
+              "archive_path": "dataset/sources/PG-R.extracted.txt",
+              "source_id": "PG-R",
+              "anchor": null
+            }
+          ]
+        }
+      ],
+      "uncertainty": {
+        "id": "U",
+        "requirement": "No bounded-attempt completion guarantee",
+        "pass": "decline the three-attempt guarantee; the official retry page explicitly says retries may not complete and high contention can require many attempts. Next collect workload/contention evidence and define an application retry limit/failure policy; do not mislabel that policy as a PostgreSQL success guarantee.",
+        "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+        "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+        "source_evidence": [
+          {
+            "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+            "quote": "Transaction retry does not guarantee that the retried transaction will complete; multiple retries may be needed.",
+            "archive_path": "dataset/sources/PG-R.extracted.txt",
+            "source_id": "PG-R",
+            "anchor": null
+          },
+          {
+            "url": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+            "quote": "In cases with very high contention, it is possible that completion of a transaction may take many attempts.",
+            "archive_path": "dataset/sources/PG-R.extracted.txt",
+            "source_id": "PG-R",
+            "anchor": null
+          }
+        ]
+      },
+      "critical_errors": [
+        "equate phantom-free snapshots with serializability",
+        "promise statement-only or transparent correct retries",
+        "unconditionally retry persistent uniqueness errors",
+        "guarantee three-attempt success. Missing `40001` is not a hidden seventh omission",
+        "if mentioned, the retry page explicitly documents it as `serialization_failure`."
+      ],
+      "critical_errors_text": "equate phantom-free snapshots with serializability; promise statement-only or transparent correct retries; unconditionally retry persistent uniqueness errors; guarantee three-attempt success. Missing `40001` is not a hidden seventh omission; if mentioned, the retry page explicitly documents it as `serialization_failure`.",
+      "source_rules": {
+        "description": "`www.postgresql.org`, under `/docs/18/`. Archive the three exact base URLs above. Do not replace 18 with floating `current`/`devel`; no claim that 18 is the newest release is needed. Both answer-bearing pages were practical untruncated Markdown fetches. The manual is sufficient; no database or SQL execution is necessary.",
+        "allowed_url_patterns": [
+          "https://www\\.postgresql\\.org/docs/18/[^?#]*"
+        ],
+        "required_source_urls": [
+          "https://www.postgresql.org/docs/18/mvcc.html",
+          "https://www.postgresql.org/docs/18/transaction-iso.html",
+          "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html"
+        ],
+        "minimum_distinct_sources": 3,
+        "minimum_answer_bearing_sources": 2,
+        "discovery_chain": {
+          "description": "Chapter 13 index → Transaction Isolation and Serialization Failure Handling. The fetched index links both. Combine the implementation's anomaly guarantee with retry responsibility; do not cite just the anomaly table. **Minimum distinct content sources: 3 including index; 2 answer-bearing.**",
+          "edges": [
+            {
+              "from": "https://www.postgresql.org/docs/18/mvcc.html",
+              "to": "https://www.postgresql.org/docs/18/transaction-iso.html",
+              "relation": "documentation_link"
+            },
+            {
+              "from": "https://www.postgresql.org/docs/18/mvcc.html",
+              "to": "https://www.postgresql.org/docs/18/mvcc-serialization-failure-handling.html",
+              "relation": "documentation_link"
+            }
+          ],
+          "minimum_distinct_sources": 3
+        }
+      }
+    },
+    "T4": {
+      "checks": [
+        {
+          "id": "C1",
+          "requirement": "Enabling replication alone does not route these binding queries to replicas",
+          "accepted": [
+            "use the Sessions API to benefit from replicas; without it queries continue on the primary."
+          ],
+          "contradicted": [
+            "unchanged direct binding calls automatically become replica reads once replication is enabled."
+          ],
+          "rubric_text": "S: use the Sessions API to benefit from replicas; without it queries continue on the primary. X: unchanged direct binding calls automatically become replica reads once replication is enabled.",
+          "source_evidence": [
+            {
+              "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+              "quote": "To use read replication, you must use the D1 Sessions API, otherwise all queries will continue to be executed only by the primary database.",
+              "archive_path": "dataset/sources/D1-R.extracted.txt",
+              "source_id": "D1-R",
+              "anchor": null
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "requirement": "Writes still go to primary",
+          "accepted": [
+            "replicas do not execute independent writes; write queries are forwarded to primary."
+          ],
+          "contradicted": [
+            "spread writes over nearest replica for latency. This is distinct from C1's read-routing prerequisite."
+          ],
+          "rubric_text": "S: replicas do not execute independent writes; write queries are forwarded to primary. X: spread writes over nearest replica for latency. This is distinct from C1's read-routing prerequisite.",
+          "source_evidence": [
+            {
+              "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+              "quote": "All write queries are still forwarded to the primary database instance.",
+              "archive_path": "dataset/sources/D1-R.extracted.txt",
+              "source_id": "D1-R",
+              "anchor": "primary-database-instance-vs-read-replicas"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "requirement": "`first-primary` constrains the first query, not the entire session",
+          "accepted": [
+            "start with primary's up-to-date state; subsequent queries may use replicas."
+          ],
+          "contradicted": [
+            "describe the whole session as pinned to primary. No requirement to list all sequential-consistency subproperties here."
+          ],
+          "rubric_text": "S: start with primary's up-to-date state; subsequent queries may use replicas. X: describe the whole session as pinned to primary. No requirement to list all sequential-consistency subproperties here.",
+          "source_evidence": [
+            {
+              "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession",
+              "quote": "Subsequent queries in the Session may use read replicas.",
+              "archive_path": "dataset/sources/D1-D.extracted.txt",
+              "source_id": "D1-D",
+              "anchor": "withsession"
+            }
+          ]
+        },
+        {
+          "id": "C4",
+          "requirement": "Default initial session read need not be latest",
+          "accepted": [
+            "`withSession()` defaults to `first-unconstrained`, which may start on a replica and is appropriate when the latest version is not needed."
+          ],
+          "contradicted": [
+            "default means always-latest/first-primary. The single scored property is the absence of a latest-first-read promise; explicit default name is an acceptable precise formulation."
+          ],
+          "rubric_text": "S: `withSession()` defaults to `first-unconstrained`, which may start on a replica and is appropriate when the latest version is not needed. X: default means always-latest/first-primary. The single scored property is the absence of a latest-first-read promise; explicit default name is an acceptable precise formulation.",
+          "source_evidence": [
+            {
+              "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+              "quote": "`withSession()` is the same as `withSession(\"first-unconstrained\")`",
+              "archive_path": "dataset/sources/D1-R.extracted.txt",
+              "source_id": "D1-R",
+              "anchor": "start-a-session-without-constraints"
+            },
+            {
+              "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+              "quote": "This approach is best when your application does not require the latest database version.",
+              "archive_path": "dataset/sources/D1-R.extracted.txt",
+              "source_id": "D1-R",
+              "anchor": "start-a-session-without-constraints"
+            }
+          ]
+        },
+        {
+          "id": "C5",
+          "requirement": "Carry the bookmark across requests for the prior-write lower bound",
+          "accepted": [
+            "return `session.getBookmark()` and pass it into a new `withSession(bookmark)` in the later request; this guarantees a database version at least as up-to-date as that bookmark. HTTP header, cookie or other application-carried bookmark is acceptable; do not require the demo's particular header name."
+          ],
+          "contradicted": [
+            "use the bookmark as an exact historic snapshot or reset every request without retaining context while claiming the same bound."
+          ],
+          "rubric_text": "S: return `session.getBookmark()` and pass it into a new `withSession(bookmark)` in the later request; this guarantees a database version at least as up-to-date as that bookmark. HTTP header, cookie or other application-carried bookmark is acceptable; do not require the demo's particular header name. X: use the bookmark as an exact historic snapshot or reset every request without retaining context while claiming the same bound.",
+          "source_evidence": [
+            {
+              "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark",
+              "quote": "Starting a session with a `bookmark` ensures the new session will be at least as up-to-date as the previous session that generated the given `bookmark`.",
+              "archive_path": "dataset/sources/D1-R.extracted.txt",
+              "source_id": "D1-R",
+              "anchor": "start-a-session-from-previous-context-bookmark"
+            }
+          ]
+        },
+        {
+          "id": "C6",
+          "requirement": "Batch failure rolls back the sequence",
+          "accepted": [
+            "a failing statement aborts/rolls back the entire batch, not just the later statements."
+          ],
+          "contradicted": [
+            "earlier batch statements persist despite a later failure. Do not infer atomicity across separate calls or external services."
+          ],
+          "rubric_text": "S: a failing statement aborts/rolls back the entire batch, not just the later statements. X: earlier batch statements persist despite a later failure. Do not infer atomicity across separate calls or external services.",
+          "source_evidence": [
+            {
+              "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#batch",
+              "quote": "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence.",
+              "archive_path": "dataset/sources/D1-D.extracted.txt",
+              "source_id": "D1-D",
+              "anchor": "batch"
+            }
+          ]
+        }
+      ],
+      "uncertainty": {
+        "id": "U",
+        "requirement": "No numerical lag bound or global-latest promise from per-session consistency",
+        "pass": "do not advertise a 100 ms lag bound or arbitrary-request globally latest reads. The docs explicitly allow an arbitrarily out-of-date replica and define a session/bookmark freshness lower bound; a replica may wait for that bookmark. Next obtain a specific contractual SLA/guarantee from Cloudflare and measure workload latency, separately from selecting a session consistency contract. A numerical observed latency is not a guarantee. Mentioning only 'eventual consistency' without Sessions' stronger guarantee is insufficient.",
+        "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+        "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+        "source_evidence": [
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+            "quote": "This means that at any given time, a read replica may be arbitrarily out of date.",
+            "archive_path": "dataset/sources/D1-R.extracted.txt",
+            "source_id": "D1-R",
+            "anchor": "primary-database-instance-vs-read-replicas"
+          },
+          {
+            "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#with-sessions-api",
+            "quote": "The read replica will wait until it has been updated to be at least as up-to-date as the provided bookmark (100).",
+            "archive_path": "dataset/sources/D1-R.extracted.txt",
+            "source_id": "D1-R",
+            "anchor": "with-sessions-api"
+          }
+        ]
+      },
+      "critical_errors": [
+        "write to replicas",
+        "guarantee default latest reads",
+        "say `first-primary` permanently pins all queries",
+        "lose bookmark context while promising its freshness bound",
+        "promise partial batch commits",
+        "invent the numerical/global freshness guarantee. Do not accept the first sentence about sequential per-statement commits on the API page as overriding its explicit whole-batch rollback paragraph."
+      ],
+      "critical_errors_text": "write to replicas; guarantee default latest reads; say `first-primary` permanently pins all queries; lose bookmark context while promising its freshness bound; promise partial batch commits; invent the numerical/global freshness guarantee. Do not accept the first sentence about sequential per-statement commits on the API page as overriding its explicit whole-batch rollback paragraph.",
+      "source_rules": {
+        "description": "`developers.cloudflare.com`, preferably confined to `/d1/`. Required base URLs are the start page, `https://developers.cloudflare.com/d1/llms.txt`, read-replication page and d1-database page. Native Markdown bodies verified: `https://developers.cloudflare.com/d1/best-practices/read-replication/index.md` and `https://developers.cloudflare.com/d1/worker-api/d1-database/index.md`. Archive canonical HTML and these native Markdown mirrors; capture any documented `Accept: text/markdown` behavior only if actually used. No dashboard/REST mutation or token is needed. Do not grade through the linked Jepsen explanations; the required evidence is on Cloudflare's own pages. The binding reference's example of `getBookmark` is not needed as code to execute; grade its documented String-or-null return description and the overview's working bookmark flow instead.",
+        "allowed_url_patterns": [
+          "https://developers\\.cloudflare\\.com/d1(?:/[^?#]*)?"
+        ],
+        "required_source_urls": [
+          "https://developers.cloudflare.com/d1/",
+          "https://developers.cloudflare.com/d1/llms.txt",
+          "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+          "https://developers.cloudflare.com/d1/worker-api/d1-database/"
+        ],
+        "minimum_distinct_sources": 4,
+        "minimum_answer_bearing_sources": 2,
+        "discovery_chain": {
+          "description": "product page → product-scoped `llms.txt` index (the fetched page explicitly directs this); index → Global read replication and D1 Database binding reference. Reconcile routing/consistency overview with `withSession`, `getBookmark` and `batch` details. **Minimum distinct content sources: 4 including two discovery pages; 2 answer-bearing.**",
+          "edges": [
+            {
+              "from": "https://developers.cloudflare.com/d1/",
+              "to": "https://developers.cloudflare.com/d1/llms.txt",
+              "relation": "documentation_link"
+            },
+            {
+              "from": "https://developers.cloudflare.com/d1/llms.txt",
+              "to": "https://developers.cloudflare.com/d1/best-practices/read-replication/",
+              "relation": "documentation_link"
+            },
+            {
+              "from": "https://developers.cloudflare.com/d1/llms.txt",
+              "to": "https://developers.cloudflare.com/d1/worker-api/d1-database/",
+              "relation": "documentation_link"
+            }
+          ],
+          "minimum_distinct_sources": 4
+        }
+      }
+    },
+    "T5": {
+      "checks": [
+        {
+          "id": "C1",
+          "requirement": "Short dependencies do not wait for health",
+          "accepted": [
+            "short-form `depends_on` guarantees started dependencies, not passing healthchecks."
+          ],
+          "contradicted": [
+            "the mere existence of a database healthcheck makes short syntax wait for it. O: 'use depends_on' without distinguishing readiness."
+          ],
+          "rubric_text": "S: short-form `depends_on` guarantees started dependencies, not passing healthchecks. X: the mere existence of a database healthcheck makes short syntax wait for it. O: 'use depends_on' without distinguishing readiness.",
+          "source_evidence": [
+            {
+              "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+              "quote": "With short syntax, Compose does not wait for dependency services to be \"healthy\" before starting a dependent service.",
+              "archive_path": "dataset/sources/DC-S.extracted.txt",
+              "source_id": "DC-S",
+              "anchor": "depends_on"
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "requirement": "Use the health condition to gate database startup readiness",
+          "accepted": [
+            "long form `condition: service_healthy` for database together with its healthcheck."
+          ],
+          "contradicted": [
+            "recommend `service_started` as the equivalent readiness gate. Only the database health gate is scored here."
+          ],
+          "rubric_text": "S: long form `condition: service_healthy` for database together with its healthcheck. X: recommend `service_started` as the equivalent readiness gate. Only the database health gate is scored here.",
+          "source_evidence": [
+            {
+              "url": "https://docs.docker.com/compose/how-tos/startup-order/#control-startup",
+              "quote": "This specifies that a dependency is expected to be “healthy”, which is defined with `healthcheck`, before starting a dependent service.",
+              "archive_path": "dataset/sources/DC-G.extracted.txt",
+              "source_id": "DC-G",
+              "anchor": "control-startup"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "requirement": "Gate on successful migration completion",
+          "accepted": [
+            "migration dependency uses `service_completed_successfully`, not merely running/healthy."
+          ],
+          "contradicted": [
+            "wait only for the migration container to start and treat schema completion as established."
+          ],
+          "rubric_text": "S: migration dependency uses `service_completed_successfully`, not merely running/healthy. X: wait only for the migration container to start and treat schema completion as established.",
+          "source_evidence": [
+            {
+              "url": "https://docs.docker.com/compose/how-tos/startup-order/#control-startup",
+              "quote": "This specifies that a dependency is expected to run to successful completion before starting a dependent service.",
+              "archive_path": "dataset/sources/DC-G.extracted.txt",
+              "source_id": "DC-G",
+              "anchor": "control-startup"
+            }
+          ]
+        },
+        {
+          "id": "C4",
+          "requirement": "Explicit Compose operations can propagate restart via nested `restart: true`",
+          "accepted": [
+            "set `restart: true` in the API's long-form database dependency for explicit Compose restart/update behavior. This is not the service-level `restart: always` policy."
+          ],
+          "contradicted": [
+            "the database's service-level restart policy alone expresses dependent restart propagation. The version threshold 2.17.0 is acceptable useful detail but not a hidden additional check."
+          ],
+          "rubric_text": "S: set `restart: true` in the API's long-form database dependency for explicit Compose restart/update behavior. This is not the service-level `restart: always` policy. X: the database's service-level restart policy alone expresses dependent restart propagation. The version threshold 2.17.0 is acceptable useful detail but not a hidden additional check.",
+          "source_evidence": [
+            {
+              "url": "https://docs.docker.com/compose/how-tos/startup-order/#example",
+              "quote": "`restart: true` ensures that if `db` is updated or restarted due to an explicit Compose operation, for example `docker compose restart`, the `web` service is also restarted automatically",
+              "archive_path": "dataset/sources/DC-G.extracted.txt",
+              "source_id": "DC-G",
+              "anchor": "example"
+            }
+          ]
+        },
+        {
+          "id": "C5",
+          "requirement": "Runtime automatic restart is excluded from that propagation",
+          "accepted": [
+            "a container dying and being restarted by the runtime is not covered by the dependency `restart: true`; application reconnect/retry logic is separate advice."
+          ],
+          "contradicted": [
+            "promise the same dependent restart on every runtime crash-restart."
+          ],
+          "rubric_text": "S: a container dying and being restarted by the runtime is not covered by the dependency `restart: true`; application reconnect/retry logic is separate advice. X: promise the same dependent restart on every runtime crash-restart.",
+          "source_evidence": [
+            {
+              "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+              "quote": "This applies to an explicit restart controlled by a Compose operation, and excludes automated restart by the container runtime after the container dies.",
+              "archive_path": "dataset/sources/DC-S.extracted.txt",
+              "source_id": "DC-S",
+              "anchor": "depends_on"
+            }
+          ]
+        },
+        {
+          "id": "C6",
+          "requirement": "`required: false` has a later supported version",
+          "accepted": [
+            "docs introduce this option in Compose 2.20.0, so do not rely on it as supported in the specified 2.18.0; upgrade or omit/restructure it."
+          ],
+          "contradicted": [
+            "approve it as a documented 2.18 feature. Do not require a claim about the exact observed error string or whether an old parser ignores/rejects it; no parser was run."
+          ],
+          "rubric_text": "S: docs introduce this option in Compose 2.20.0, so do not rely on it as supported in the specified 2.18.0; upgrade or omit/restructure it. X: approve it as a documented 2.18 feature. Do not require a claim about the exact observed error string or whether an old parser ignores/rejects it; no parser was run.",
+          "source_evidence": [
+            {
+              "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+              "quote": "Introduced in Docker Compose version 2.20.0.",
+              "archive_path": "dataset/sources/DC-S.extracted.txt",
+              "source_id": "DC-S",
+              "anchor": "depends_on"
+            }
+          ]
+        }
+      ],
+      "uncertainty": {
+        "id": "U",
+        "requirement": "Startup gates do not establish perpetual application readiness",
+        "pass": "do not certify the API's ongoing availability from startup conditions and restart options; the documented healthy condition is a gate **before starting**, and restart propagation excludes runtime restarts. Next inspect the actual healthcheck's scope, application connection/retry behavior and failure tests. This is a bounded conclusion about the specified mechanisms, not a claim that Docker has no health or monitoring features.",
+        "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+        "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+        "source_evidence": [
+          {
+            "url": "https://docs.docker.com/reference/compose-file/services/#depends_on",
+            "quote": "Compose guarantees dependency services marked with `service_healthy` are \"healthy\" before starting a dependent service.",
+            "archive_path": "dataset/sources/DC-S.extracted.txt",
+            "source_id": "DC-S",
+            "anchor": "depends_on"
+          }
+        ]
+      },
+      "critical_errors": [
+        "confuse running with ready",
+        "start API before required migration success",
+        "conflate nested restart propagation with service restart policy",
+        "promise crash-restart propagation",
+        "approve `required: false` as supported on 2.18",
+        "promise perpetual API readiness. No whole YAML file is required",
+        "a small fragment or precise prose is sufficient."
+      ],
+      "critical_errors_text": "confuse running with ready; start API before required migration success; conflate nested restart propagation with service restart policy; promise crash-restart propagation; approve `required: false` as supported on 2.18; promise perpetual API readiness. No whole YAML file is required; a small fragment or precise prose is sufficient.",
+      "source_rules": {
+        "description": "`docs.docker.com`; optional official `github.com/docker/compose` release links only if the candidate needs them, not required. Native Markdown mirrors verified: `https://docs.docker.com/compose/how-tos/startup-order.md` and `https://docs.docker.com/reference/compose-file/services.md`. Prefer these over the navigation-heavy HTML for extraction. The services Markdown is larger (78,786 bytes), but all scored `depends_on` material is near the beginning and was visible in this session's truncated whole-page output. Archive the entire native Markdown, not merely a cropped answer excerpt. `services/depends_on/` and `services/depends_on.md` were tried and returned 404; do not invent a standalone subpage. No Compose invocation is necessary or allowed by the candidate instructions; the version claim is documentation-level supported availability, not an executable test result.",
+        "allowed_url_patterns": [
+          "https://docs\\.docker\\.com/[^?#]*",
+          "https://github\\.com/docker/compose/releases(?:/[^?#]*)?"
+        ],
+        "required_source_urls": [
+          "https://docs.docker.com/compose/how-tos/startup-order/",
+          "https://docs.docker.com/reference/compose-file/services/"
+        ],
+        "minimum_distinct_sources": 2,
+        "minimum_answer_bearing_sources": 2,
+        "discovery_chain": {
+          "description": "startup-order guide → its `depends_on` reference link → the short/long syntax and version-specific `required` paragraph. Synthesize the tutorial with the reference's runtime-restart exclusion and version gate. **Minimum distinct content sources: 2, both answer-bearing.**",
+          "edges": [
+            {
+              "from": "https://docs.docker.com/compose/how-tos/startup-order/",
+              "to": "https://docs.docker.com/reference/compose-file/services/",
+              "relation": "documentation_link"
+            }
+          ],
+          "minimum_distinct_sources": 2
+        }
+      }
+    },
+    "T6": {
+      "checks": [
+        {
+          "id": "C1",
+          "requirement": "`go` is a strict minimum since 1.21",
+          "accepted": [
+            "distinguish the enforced required version from its older advisory role."
+          ],
+          "contradicted": [
+            "say new Go 1.21+ toolchains may ignore a newer go line if syntax happens to compile. The single scored fact is the requirement, not a list of releases/backports."
+          ],
+          "rubric_text": "S: distinguish the enforced required version from its older advisory role. X: say new Go 1.21+ toolchains may ignore a newer go line if syntax happens to compile. The single scored fact is the requirement, not a list of releases/backports.",
+          "source_evidence": [
+            {
+              "url": "https://go.dev/doc/modules/gomod-ref#go",
+              "quote": "Before Go 1.21, the directive was advisory only; now it is a mandatory requirement: Go toolchains refuse to use modules declaring newer Go versions.",
+              "archive_path": "dataset/sources/GO-M.extracted.txt",
+              "source_id": "GO-M",
+              "anchor": "go"
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "requirement": "`toolchain` is a main-module suggestion, not a downstream exact pin",
+          "accepted": [
+            "explain it only takes effect for the main module when the default is older; a dependency's suggestion does not pin consumers."
+          ],
+          "contradicted": [
+            "all downstream builds must use exactly its suggested toolchain, or the suggestion is a maximum allowed version."
+          ],
+          "rubric_text": "S: explain it only takes effect for the main module when the default is older; a dependency's suggestion does not pin consumers. X: all downstream builds must use exactly its suggested toolchain, or the suggestion is a maximum allowed version.",
+          "source_evidence": [
+            {
+              "url": "https://go.dev/doc/modules/gomod-ref#toolchain",
+              "quote": "Only takes effect when the module is the main module and the default toolchain is older than the suggested toolchain.",
+              "archive_path": "dataset/sources/GO-M.extracted.txt",
+              "source_id": "GO-M",
+              "anchor": "toolchain"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "requirement": "Runner A selects/acquires go1.21.9",
+          "accepted": [
+            "auto uses the newer suggested toolchain; PATH lookup then download/cache fallback when absent."
+          ],
+          "contradicted": [
+            "it remains on bundled 1.21.3 or always updates to today's latest release. Assume network and verification permit acquisition; do not guarantee that they succeed in the real CI environment."
+          ],
+          "rubric_text": "S: auto uses the newer suggested toolchain; PATH lookup then download/cache fallback when absent. X: it remains on bundled 1.21.3 or always updates to today's latest release. Assume network and verification permit acquisition; do not guarantee that they succeed in the real CI environment.",
+          "source_evidence": [
+            {
+              "url": "https://go.dev/doc/toolchain#select",
+              "quote": "If the `go.work` or `go.mod` file has a `toolchain <tname>` line and `<tname>` is newer than the default Go toolchain, then the `go` command runs `<tname>` instead.",
+              "archive_path": "dataset/sources/GO-T.extracted.txt",
+              "source_id": "GO-T",
+              "anchor": "select"
+            },
+            {
+              "url": "https://go.dev/doc/toolchain#select",
+              "quote": "If no such program is found, the `go` command downloads and runs the specified Go toolchain.",
+              "archive_path": "dataset/sources/GO-T.extracted.txt",
+              "source_id": "GO-T",
+              "anchor": "select"
+            }
+          ]
+        },
+        {
+          "id": "C4",
+          "requirement": "Runner B refuses an unmet minimum",
+          "accepted": [
+            "local runs bundled 1.21.3 and cannot load the main module requiring 1.21.9; provision a sufficiently new bundled toolchain or change the policy, not ignore the minimum."
+          ],
+          "contradicted": [
+            "it auto-downloads despite local or compiles anyway. Do not require exact error text."
+          ],
+          "rubric_text": "S: local runs bundled 1.21.3 and cannot load the main module requiring 1.21.9; provision a sufficiently new bundled toolchain or change the policy, not ignore the minimum. X: it auto-downloads despite local or compiles anyway. Do not require exact error text.",
+          "source_evidence": [
+            {
+              "url": "https://go.dev/doc/toolchain#select",
+              "quote": "When `GOTOOLCHAIN` is set to `local`, the `go` command always runs the bundled Go toolchain.",
+              "archive_path": "dataset/sources/GO-T.extracted.txt",
+              "source_id": "GO-T",
+              "anchor": "select"
+            },
+            {
+              "url": "https://go.dev/doc/toolchain#config",
+              "quote": "The Go toolchain refuses to load a module or workspace that declares a minimum required Go version greater than the toolchain's own version.",
+              "archive_path": "dataset/sources/GO-T.extracted.txt",
+              "source_id": "GO-T",
+              "anchor": "config"
+            }
+          ]
+        },
+        {
+          "id": "C5",
+          "requirement": "Runner C does not download a missing toolchain",
+          "accepted": [
+            "+path permits selection of a newer named PATH toolchain but disables download fallback; the missing selected go1.21.9 produces refusal/failure, not a silently ignored suggestion."
+          ],
+          "contradicted": [
+            "downloads it anyway or falls back to 1.21.3 while declaring the suggestion satisfied. Provisioning go1.21.9 on PATH is an acceptable policy recommendation."
+          ],
+          "rubric_text": "S: +path permits selection of a newer named PATH toolchain but disables download fallback; the missing selected go1.21.9 produces refusal/failure, not a silently ignored suggestion. X: downloads it anyway or falls back to 1.21.3 while declaring the suggestion satisfied. Provisioning go1.21.9 on PATH is an acceptable policy recommendation.",
+          "source_evidence": [
+            {
+              "url": "https://go.dev/doc/toolchain#select",
+              "quote": "Using the `GOTOOLCHAIN` form `<name>+path` disables the download fallback, causing the `go` command to stop after searching the executable path.",
+              "archive_path": "dataset/sources/GO-T.extracted.txt",
+              "source_id": "GO-T",
+              "anchor": "select"
+            }
+          ]
+        },
+        {
+          "id": "C6",
+          "requirement": "Turning checksum verification off defeats automatic toolchain downloads",
+          "accepted": [
+            "`GOSUMDB=off` makes toolchain downloads fail for lack of verification, not work without checks."
+          ],
+          "contradicted": [
+            "recommend it as a supported way to bootstrap downloaded toolchains. No privacy/proxy pattern behavior is scored or requested."
+          ],
+          "rubric_text": "S: `GOSUMDB=off` makes toolchain downloads fail for lack of verification, not work without checks. X: recommend it as a supported way to bootstrap downloaded toolchains. No privacy/proxy pattern behavior is scored or requested.",
+          "source_evidence": [
+            {
+              "url": "https://go.dev/doc/toolchain#download",
+              "quote": "Instead, toolchain downloads fail for lack of verification if `GOSUMDB=off`.",
+              "archive_path": "dataset/sources/GO-T.extracted.txt",
+              "source_id": "GO-T",
+              "anchor": "download"
+            }
+          ]
+        }
+      ],
+      "uncertainty": {
+        "id": "U",
+        "requirement": "No entire-build offline guarantee from +path",
+        "pass": "+path constrains **toolchain acquisition**, not all dependency/build network activity; no whole-build network-free guarantee follows. The dependency guide documents ordinary module-source downloads. Next inspect/provision the dependency cache or vendoring, selected commands and controlled network environment. Do not prescribe disabling verification as an 'offline fix', and do not make an unsourced claim that every build must use the network.",
+        "omit": "Absent, generic uncertainty without the task-specific limiting reason and useful next evidence target.",
+        "fail": "Assert the unsupported guarantee that the pass criterion explicitly declines.",
+        "source_evidence": [
+          {
+            "url": "https://go.dev/doc/modules/managing-dependencies#adding_dependency",
+            "quote": "If needed, it downloads module source code so you can compile packages that depend on them.",
+            "archive_path": "dataset/sources/GO-D.extracted.txt",
+            "source_id": "GO-D",
+            "anchor": "adding_dependency"
+          },
+          {
+            "url": "https://go.dev/doc/toolchain#select",
+            "quote": "Using the `GOTOOLCHAIN` form `<name>+path` disables the download fallback",
+            "archive_path": "dataset/sources/GO-T.extracted.txt",
+            "source_id": "GO-T",
+            "anchor": "select"
+          }
+        ]
+      },
+      "critical_errors": [
+        "treat strict go minimum as optional",
+        "treat dependency suggestion as an exact consumer pin",
+        "make local auto-upgrade",
+        "allow +path to download a missing selected toolchain",
+        "recommend `GOSUMDB=off` as working automatic toolchain acquisition",
+        "certify an entire network-free build from +path. Outcomes are documentation-derived predictions for hypothetical runners, not shell executions in this research session."
+      ],
+      "critical_errors_text": "treat strict go minimum as optional; treat dependency suggestion as an exact consumer pin; make local auto-upgrade; allow +path to download a missing selected toolchain; recommend `GOSUMDB=off` as working automatic toolchain acquisition; certify an entire network-free build from +path. Outcomes are documentation-derived predictions for hypothetical runners, not shell executions in this research session.",
+      "source_rules": {
+        "description": "`go.dev`; archive the three exact base URLs above. Use `gomod-ref`, not the very large `/ref/mod` manual. The guide's examples explicitly contain versions 1.21.3 and 1.21.9; the prompt uses those documented versions without claiming they are currently recommended/supported production releases. No go command, download, environment write or credentials are required.",
+        "allowed_url_patterns": [
+          "https://go\\.dev/[^?#]*"
+        ],
+        "required_source_urls": [
+          "https://go.dev/doc/toolchain",
+          "https://go.dev/doc/modules/gomod-ref",
+          "https://go.dev/doc/modules/managing-dependencies"
+        ],
+        "minimum_distinct_sources": 3,
+        "minimum_answer_bearing_sources": 3,
+        "discovery_chain": {
+          "description": "supplied toolchain guide → configuration, selection and downloading sections; supplied concise gomod reference → go/toolchain distinction; gomod reference's Managing dependencies link → ordinary dependency acquisition for U. **Minimum distinct content sources: 3, all answer-bearing.** The Go 1.21 release notes were checked during exploration but are unnecessary for candidate gold and not a required fourth source.",
+          "edges": [
+            {
+              "from": "https://go.dev/doc/modules/gomod-ref",
+              "to": "https://go.dev/doc/modules/managing-dependencies",
+              "relation": "documentation_link"
+            }
+          ],
+          "minimum_distinct_sources": 3
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+I've scoped `get_document` and `list_documents` to tenant, owner, and `deleted_at IS NULL`. Both the existing public check and a new security check pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Both queries filter on those plus `deleted_at IS NULL` and use bound `?` parameters. `listing` keeps `ORDER BY id`. `decode` still returns only `id`, `title`, and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass tenant and owner through to the repository. Signatures are unchanged.
+- **`checks/secure_check.py`** (new): covers cross-tenant, cross-owner, and soft-deleted records returning `None` or being omitted. It also checks that `OR 1=1` and quote-injection strings in tenant or owner match nothing, that owner names containing quotes work, that lists are ordered by id, and that results contain only `id`, `title`, and `body`.
+
+**Verification**
+
+- `python3 checks/public.py` passes.
+- `python3 checks/secure_check.py` passes.
+
+I didn't touch the schema or `initialize`.

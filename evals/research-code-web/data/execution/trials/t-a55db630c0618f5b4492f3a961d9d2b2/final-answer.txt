@@ -1,0 +1,99 @@
+### 1. Test Locations and Asserted Outcomes
+
+In the Zod v4 classic test suite, the three tests are located in `packages/zod/src/v4/classic/tests/transform.test.ts`:
+
+1. **Synchronous number-to-string transformation in an object**
+   - **Path & Line Span**: `packages/zod/src/v4/classic/tests/transform.test.ts:93–102` (test named `"coercion"`).
+   - **Setup**: Defines `numToString = z.number().transform((n) => String(n))` inside `z.object({ id: numToString })` and calls `.parse({ id: 5 })`.
+   - **Exact Asserted Outcome**: 
+     - Line 101: `expect(data).toEqual({ id: "5" });`
+
+2. **Asynchronous transformation via asynchronous parsing**
+   - **Path & Line Span**: `packages/zod/src/v4/classic/tests/transform.test.ts:104–113` (test named `"async coercion"`).
+   - **Setup**: Defines `numToString = z.number().transform(async (n) => String(n))` inside `z.object({ id: numToString })` and awaits `.parseAsync({ id: 5 })`.
+   - **Exact Asserted Outcome**: 
+     - Line 112: `expect(data).toEqual({ id: "5" });`
+
+3. **Asynchronous transformation via synchronous parsing**
+   - **Path & Line Span**: `packages/zod/src/v4/classic/tests/transform.test.ts:115–125` (test named `"sync coercion async error"`).
+   - **Setup**: Defines `asyncNumberToString = z.number().transform(async (n) => String(n))` inside `z.object({ id: asyncNumberToString })` and calls `.parse({ id: 5 })`.
+   - **Exact Asserted Outcome**: 
+     - Lines 117–123: Asserts that invoking synchronous `.parse({ id: 5 })` throws an error:
+       ```ts
+       expect(() =>
+         z
+           .object({
+             id: asyncNumberToString,
+           })
+           .parse({ id: 5 })
+       ).toThrow();
+       ```
+
+---
+
+### 2. Core Runtime Check Explaining Synchronous Rejection
+
+The synchronous rejection during synchronous parsing is driven by core promise detection checks:
+
+1. **Context Initialization**:
+   - In `packages/zod/src/v4/core/parse.ts:24`, `_parse` initializes the internal context with `async: false`:
+     ```ts
+     const ctx: schemas.ParseContextInternal = _ctx ? { ..._ctx, async: false } : { async: false };
+     ```
+2. **Schema & Check Execution**:
+   - In `packages/zod/src/v4/core/schemas.ts:254–256`, when checks execute:
+     ```ts
+     if (_ instanceof Promise && ctx?.async === false) {
+       throw new core.$ZodAsyncError();
+     }
+     ```
+   - In `packages/zod/src/v4/core/schemas.ts:316–317`, when parsing steps execute:
+     ```ts
+     if (result instanceof Promise) {
+       if (ctx.async === false) throw new core.$ZodAsyncError();
+       return result.then((result) => runChecks(result, checks, ctx));
+     }
+     ```
+3. **Parse Function Boundary**:
+   - In `packages/zod/src/v4/core/parse.ts:26–28`:
+     ```ts
+     if (result instanceof Promise) {
+       throw new core.$ZodAsyncError();
+     }
+     ```
+   - In `packages/zod/src/v4/core/core.ts:166–170`, `$ZodAsyncError` is defined as:
+     ```ts
+     export class $ZodAsyncError extends Error {
+       constructor() {
+         super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
+       }
+     }
+     ```
+
+When an `async` transform callback runs, it returns a `Promise`. The runtime detects `result instanceof Promise` while `ctx.async === false`, immediately throwing `$ZodAsyncError`.
+
+---
+
+### 3. Assertion of Exact Error Class or Message
+
+**No.** The rejection test in `packages/zod/src/v4/classic/tests/transform.test.ts:123` asserts only `.toThrow()`. It does **not** assert any specific error class (such as `ZodError` or `$ZodAsyncError`), error message string (`"Encountered Promise during synchronous parse. Use .parseAsync() instead."`), or regular expression.
+
+---
+
+### 4. Separation of Implementation Inference, Limited Assertions, and Unresolved Callback Behavior
+
+- **Static Implementation Inference**:
+  By tracing source definitions (`packages/zod/src/v4/core/parse.ts:22–37`, `packages/zod/src/v4/core/schemas.ts:251–322`, and `packages/zod/src/v4/core/core.ts:166–170`), we can infer that the engine's design intent is to catch asynchronous operations in synchronous mode via `instanceof Promise` and throw an instance of `$ZodAsyncError`.
+- **Limited Assertions**:
+  The actual test assertion in `packages/zod/src/v4/classic/tests/transform.test.ts:117–123` is deliberately coarse (`.toThrow()`). It verifies only that an unhandled synchronous exception occurs, without validating whether the error class is `$ZodAsyncError`, an ordinary `Error`, or something else.
+- **Unresolved Arbitrary Callback Behavior**:
+  Because code and tests cannot be executed here, the runtime behavior of arbitrary user-supplied callbacks remains statically unresolved:
+  - If a custom transform callback returns a custom thenable that does not inherit from JavaScript's native `Promise`, whether `instanceof Promise` succeeds or bypasses the check depends on the runtime environment's prototype chain.
+  - If a callback synchronously throws an error prior to returning a promise, `expect(...).toThrow()` in `transform.test.ts` would still pass despite not exercising the `$ZodAsyncError` branch.
+
+---
+
+### 5. Unresolved Limitations
+
+- No runtime test runner or code was executed, meaning actual instantiated error prototypes and exact stack traces in this Vitest environment cannot be verified dynamically.
+- Arbitrary transform callback edge cases (e.g., non-native promises, rejected promises thrown synchronously, or custom environments where `Promise` globals differ across realms) cannot be resolved through static inspection alone.

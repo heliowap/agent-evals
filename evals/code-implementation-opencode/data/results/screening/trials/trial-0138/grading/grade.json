@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/lease.cjs": "const assert = require('node:assert/strict');\nconst { EventService } = require('../.build/service');\n\nfunction make(values, opts = {}) {\n  const log = { opens: 0, reads: 0, closes: 0 };\n  const source = {\n    open: async () => {\n      log.opens++;\n      return {\n        read: async () => {\n          log.reads++;\n          if (opts.readError && log.reads === opts.readErrorAt) throw opts.readError;\n          return values.length ? values.shift() : null;\n        },\n        close: async () => { log.closes++; if (opts.closeError) throw opts.closeError; },\n      };\n    },\n  };\n  return { log, service: new EventService(source, opts.mapper) };\n}\n\nasync function main() {\n  // unopened generator: return() opens/closes nothing\n  { const { log, service } = make(['a']); const g = service.stream(); await g.return(undefined);\n    assert.deepEqual(log, { opens: 0, reads: 0, closes: 0 }); }\n  // lazy open + no read-ahead + normal exhaustion\n  { const { log, service } = make(['a', 'b', null]); const g = service.stream();\n    assert.equal(log.opens, 0);\n    assert.deepEqual(await g.next(), { value: 'A', done: false });\n    assert.deepEqual([log.opens, log.reads, log.closes], [1, 1, 0]);\n    assert.deepEqual(await g.next(), { value: 'B', done: false });\n    assert.deepEqual([log.reads, log.closes], [2, 0]);\n    assert.deepEqual(await g.next(), { value: undefined, done: true });\n    assert.deepEqual([log.reads, log.closes], [3, 1]);\n    await g.next(); assert.equal(log.closes, 1); }\n  // consumer break\n  { const { log, service } = make(['a', 'b', 'c']);\n    for await (const _ of service.stream()) break;\n    assert.deepEqual([log.opens, log.reads, log.closes], [1, 1, 1]); }\n  // break with close failure propagates\n  { const closeError = new Error('close');\n    const { log, service } = make(['a', 'b'], { closeError });\n    await assert.rejects(async () => { for await (const _ of service.stream()) break; }, closeError);\n    assert.equal(log.closes, 1); }\n  // read failure, preserved over close failure\n  { const readError = new Error('read'), closeError = new Error('close');\n    const { log, service } = make(['a'], { readError, readErrorAt: 2, closeError });\n    const g = service.stream(); await g.next();\n    await assert.rejects(g.next(), readError); assert.equal(log.closes, 1); }\n  // read failure, close ok\n  { const readError = new Error('read');\n    const { log, service } = make([], { readError, readErrorAt: 1 });\n    await assert.rejects(service.stream().next(), readError); assert.equal(log.closes, 1); }\n  // mapper failure, preserved over close failure\n  { const mapError = new Error('map'), closeError = new Error('close');\n    const { log, service } = make(['a', 'b'], { closeError, mapper: () => { throw mapError; } });\n    await assert.rejects(service.stream().next(), mapError);\n    assert.deepEqual([log.reads, log.closes], [1, 1]); }\n  // injected throw\n  { const inj = new Error('inj'), closeError = new Error('close');\n    for (const ce of [undefined, closeError]) {\n      const { log, service } = make(['a', 'b'], { closeError: ce }); const g = service.stream(); await g.next();\n      await assert.rejects(g.throw(inj), inj); assert.equal(log.closes, 1); assert.equal(log.reads, 1); } }\n  // close failure on normal exhaustion propagates\n  { const closeError = new Error('close'); const { log, service } = make(['a', null], { closeError });\n    await assert.rejects(async () => { for await (const _ of service.stream()); }, closeError);\n    assert.equal(log.closes, 1); }\n}\nmodule.exports = main();\n",
+      "src/service.ts": "import { Source } from './source';\nimport { mapEvent } from './mapper';\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    const lease = await this.source.open();\n    let failed = false;\n    try {\n      for (;;) {\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      // Read, mapper or consumer-injected failure: remember it so a close\n      // failure cannot replace the original exception.\n      failed = true;\n      throw error;\n    } finally {\n      try {\n        await lease.close();\n      } catch (closeError) {\n        if (!failed) throw closeError;\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/lease.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 96,
+    "removed_lines": 14
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.4738870409782976
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06651699999929406,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05806470901006833,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

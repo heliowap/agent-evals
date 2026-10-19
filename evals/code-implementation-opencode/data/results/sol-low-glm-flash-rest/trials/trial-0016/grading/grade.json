@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/idempotency.cjs": "const assert = require('node:assert/strict');\nconst { Ledger } = require('../.build/ledger');\nconst { PaymentService } = require('../.build/service');\nconst { Transient } = require('../.build/transport');\n\nasync function main() {\n  const ledger = new Ledger();\n  const seen = [];\n  const service = new PaymentService(ledger, { acknowledge: async r => {\n    seen.push(r);\n    if (seen.length < 3) throw new Transient('retry');\n  } });\n  const receipt = await service.pay('shop', 'sale', 123);\n  assert.equal(seen.length, 3);\n  seen.forEach(r => assert.strictEqual(r, receipt));\n  assert.equal(ledger.entries.length, 1);\n  const concurrent = await Promise.all(Array.from({ length: 10 }, () => service.pay('shop', 'sale', 123)));\n  concurrent.forEach(r => assert.strictEqual(r, receipt));\n  await assert.rejects(service.pay('shop', 'sale', 124), /^Error: key conflict$/);\n  assert.equal(ledger.entries.length, 1);\n  await service.pay('other', 'sale', 124);\n  assert.equal(ledger.entries.length, 2);\n\n  const fresh = new Ledger();\n  const results = await Promise.allSettled([fresh.apply('t', 'k', 1), fresh.apply('t', 'k', 2)]);\n  assert.equal(results[0].status, 'fulfilled');\n  assert.equal(results[1].reason.message, 'key conflict');\n  assert.equal(fresh.entries.length, 1);\n\n  let actions = 0;\n  const invalid = new PaymentService({ apply: async () => { actions++; } }, {\n    acknowledge: async () => { actions++; }\n  });\n  for (const attempts of [0, 6, -1, 1.5, NaN, Infinity, '3', null]) {\n    await assert.rejects(invalid.pay('t', 'k', 1, attempts), /invalid payment/);\n  }\n  for (const args of [['', 'k', 1], ['t', '', 1], ['t', 'k', 0], ['t', 'k', 1.5], [1, 'k', 1]]) {\n    await assert.rejects(invalid.pay(...args), /invalid payment/);\n    await assert.rejects(fresh.apply(...args), /invalid payment/);\n  }\n  assert.equal(actions, 0);\n\n  for (const error of [new Transient('final'), new Error('permanent')]) {\n    let calls = 0;\n    const failedLedger = new Ledger();\n    const failing = new PaymentService(failedLedger, { acknowledge: async () => { calls++; throw error; } });\n    await assert.rejects(failing.pay('t', 'k', 1, 5), e => e === error);\n    assert.equal(calls, error instanceof Transient ? 5 : 1);\n    assert.equal(failedLedger.entries.length, 1);\n  }\n}\nmodule.exports = main();\n",
+      "src/ledger.ts": "export interface Receipt { id: number; tenant: string; key: string; cents: number }\nexport class Ledger {\n  readonly entries: Receipt[] = [];\n  async apply(tenant: string, key: string, cents: number): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0) throw new Error('invalid payment');\n    // Lookup and commit are synchronous, so concurrent callers cannot both debit.\n    const existing = this.entries.find(entry => entry.tenant === tenant && entry.key === key);\n    if (existing) {\n      if (existing.cents !== cents) throw new Error('key conflict');\n      return existing;\n    }\n    const receipt = { id: this.entries.length + 1, tenant, key, cents };\n    this.entries.push(receipt);\n    return receipt;\n  }\n}\n",
+      "src/service.ts": "import { Ledger, Receipt } from './ledger';\nimport { Transient, Transport } from './transport';\nexport class PaymentService {\n  constructor(private readonly ledger: Ledger, private readonly transport: Transport) {}\n  async pay(tenant: string, key: string, cents: number, attempts = 3): Promise<Receipt> {\n    if (typeof tenant !== 'string' || !tenant || typeof key !== 'string' || !key ||\n        !Number.isInteger(cents) || cents <= 0 ||\n        !Number.isInteger(attempts) || attempts < 1 || attempts > 5) throw new Error('invalid payment');\n    let receipt: Receipt | undefined;\n    for (let n = 0; n < attempts; n++) {\n      try {\n        receipt ??= await this.ledger.apply(tenant, key, cents);\n        await this.transport.acknowledge(receipt);\n        return receipt;\n      } catch (error) {\n        if (!(error instanceof Transient) || n === attempts - 1) throw error;\n      }\n    }\n    throw new Error('invalid payment');\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/idempotency.cjs",
+      "src/ledger.ts",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 90,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5253718339954503
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04960462497547269,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.054523250000784174,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

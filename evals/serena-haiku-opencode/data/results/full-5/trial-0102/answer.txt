@@ -1,0 +1,14 @@
+`import_contacts` and `handle_import` are implemented, and `add_contact`, `list_contacts` and the existing `handle_add` are unchanged. `python3 checks/public.py` passes, and the 10 new tests in `checks/test_import_contacts.py` pass.
+
+**What changed**
+- **`src/repository.py`**: added `contact_exists(connection, email)`. `put_contact` is unchanged and does the upsert.
+- **`src/service.py`**: `import_contacts` validates the whole batch in memory first. Duplicates are checked on normalized emails. Only then does it write, inside one `BEGIN IMMEDIATE` transaction. Each row is counted as inserted or updated based on whether the email already exists. On any exception it rolls back, including a failed commit. Empty batches return zero counts without opening a transaction.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the key `contacts` holding a list, otherwise it raises `ValueError`. It then returns the summary from `import_contacts`.
+- **`checks/test_import_contacts.py`** (new): covers counts, trimming and lowercasing, each rejection case with nothing written, validation before writes, a database failure partway through a batch (an earlier update in the batch is rolled back), and envelope rejection.
+
+**Decisions to review**
+- The API rejects envelopes with extra keys, not just missing or wrong ones. The spec only says "malformed," so this is my reading.
+- `import_contacts` also accepts tuples as well as lists. The API only accepts lists, which matches JSON input.
+
+**Caveat**
+`add_contact` still stores emails as given, and I left it alone as requested. So if the table holds `A@B` from `add_contact`, an import of `a@b` will not match it and will insert a second row. Fixing this means either normalizing in `add_contact` or matching case-insensitively during import. Both change existing behavior, so I didn't make either change.

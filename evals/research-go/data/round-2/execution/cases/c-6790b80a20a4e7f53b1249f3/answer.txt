@@ -1,0 +1,15 @@
+I'll fetch the starting pages first.
+
+## Runner outcomes (documented)
+
+- **A (auto, bundled 1.21.3, `go 1.21.0` + `toolchain go1.21.9`):** selects and runs **go1.21.9** — it searches PATH, finds nothing, then downloads and caches it. The `toolchain` line, when newer than the default toolchain, takes precedence over the `go` line ([selection rules](https://go.dev/doc/toolchain#select)).
+- **B (`GOTOOLCHAIN=local`, `go 1.21.9`):** **refuses**. `local` always runs the bundled toolchain, and since Go 1.21 the `go` line is mandatory, not advisory: 1.21.3 refuses a module requiring 1.21.9 ([go directive](https://go.dev/doc/modules/gomod-ref#go), [config](https://go.dev/doc/toolchain#config)).
+- **C (`go1.21.3+path`, same module/PATH):** default toolchain is go1.21.3, `toolchain go1.21.9` is newer, so it looks for `go1.21.9` on PATH; `+path` **disables the download fallback**, so it **stops/errors** rather than using bundled 1.21.3 ([+path](https://go.dev/doc/toolchain#select)).
+
+**go vs toolchain:** `go` = minimum required version (and enforced language version); `toolchain` = suggested toolchain. The `toolchain` line "only takes effect when the module is the main module and the default toolchain is older than the suggested toolchain" ([toolchain directive](https://go.dev/doc/modules/gomod-ref#toolchain)). So **a dependency's `toolchain` suggestion does nothing to consumers**; only its `go` line propagates, forcing consumers onto a new-enough toolchain. `toolchain default` disables switching.
+
+**Corrections.** `GOSUMDB=off` does **not** enable automatic downloads — the opposite: "toolchain downloads fail for lack of verification if GOSUMDB=off." `GOPRIVATE`/`GONOSUMDB` don't exempt them ([downloads](https://go.dev/doc/toolchain#download)). `+path` only removes the *toolchain* download step; module fetches via `GOPROXY` still hit the network — "entire build network-free" is **UNVERIFIED** ([download section](https://go.dev/doc/toolchain#download)).
+
+**Recommendation.** Keep `GOTOOLCHAIN=auto` with a reachable, trusted `GOPROXY` and the checksum database enabled (default `sum.golang.org`). In air-gapped CI, prefer pre-installing `go1.21.9` on PATH and using `+path` (or pin via `GOTOOLCHAIN=go1.21.9`), not `GOSUMDB=off`. Keep `toolchain` lines out of published dependency `go.mod` files unless intended to raise consumer minimums.
+
+**Not established:** that `+path` yields a fully offline, reproducible build; that CI has no proxy/network access; that any runner has matching OS/arch cached. Resolve via your CI network policy, `GOPROXY`, and `go env GOTOOLCHAIN`/`go version` output.

@@ -1,0 +1,136 @@
+[
+  {
+    "blind_id": "b-1fad1de76869546754815dd7",
+    "units": [
+      {
+        "id": "C08.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Rejects universal native-histogram emission using the explicit histogram, non-custom-bucket, non-protobuf continue branch at the correct path and lines.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "if isHistogram &&"},
+          {"source_id": "e-0002", "quote": "!s.H.UsesCustomBuckets() &&"},
+          {"source_id": "e-0002", "quote": "formatType != expfmt.TypeProtoCompact {"},
+          {"source_id": "e-0002", "quote": "continue"}
+        ]
+      },
+      {
+        "id": "C08.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Names all three protobuf categories and describes permission by this branch, rather than explicitly promising successful protobuf encoding; the closing limitation leaves encoder capabilities unexamined.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "formatType != expfmt.TypeProtoDelim &&"},
+          {"source_id": "e-0002", "quote": "formatType != expfmt.TypeProtoText &&"},
+          {"source_id": "e-0002", "quote": "formatType != expfmt.TypeProtoCompact {"}
+        ]
+      },
+      {
+        "id": "C08.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly explains the false custom-bucket conjunct and classic-histogram conversion. The claim of service in non-protobuf formats is supported by the comment and does not explicitly guarantee every encoding succeeds.",
+        "evidence": [
+          {"source_id": "e-0002", "quote": "!s.H.UsesCustomBuckets() &&"},
+          {"source_id": "e-0002", "quote": "(We can serve an NHCB, though, as it is converted to a"},
+          {"source_id": "e-0002", "quote": "classic histogram for federation.)"},
+          {"source_id": "e-0003", "quote": "protMetric.Histogram = makeClassicHistogram(s.H)"}
+        ]
+      },
+      {
+        "id": "C08.U4",
+        "correct": false,
+        "supported": false,
+        "rationale": "Correctly explains that floats bypass this gate, but adds that they are serialized 'across all supported formats'. The inspected code only constructs an untyped metric and still contains encoding errors and other skips; it does not establish universal float serialization. Review the possible narrower reading of 'serialized' as metric construction.",
+        "evidence": []
+      }
+    ],
+    "critical_errors": [
+      {
+        "instance": "Ordinary float samples bypass this skip branch completely and are serialized into untyped metric samples ... across all supported formats.",
+        "rationale": "Extends the valid gate-bypass conclusion into an unqualified cross-format serialization claim. Construction of dto.Untyped does not prove successful encoding; this interpretation is flagged for semantic review."
+      }
+    ],
+    "decisive_unsupported": true,
+    "uncertain": true,
+    "auxiliary": {
+      "citation_coverage": {"value": "Most substantive claims have path-and-line citations", "rationale": "The decisive gate, enum list, custom conversion and float construction are cited; the broad float conclusion exceeds those citations."},
+      "citation_entailment": {"value": "Strong for the gate, incomplete for broader conclusions", "rationale": "The cited branch and conversion calls entail the local contrasts, not universal float serialization or the asserted impossibility of converting exponential histograms to classic histograms."},
+      "source_authority": {"value": "Assigned implementation source", "rationale": "Eligible reads contain the actual federation serializer and its explicit closed branch."},
+      "unsupported_extras": {"value": "Present", "rationale": "The categorical statement that exponential native histograms cannot be converted to classic histograms is stronger than the inspected branch choosing makeNativeHistogram; the float cross-format statement is also unestablished."},
+      "uncertainty": {"value": "Partly appropriate", "rationale": "The answer acknowledges its static-source boundary and unexamined encoders, but does not qualify its cross-format float claim. That wording has a plausible narrower construction-only reading, requiring review."},
+      "usability": {"value": "Clear and well located, with one scope overreach", "rationale": "Provides the exact branch and readable contrasts without relying on empty-search reasoning; the float conclusion violates the requested bounded interpretation."},
+      "tool_navigation": null
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  },
+  {
+    "blind_id": "b-20363b8b121cb44790d9788a",
+    "units": [
+      {
+        "id": "C11.U1",
+        "correct": true,
+        "supported": true,
+        "rationale": "Locates resolveTools and its caller at request.ts:148, describing the caller as request preparation rather than naming prepare. This exact call-site identification is sufficient to locate the requested caller; the supplied record is filtered, not executed.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "packages/opencode/src/session/llm/request.ts:148:   const tools = resolveTools(input)"},
+          {"source_id": "e-0005", "quote": "function resolveTools(input: Pick<PrepareInput,"},
+          {"source_id": "e-0005", "quote": "return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))"}
+        ]
+      },
+      {
+        "id": "C11.U2",
+        "correct": true,
+        "supported": true,
+        "rationale": "Correctly states that agent permissions precede input permissions and merge preserves that order through flat(). Later matching rules therefore take precedence in this filter.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "Permission.merge(input.agent.permission, input.permission ?? []),"},
+          {"source_id": "e-0008", "quote": "return rulesets.flat()"}
+        ]
+      },
+      {
+        "id": "C11.U3",
+        "correct": true,
+        "supported": true,
+        "rationale": "Identifies literal false as the only excluding toggle value and retains the separate permission-disabled check; no toggle override is claimed.",
+        "evidence": [
+          {"source_id": "e-0005", "quote": "input.user.tools?.[k] !== false && !disabled.has(k)"}
+        ]
+      },
+      {
+        "id": "C11.U4",
+        "correct": true,
+        "supported": true,
+        "rationale": "Accurately gives last permission-wildcard match selection and the conjunction of global pattern and deny action, rather than treating path-specific denies as blanket hiding.",
+        "evidence": [
+          {"source_id": "e-0008", "quote": "const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))"},
+          {"source_id": "e-0008", "quote": "return rule?.pattern === \"*\" && rule.action === \"deny\""}
+        ]
+      },
+      {
+        "id": "C11.U5",
+        "correct": true,
+        "supported": true,
+        "rationale": "Lists all three editing tools and all three MCP-resource tools with their edit/read permission groups, and preserves other tools' own names.",
+        "evidence": [
+          {"source_id": "e-0008", "quote": "const edits = [\"edit\", \"write\", \"apply_patch\"]"},
+          {"source_id": "e-0008", "quote": "const reads = [\"list_mcp_resources\", \"list_mcp_resource_templates\", \"read_mcp_resource\"]"},
+          {"source_id": "e-0008", "quote": "const permission = edits.includes(tool) ? \"edit\" : reads.includes(tool) ? \"read\" : tool"}
+        ]
+      }
+    ],
+    "critical_errors": [],
+    "decisive_unsupported": false,
+    "uncertain": false,
+    "auxiliary": {
+      "citation_coverage": {"value": "Substantive requested claims cited", "rationale": "Path-and-line spans accompany the caller, filter, merge, selection predicate and tool grouping."},
+      "citation_entailment": {"value": "Strong", "rationale": "The inspected request and permission source directly entail the stated filtering behavior and precedence. The caller is located by exact call site rather than its function declaration."},
+      "source_authority": {"value": "Assigned implementation source", "rationale": "Eligible source reads expose the operative request-preparation helper and permission implementation."},
+      "unsupported_extras": {"value": "No decisive extras", "rationale": "visibleTools is corroborated by the same permission read. The runtime-permission note is an explicit scope boundary, not an authorization inference."},
+      "uncertainty": {"value": "Appropriately bounded", "rationale": "Explicitly restricts its conclusions to tools advertised during preparation, excluding arbitrary runtime execution."},
+      "usability": {"value": "Clear and responsive", "rationale": "Answers all filtering and grouping questions with paths and spans; naming prepare would improve precision but the exact caller location is already supplied."},
+      "tool_navigation": null
+    },
+    "grader": "openai/gpt-6.1-sol-fast#high"
+  }
+]

@@ -1,0 +1,19 @@
+`import_contacts` is implemented in `src/service.py`, with a repository helper in `src/repository.py`, and `handle_import` in `src/api.py` now calls it. The existing check and the 10 new tests pass.
+
+**What changed**
+
+- **`src/repository.py`**: added `contact_exists(connection, email)`. Other functions are unchanged.
+- **`src/service.py`**: `import_contacts` validates and normalizes every row before opening a write block. It rejects non-list batches, non-object rows, missing or unknown fields, non-string values, emails without exactly one `@`, empty sides, or interior whitespace, and blank names. It also rejects duplicate normalized emails. Only after the whole batch is valid does it write, inside `with connection:`, checking each email for existence to count inserts versus updates. Any database error rolls back the entire batch. `add_contact` is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict with exactly the key `contacts`, whose value is a list, and returns the summary. `handle_add` is unchanged.
+- **`checks/test_import_contacts.py`** (new): covers normalization, insert/update counting, empty batches, each validation rule with a check that nothing is written, a forced mid-batch database failure via a trigger (confirming earlier updates and inserts roll back), and the API envelope. `checks/public.py` is untouched.
+
+**Verification**
+
+- `python3 checks/public.py`: passes.
+- `python3 -m unittest -v checks/test_import_contacts.py`: 10 tests pass.
+
+**Decisions to review**
+
+- The API rejects envelopes with extra top-level keys, not just missing or wrong-type `contacts`. I read "malformed" as covering that.
+- Database errors surface as `sqlite3.Error`, not `ValueError`. The spec only required rollback for them.
+- `add_contact` stores emails as given, without lowercasing. If a mixed-case email was added that way earlier, importing its lowercase form will insert a second row rather than update it, since SQLite compares keys case-sensitively. Fixing that would mean changing `add_contact` or migrating existing data, which the spec said to preserve, so I left it alone.

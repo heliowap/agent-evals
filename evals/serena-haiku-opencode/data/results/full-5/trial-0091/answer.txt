@@ -1,0 +1,24 @@
+I replaced the float-based parsing in `src/money.py` and made `src/api.py` use the same rules. `python3 checks/public.py` passes, and so does the new regression file I added, `checks/test_money_rules.py` (8 tests).
+
+**What changed**
+
+- **`src/money.py`**
+  - `amount_to_cents(value)` is the single validator. It accepts `Decimal`, non-bool `int`, and plain decimal strings matched by a `fullmatch` regex (optional sign, digits, optional fraction, no whitespace or exponents). It rejects everything else with `ValueError`, including floats and other types.
+  - It rejects non-finite, zero, negative, and values over 1000000.00. It then strips trailing zeros from the exact coefficient and rejects any remaining digit beyond the cent. Nothing is rounded.
+  - All arithmetic is exact integer math or exact comparison. It never calls `quantize`, `round`, or `float`, so it doesn't depend on or change the global decimal context.
+  - `parse_amount` returns a `Decimal` with exponent -2, built from a string.
+  - `format_amount` is unchanged.
+- **`src/api.py`**
+  - `make_invoice` copies the input with `list(amounts)`, so the caller's object is never mutated.
+  - It validates each item with `amount_to_cents`, sums integer cents, and rejects totals over 1000000.00.
+  - It returns `{"total": "<two decimals>", "count": N}`, with an empty list giving `"0.00"`.
+
+**Verification**
+
+- The baseline bug was confirmed first: `parse_amount('0.001')` returned `0.0`. It now raises `ValueError`.
+- The regression checks cover accepted forms, every rejection category, the exact boundary at 1000000.00, the fractional-cent rule (`"2.675"` is rejected), the total limit, input non-mutation, and an unchanged decimal context.
+
+**Judgment calls**
+
+- Strings like `"5."` and `".75"` are accepted as plain decimals. If you want to require digits on both sides of the point, that's a one-line regex change.
+- Invalid types raise `ValueError` rather than `TypeError`, because the spec says "other types ... with ValueError."

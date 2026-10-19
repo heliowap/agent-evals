@@ -1,0 +1,54 @@
+## Answer
+
+The implementation is **`(*Command).Find`**, defined at **`command.go:755–779`** (the exact `func` line is 757). Its doc comment states the contract: *"Find the target command given the args and command tree / Meant to be run on the highest node. Only searches down."* (`command.go:755–756`).
+
+### How it recurses and returns remaining arguments
+
+`Find` wraps a recursive closure `innerfind` (`command.go:758–772`):
+
+- **`command.go:761`** computes `argsWOflags := stripFlags(innerArgs, c)` — a flag-stripped view used *only* to decide the next token.
+- **`command.go:762–764`**: if that view is empty, recursion stops and returns the current command together with `innerArgs` unchanged.
+- **`command.go:765–767`**: it takes `nextSubCmd := argsWOflags[0]` and asks `c.findNext(nextSubCmd)`.
+- **`command.go:768–770`**: on a hit it recurses into that child with `c.argsMinusFirstX(innerArgs, nextSubCmd)`.
+- **`command.go:771`**: on a miss it returns the current command and `innerArgs`.
+
+The key detail behind "retaining flag arguments": the recursion removes only the *first* occurrence of the matched name via `argsMinusFirstX` (`command.go:712–748`), which explicitly avoids deleting a flag's value (`command.go:714`, and the `pos++` guard at 729–735). Flags are never stripped from the returned slice, so `Find` returns `a` (`command.go:774`) with the original flag tokens still present. `Find` then only attaches a validation error: `legacyArgs(...)` if the found command has no `Args` validator (`command.go:775–778`; `args.go:28–39`).
+
+`stripFlags` (`command.go:674–710`) is what makes flag tokens invisible to name lookup: it treats `--` as terminator, skips `--flag value` and `-f value` pairs (using `hasNoOptDefVal` / `shortHasNoOptDefVal`, `command.go:662–672`), and appends only bare non-dash tokens to its result (`command.go:704–705`).
+
+### How names and aliases match
+
+`findNext` (`command.go:798–817`) iterates `c.commands` and tests:
+
+```
+if commandNameMatches(cmd.Name(), next) || cmd.HasAlias(next) {    // command.go:801
+    cmd.commandCalledAs.name = next                                // 802
+    return cmd                                                     // 803
+}
+```
+
+- `HasAlias` (`command.go:1550–1558`) loops over `c.Aliases`, applying `commandNameMatches`.
+- `commandNameMatches` (`command.go:1925–1934`) is `strings.EqualFold` when the package global `EnableCaseInsensitive` is true, otherwise exact `s == t`. So name/alias identity is case-insensitive only if that flag is enabled (default false, `cobra.go:48`).
+- Recording `commandCalledAs.name = next` is what later lets `CalledAs()` report the alias actually used (`command.go:1560–1567`).
+
+### Prefix matching and the multi-child case
+
+When no exact name/alias matched, `findNext` accumulates prefix candidates:
+
+```
+if EnablePrefixMatching && cmd.hasNameOrAliasPrefix(next) {   // command.go:805
+    matches = append(matches, cmd)                            // 806
+}
+```
+
+`hasNameOrAliasPrefix` (`command.go:1569–1583`) uses **plain `strings.HasPrefix`** — notably *not* case-folded, even under `EnableCaseInsensitive` — checking `Name()` first (setting `commandCalledAs.name` to the name, 1572–1574) then each alias (1576–1580). `EnablePrefixMatching` itself defaults to `false` (`cobra.go:46`, `cobra.go:55`).
+
+Ambiguity handling (`command.go:810–816`): if exactly one candidate was collected it is returned (`matches[0]`, 813); **if zero or more than one matched, `findNext` returns `nil`**. Returning `nil` means `Find` does not descend — it stays at the parent and returns that parent plus the untouched remaining args (`command.go:767–771`), so the ambiguous token is left as a positional argument (likely surfacing later as `unknown command` through `legacyArgs`, `args.go:34–37`).
+
+### Contrast worth noting
+
+`Traverse` (`command.go:819–860`) is the sibling that does *not* retain flags: it collects flag tokens into `flags` and calls `c.ParseFlags(flags)` on each parent before recursing (`command.go:854–857`), consuming them per level. `Find` deliberately leaves flags for later handling, which is why it is the function the question describes.
+
+### Unresolved limitations
+
+I inspected source only; I did not build or run Cobra tests, so runtime behavior (e.g. shortest-unique-prefix UX, and how an ambiguous token ultimately errors) is inferred from control flow, not observed. I also did not exhaustively check every call site of `Find`/`findNext`.

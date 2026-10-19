@@ -1,0 +1,66 @@
+All the required facts are confirmed directly from the Pydantic v2.12 migration guide at `docs.pydantic.dev/2.12/`.
+
+## Replacement decorators
+
+The deprecated v1 decorators map to new names as follows:
+
+| Pydantic v1 (deprecated) | Pydantic v2 replacement |
+|---|---|
+| `@validator('field')` | `@field_validator('field')` |
+| `@root_validator` / `@root_validator(pre=True)` | `@model_validator(mode='...')` |
+
+The migration guide states: "`@validator` has been deprecated, and should be replaced with `@field_validator`, which provides various new features and improvements" and "`@root_validator` has been deprecated, and should be replaced with `@model_validator`." Note two signature caveats: `@model_validator` requires an explicit `mode` (`'before'`, `'after'`, or `'wrap'`) — the legacy post-validation root validator corresponds to `mode='after'` — and under some circumstances (e.g., `model_config['validate_assignment'] is True`) it receives a model instance rather than a dict of values, so code must handle both cases.
+
+## The `each_item=True` pattern for a list of nonnegative integers
+
+No — the new decorator cannot take `each_item=True`. Per the guide: "The new `@field_validator` decorator does not have the `each_item` keyword argument; validators you want to apply to items within a generic container should be added by annotating the type argument." The recommended replacement is an `Annotated` constraint on the item type. For a list of integers where each must be nonnegative, the guide shows the analogous pattern directly:
+
+```python
+from typing import Annotated
+from pydantic import BaseModel, Field
+
+class Model(BaseModel):
+    values: list[Annotated[int, Field(ge=0)]]
+```
+
+Rather than a per-item custom validator function, the item-level `ge=0` constraint is attached to `int` itself inside the container annotation. (Equivalently, a custom validator can be registered on the annotated item type via `Annotated` metadata, but the `ge=0` constraint makes a function unnecessary here.) This also relates to a general v2 change noted in the same guide: field-level constraints are no longer pushed down to generic container parameters — e.g., `my_list: list[str] = Field(pattern=".*")` no longer validates every element — so `my_list: list[Annotated[str, Field(pattern=".*")]]` is the correct idiom.
+
+## What happens to `TypeError` raised inside a validator
+
+Behavior changed: in v1, a `TypeError` raised in a validator was wrapped into a `ValidationError` (which could surface to end users, e.g., through FastAPI); in v2 it is no longer converted. The guide documents this under "TypeError is no longer converted to ValidationError in validators":
+
+```python
+import pytest
+from pydantic import BaseModel, field_validator
+
+class Model(BaseModel):
+    x: int
+
+    @field_validator('x')
+    def val_x(cls, v: int) -> int:
+        return str.lower(v)  # raises a TypeError
+
+with pytest.raises(TypeError):
+    Model(x=1)
+```
+
+The guide notes: "This applies to all validation decorators" — so a `TypeError` escaping a `field_validator` or `model_validator` propagates as a raw `TypeError` out of model construction, not as a `ValidationError`. (Validator bugs like calling a function with the wrong signature therefore cause a raw `TypeError` instead of a user-facing `ValidationError`.)
+
+## Legacy `root_validator` with `skip_on_failure=False`
+
+Not permitted. Even while retaining the deprecated `@root_validator` in Pydantic v2, "`skip_on_failure=False`" is no longer allowed. The guide states plainly: "you can no longer run with `skip_on_failure=False` (which is the default value of this keyword argument, so must be set explicitly to `True`)". So the legacy post-validation root validator must be declared as:
+
+```python
+from pydantic import root_validator
+
+@root_validator(skip_on_failure=True)   # skip_on_failure=False → error
+def check(cls, values):
+    ...
+```
+
+Set explicitly to `skip_on_failure=True` — you must not write it out as `False`, and since `True` is not the v1 default you also cannot rely on omitting the keyword.
+
+## Sources and limitations
+
+- Primary source: Pydantic v2.12 Migration guide (`https://docs.pydantic.dev/2.12/migration/`), sections "Changes to validators", "`@validator` and `@root_validator` are deprecated", and "TypeError is no longer converted to ValidationError in validators". All quotes above come from this page; the `list[Annotated[int, Field(ge=0)]]` pattern appears verbatim in its `each_item` discussion.
+- The fetched pages were truncated portion of the migration guide's table of contents and later sections (JSON schema changes, etc.), but all content needed for this question was visible before truncation. The full runnable code samples in the truncated output (e.g., the `ValidationInfo` signature example) were partially cut, so I described rather than reproduced them in full where relevant.

@@ -1,0 +1,199 @@
+{
+  "id": "trial-0004",
+  "configuration": "haiku-high-serena",
+  "effort": "high",
+  "arm": "serena",
+  "case": "py-document-scope",
+  "role": "implementation",
+  "rep": 1,
+  "position": 4,
+  "status": "completed",
+  "passed": true,
+  "grade": {
+    "passed": true,
+    "scope": {
+      "files": {
+        "checks/test_access.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import get_document, list_documents\n\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nrows = [\n    (1, \"t\", \"o\", \"A\", \"a\", None),\n    (2, \"t\", \"o\", \"B\", \"b\", \"2026-01-01\"),   # deleted\n    (3, \"other\", \"o\", \"C\", \"c\", None),       # cross-tenant\n    (4, \"t\", \"someone\", \"D\", \"d\", None),     # cross-owner\n    (5, \"t\", \"o'x\", \"E\", \"e\", None),         # quote in owner\n    (6, \"t'\", \"o\", \"F\", \"f\", None),          # quote in tenant\n    (7, \"t\", \"o\", \"G\", \"g'\", None),\n]\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?, ?)\", rows)\nc.commit()\n\n# get_document: accessible record\nassert get_document(c, \"t\", \"o\", 1) == {\"id\": 1, \"title\": \"A\", \"body\": \"a\"}\n# unavailable: deleted, cross-tenant, cross-owner, missing -> all None\nassert get_document(c, \"t\", \"o\", 2) is None\nassert get_document(c, \"other\", \"o\", 1) is None\nassert get_document(c, \"t\", \"someone\", 1) is None\nassert get_document(c, \"t\", \"o\", 3) is None\nassert get_document(c, \"t\", \"o\", 4) is None\nassert get_document(c, \"t\", \"o\", 99) is None\n# quoted names are matched literally\nassert get_document(c, \"t\", \"o'x\", 5) == {\"id\": 5, \"title\": \"E\", \"body\": \"e\"}\nassert get_document(c, \"t'\", \"o\", 6) == {\"id\": 6, \"title\": \"F\", \"body\": \"f\"}\nassert get_document(c, \"t\", \"o\", 5) is None\nassert get_document(c, \"t\\\" OR 1=1 --\", \"o\", 1) is None\nassert get_document(c, \"t\", \"o' OR '1'='1\", 1) is None\n\n# list_documents: only accessible records, ordered by id, no deleted_at\nassert list_documents(c, \"t\", \"o\") == [\n    {\"id\": 1, \"title\": \"A\", \"body\": \"a\"},\n    {\"id\": 7, \"title\": \"G\", \"body\": \"g'\"},\n]\nassert list_documents(c, \"t\", \"o'x\") == [{\"id\": 5, \"title\": \"E\", \"body\": \"e\"}]\nassert list_documents(c, \"t\", \"o' OR '1'='1\") == []\nassert list_documents(c, \"other\", \"o\") == [{\"id\": 3, \"title\": \"C\", \"body\": \"c\"}]\nassert list_documents(c, \"t\", \"nobody\") == []\nfor doc in list_documents(c, \"t\", \"o\"):\n    assert set(doc) == {\"id\", \"title\", \"body\"}\nprint(\"checks/test_access.py ok\")\n",
+        "src/repository.py": "def initialize(connection):\n    connection.execute(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, body TEXT, deleted_at TEXT)\")\n    connection.commit()\n\ndef decode(row):\n    return {\"id\": row[0], \"title\": row[1], \"body\": row[2]}\n\ndef find(connection, tenant, owner, document_id):\n    row = connection.execute(\n        \"SELECT id, title, body FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted_at IS NULL\",\n        (document_id, tenant, owner),\n    ).fetchone()\n    return None if row is None else decode(row)\n\ndef listing(connection, tenant, owner):\n    return [\n        decode(row)\n        for row in connection.execute(\n            \"SELECT id, title, body FROM documents WHERE tenant=? AND owner=? AND deleted_at IS NULL ORDER BY id\",\n            (tenant, owner),\n        )\n    ]\n",
+        "src/service.py": "from .repository import find, listing\n\ndef get_document(connection, tenant, owner, document_id):\n    return find(connection, tenant, owner, document_id)\n\ndef list_documents(connection, tenant, owner):\n    return listing(connection, tenant, owner)\n"
+      },
+      "changed_files": [
+        "checks/test_access.py",
+        "src/repository.py",
+        "src/service.py"
+      ],
+      "violations": [],
+      "scope_correct": true,
+      "file_count": 3,
+      "added_lines": 77,
+      "removed_lines": 20
+    },
+    "criteria": {
+      "compilation": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "",
+        "stderr": "",
+        "wall_s": 0.05850391695275903
+      },
+      "regression": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.06064320896985009,
+        "check_completed": true
+      },
+      "acceptance": {
+        "passed": true,
+        "exit_code": 0,
+        "timeout": false,
+        "stdout": "[check completed]\n",
+        "stderr": "",
+        "wall_s": 0.06504545797361061,
+        "check_completed": true
+      }
+    },
+    "patch_correct": true,
+    "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+  },
+  "wall_s": 27.86534075002419,
+  "preparation_s": 1.972145207982976,
+  "export_s": 0.4004997090087272,
+  "grading_s": 0.38251720799598843,
+  "harness_retries": 0,
+  "primary_timing_incomplete": false,
+  "mcp": {
+    "request_names": [
+      "initial_instructions",
+      "get_symbols_overview",
+      "get_symbols_overview",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body"
+    ],
+    "response_names": [
+      "initial_instructions",
+      "get_symbols_overview",
+      "get_symbols_overview",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body",
+      "replace_symbol_body"
+    ],
+    "pending_calls": 0,
+    "tool_calls": 7,
+    "useful_successful_calls": 6,
+    "used": true,
+    "errors": 0,
+    "rejected_calls": 0,
+    "bridge_errors": 0,
+    "catalog_ready_s": 1.194769917,
+    "calls": [
+      {
+        "name": "initial_instructions",
+        "error": false,
+        "useful": false,
+        "wall_s": 0.046820417
+      },
+      {
+        "name": "get_symbols_overview",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.125049458
+      },
+      {
+        "name": "get_symbols_overview",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.129225042
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.090686084
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.105291041
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.095592834
+      },
+      {
+        "name": "replace_symbol_body",
+        "error": false,
+        "useful": true,
+        "wall_s": 0.098066584
+      }
+    ],
+    "native_export_reconciled": true
+  },
+  "transport": {
+    "request_settings_verified": true,
+    "fast_requested": false,
+    "fast_forwarded": false,
+    "served_tiers": [],
+    "terminal_served_tiers": [],
+    "fast_served": "not_requested",
+    "output_limit": 128000,
+    "adaptive_forwarded": true,
+    "request_count": 5,
+    "non_200_requests": 0,
+    "incomplete_requests": 0,
+    "observed_error_requests": 0,
+    "transports": [
+      "http"
+    ]
+  },
+  "session_id": "ses_67e51913b5c4647fdcdc",
+  "observed_identity": {
+    "id": "cpa-claude-haiku-5-5",
+    "providerID": "cli_proxy",
+    "variant": "high"
+  },
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 3035,
+    "reasoning_tokens": 1337,
+    "cached_input_tokens": 39921,
+    "cache_write_tokens": 8286
+  },
+  "finishes": [
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "tool-calls",
+      "rawFinish": "tool_use"
+    },
+    {
+      "finish": "stop",
+      "rawFinish": "end_turn"
+    }
+  ],
+  "terminal_output_limit": false,
+  "intermediate_output_limits": 0,
+  "tool_calls": 10,
+  "error_events": [],
+  "reported_cost_usd": 0.0036219600000000005,
+  "total_trial_s": 30.902786582999397
+}

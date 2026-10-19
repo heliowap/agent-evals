@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_close.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.resource import Rows\nfrom src.service import stream_rows\nfrom src.consumer import take\n\n\nclass Boom(Exception):\n    pass\n\n\nclass BadClose(Rows):\n    def close(self):\n        super().close()\n        raise RuntimeError(\"close\")\n\n\nclass BadRead(Rows):\n    def read_next(self):\n        if self.index == 1:\n            self.reads += 1\n            raise Boom(\"read\")\n        return super().read_next()\n\n\ndef raises(exc, fn):\n    try:\n        fn()\n    except exc as e:\n        return e\n    raise AssertionError(\"no %s\" % exc)\n\n\n# exhaustion\nr = Rows([1, 2, 3])\nassert list(stream_rows(r, lambda v: v * 2)) == [2, 4, 6]\nassert (r.reads, r.closes) == (4, 1)\n\n# unstarted: construct / close performs nothing\nr = Rows([1])\ng = stream_rows(r, lambda v: v)\nassert (r.reads, r.closes) == (0, 0)\ng.close()\nassert (r.reads, r.closes) == (0, 0)\n\n# explicit close after start, lazy\nr = Rows([1, 2, 3])\ng = stream_rows(r, lambda v: v)\nassert next(g) == 1\ng.close(); g.close()\nassert (r.reads, r.closes) == (1, 1)\n\n# transform error: propagates, no more reads, closed once\nr = Rows([1, 2, 3])\ndef t(v):\n    if v == 2:\n        raise Boom(\"t\")\n    return v\ng = stream_rows(r, t)\nassert next(g) == 1\nraises(Boom, lambda: next(g))\nassert (r.reads, r.closes) == (2, 1)\nraises(StopIteration, lambda: next(g))\nassert (r.reads, r.closes) == (2, 1)\n\n# transform error + cleanup error -> original\nr = BadClose([1])\nassert type(raises(Boom, lambda: list(stream_rows(r, lambda v: (_ for _ in ()).throw(Boom()))))) is Boom\nassert r.closes == 1\n\n# iteration error\nr = BadRead([1, 2])\nraises(Boom, lambda: list(stream_rows(r, lambda v: v)))\nassert r.closes == 1\nr = BadRead([1, 2]); r.close = lambda: (_ for _ in ()).throw(RuntimeError())\nraises(Boom, lambda: list(stream_rows(r, lambda v: v)))\n\n# cleanup error alone propagates (exhaustion and explicit close), once\nr = BadClose([1])\nraises(RuntimeError, lambda: list(stream_rows(r, lambda v: v)))\nassert r.closes == 1\nr = BadClose([1, 2])\ng = stream_rows(r, lambda v: v); next(g)\nraises(RuntimeError, g.close)\nassert r.closes == 1\n\n# take\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v, 2) == [1, 2]\nassert (r.reads, r.closes) == (2, 1)\nr = Rows([1, 2, 3])\nassert take(r, lambda v: v, 0) == []\nassert (r.reads, r.closes) == (0, 0)\nr = Rows([1])\nassert take(r, lambda v: v, 5) == [1]\nassert r.closes == 1\nr = Rows([1, 2])\nraises(Boom, lambda: take(r, t, 5))\nassert r.closes == 1 and r.reads == 2\nr = BadClose([1, 2, 3])\nraises(RuntimeError, lambda: take(r, lambda v: v, 1))\nassert r.closes == 1\nprint(\"ok\")\n",
+      "src/consumer.py": "from .service import stream_rows\n\n\ndef take(resource, transform, limit):\n    if limit <= 0:\n        return []\n    stream = stream_rows(resource, transform)\n    result = []\n    try:\n        for row in stream:\n            result.append(row)\n            if len(result) >= limit:\n                break\n    except BaseException:\n        try:\n            stream.close()\n        except Exception:\n            pass\n        raise\n    stream.close()\n    return result\n",
+      "src/service.py": "def stream_rows(resource, transform):\n    # Nothing runs (no read, no close) until the generator is first advanced,\n    # so an unstarted generator that is dropped or closed does no work.\n    try:\n        while True:\n            row = resource.read_next()\n            if row is None:\n                break\n            value = transform(row)\n            yield value\n    except GeneratorExit:\n        # Explicit close(): a cleanup failure is the only error, so propagate it.\n        resource.close()\n        raise\n    except BaseException:\n        # Iteration/transform error: keep the original error even if cleanup fails.\n        try:\n            resource.close()\n        except Exception:\n            pass\n        raise\n    # Exhaustion: close exactly once; a cleanup error propagates.\n    resource.close()\n"
+    },
+    "changed_files": [
+      "checks/test_close.py",
+      "src/consumer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 147,
+    "removed_lines": 17
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.0468154999834951
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.042915666999761015,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04371387499850243,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

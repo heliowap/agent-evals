@@ -1,0 +1,225 @@
+{
+  "blind_id": "b-8a29ad09d8cec4b223294c06eb8a67ce",
+  "task_id": "T4",
+  "checks": [
+    {
+      "id": "C1",
+      "status": "supported",
+      "answer_quote": "without the Sessions API *\"all queries will continue to be executed only by the primary database\"*",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#use-sessions-api",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "To use read replication, you must use the D1 Sessions API, otherwise all queries will continue to be executed only by the primary database."
+        }
+      ],
+      "rationale": "The exact answer span satisfies the frozen requirement: Enabling replication alone does not route these binding queries to replicas. The read first-party evidence confirms the stated behavior.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C2",
+      "status": "supported",
+      "answer_quote": "Writes are always forwarded to the primary regardless",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "All write queries are still forwarded to the primary database instance."
+        }
+      ],
+      "rationale": "The exact answer span satisfies the frozen requirement: Writes still go to primary. The read first-party evidence confirms the stated behavior.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C3",
+      "status": "supported",
+      "answer_quote": "It directs only the *first* query (read or write) to primary",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s3.txt",
+          "quote": "Subsequent queries in the Session may use read replicas."
+        }
+      ],
+      "rationale": "The exact answer span satisfies the frozen requirement: `first-primary` constrains the first query, not the entire session. The read first-party evidence confirms the stated behavior.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C4",
+      "status": "supported",
+      "answer_quote": "`withSession()` equals `first-unconstrained`, routing the first query to *any* instance, replica included",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "`withSession()` is the same as `withSession(\"first-unconstrained\")`"
+        },
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "This approach is best when your application does not require the latest database version."
+        }
+      ],
+      "rationale": "The exact answer span satisfies the frozen requirement: Default initial session read need not be latest. The read first-party evidence confirms the stated behavior.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C5",
+      "status": "supported",
+      "answer_quote": "Later requests carry that opaque bookmark into `env.DB.withSession(bookmark)`, guaranteeing a version *\"at least as up-to-date\"* as your checkout write",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "Starting a session with a `bookmark` ensures the new session will be at least as up-to-date as the previous session that generated the given `bookmark`."
+        }
+      ],
+      "rationale": "The exact answer span satisfies the frozen requirement: Carry the bookmark across requests for the prior-write lower bound. The read first-party evidence confirms the stated behavior.",
+      "citation_status": "entailing"
+    },
+    {
+      "id": "C6",
+      "status": "supported",
+      "answer_quote": "Earlier inserts do **not** stay committed",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#batch",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s3.txt",
+          "quote": "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence."
+        }
+      ],
+      "rationale": "The exact answer span satisfies the frozen requirement: Batch failure rolls back the sequence. The read first-party evidence confirms the stated behavior.",
+      "citation_status": "entailing"
+    }
+  ],
+  "uncertainty": {
+    "status": "pass",
+    "answer_quote": "\"≤100 ms lag after commit\" — **UNVERIFIED**",
+    "rationale": "Both global latest and numeric lag are rejected, the bookmark/sequential contract is explained, and Cloudflare support is the next contractual evidence target.",
+    "evidence": [
+      {
+        "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+        "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+        "quote": "This means that at any given time, a read replica may be arbitrarily out of date."
+      },
+      {
+        "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#with-sessions-api",
+        "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+        "quote": "The read replica will wait until it has been updated to be at least as up-to-date as the provided bookmark (100)."
+      }
+    ]
+  },
+  "citations": [
+    {
+      "answer_quote": "without the Sessions API *\"all queries will continue to be executed only by the primary database\"*",
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#use-sessions-api",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The citation at this claim (or explicitly reused paragraph/list source) is an actual fetched first-party page, with a valid page/fragment. The quoted source entails this claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#use-sessions-api",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "To use read replication, you must use the D1 Sessions API, otherwise all queries will continue to be executed only by the primary database."
+        }
+      ]
+    },
+    {
+      "answer_quote": "Writes are always forwarded to the primary regardless",
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The citation at this claim (or explicitly reused paragraph/list source) is an actual fetched first-party page, with a valid page/fragment. The quoted source entails this claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "All write queries are still forwarded to the primary database instance."
+        }
+      ]
+    },
+    {
+      "answer_quote": "It directs only the *first* query (read or write) to primary",
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The citation at this claim (or explicitly reused paragraph/list source) is an actual fetched first-party page, with a valid page/fragment. The quoted source entails this claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s3.txt",
+          "quote": "Subsequent queries in the Session may use read replicas."
+        }
+      ]
+    },
+    {
+      "answer_quote": "`withSession()` equals `first-unconstrained`, routing the first query to *any* instance, replica included",
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The citation at this claim (or explicitly reused paragraph/list source) is an actual fetched first-party page, with a valid page/fragment. The quoted source entails this claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "`withSession()` is the same as `withSession(\"first-unconstrained\")`"
+        },
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "This approach is best when your application does not require the latest database version."
+        }
+      ]
+    },
+    {
+      "answer_quote": "Later requests carry that opaque bookmark into `env.DB.withSession(bookmark)`, guaranteeing a version *\"at least as up-to-date\"* as your checkout write",
+      "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The citation at this claim (or explicitly reused paragraph/list source) is an actual fetched first-party page, with a valid page/fragment. The quoted source entails this claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s2.txt",
+          "quote": "Starting a session with a `bookmark` ensures the new session will be at least as up-to-date as the previous session that generated the given `bookmark`."
+        }
+      ]
+    },
+    {
+      "answer_quote": "Earlier inserts do **not** stay committed",
+      "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#batch",
+      "support": "entailing",
+      "anchor_compliance": true,
+      "rationale": "The citation at this claim (or explicitly reused paragraph/list source) is an actual fetched first-party page, with a valid page/fragment. The quoted source entails this claim.",
+      "evidence": [
+        {
+          "url": "https://developers.cloudflare.com/d1/worker-api/d1-database/#batch",
+          "source_path": "blind/cases/b-8a29ad09d8cec4b223294c06eb8a67ce/sources/s3.txt",
+          "quote": "If a statement in the sequence fails, then an error is returned for that specific statement, and it aborts or rolls back the entire sequence."
+        }
+      ]
+    }
+  ],
+  "critical_errors": [],
+  "unsupported_extras": [],
+  "compliance": {
+    "word_cap": true,
+    "fetched_two_sources": true,
+    "source_rules": true,
+    "tool_rules": true,
+    "english": true,
+    "full_urls": true,
+    "discovery_chain": {
+      "complete": false,
+      "missing_required_pages": [
+        "https://developers.cloudflare.com/d1/llms.txt"
+      ],
+      "rationale": "Actual candidate fetches do not cover the frozen chain; missing required pages: https://developers.cloudflare.com/d1/llms.txt"
+    }
+  },
+  "ambiguous": false,
+  "notes": [
+    "AI semantic judgment, blind shard B; no identity, ranking, timing or qualification inference.",
+    "Primary evidence was source-read; identical task page bodies across cases were deterministically hash-compared. Actual fetched versus frozen-reference eligibility is checked separately for this answer."
+  ]
+}

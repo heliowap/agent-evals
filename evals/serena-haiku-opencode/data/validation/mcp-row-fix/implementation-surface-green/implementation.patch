@@ -1,0 +1,77 @@
+--- before/runtime.py
++++ after/runtime.py
+@@ -146,11 +146,10 @@
+             raise ValueError('Native tools must have canonical identities, direct exposure and allowed permission actions')
+     if any(tool['name'] not in allowed_tools(role, arm) for row in rows for tool in row['tools']):
+         raise ValueError('Unexpected tool was exposed by native OpenCode')
+-    exact = [row for row in rows if {tool['name'] for tool in row['tools']} == set(allowed_tools(role, arm))]
+-    if not exact:
+-        observed = sorted({tool['name'] for row in rows for tool in row['tools']})
++    if not rows or {tool['name'] for tool in rows[-1]['tools']} != set(allowed_tools(role, arm)):
++        observed = sorted(tool['name'] for tool in rows[-1]['tools']) if rows else []
+         raise ValueError(f'Native OpenCode tool surface missing or changed: {observed}')
+-    return exact[-1]
++    return rows[-1]
+ 
+ 
+ def _shape(value):
+--- before/test_bench.py
++++ after/test_bench.py
+@@ -376,6 +376,22 @@
+                 runtime.surface(root, 'exploration', 'native')
+             self.assertEqual((root / 'surface.jsonl').read_bytes(), before)
+ 
++    def test_only_latest_complete_catalog_can_approve_serena(self):
++        with tempfile.TemporaryDirectory() as folder:
++            root = Path(folder)
++            complete = self.tools(arm='serena')
++            self.save_surface(root, complete)
++            with (root / 'surface.jsonl').open('a') as stream:
++                stream.write(json.dumps({'event': 'surface', 'tools': self.tools()}) + '\n')
++            before = (root / 'surface.jsonl').read_bytes()
++            with self.assertRaisesRegex(ValueError, 'Native OpenCode tool surface missing or changed:'):
++                runtime.surface(root, 'exploration', 'serena')
++            self.assertEqual((root / 'surface.jsonl').read_bytes(), before)
++            latest = {'event': 'surface', 'at_ms': 3, 'tools': complete}
++            with (root / 'surface.jsonl').open('a') as stream:
++                stream.write(json.dumps(latest) + '\n')
++            self.assertEqual(runtime.surface(root, 'exploration', 'serena'), latest)
++
+     def test_private_preparation_removes_browser_and_exposes_serena_directly(self):
+         args = SimpleNamespace(binary='~/.opencode/bin/opencode',
+                                serena='~/.local/bin/serena', node='~/.local/bin/node',
+@@ -593,13 +609,15 @@
+                 self.assertEqual((copied / 'mcp-status.jsonl').read_text(), '{"row_count":0}\n')
+                 self.assertEqual((copied / 'discovery-surface.jsonl').read_text(), '{"shape":"null"}\n')
+ 
+-    def invoke(self, root, values, clock=None, calls=None):
++    def invoke(self, root, values, clock=None, calls=None, on_mcp=None):
+         work, configuration, case, args, expected, responses = self.fixture(root)
+         states = iter(values)
+         events = []
+         def request(binary, work, server, operation, **kwargs):
+             events.append((operation, kwargs))
+             if operation == 'mcp.list':
++                if on_mcp:
++                    on_mcp(root, len(events))
+                 return next(states)
+             if operation == 'session.create':
+                 return {'data': {'id': 'unit-session'}}
+@@ -631,6 +649,17 @@
+             self.assertEqual((result['reason'], result['exit_code'], result['calls_at_exit']), (None, 0, 0))
+             self.assertEqual(events[-1][1]['data']['model'], Configuration('medium', 'serena').candidate.identity)
+ 
++    def test_invoke_waits_for_latest_catalog_to_become_complete_again(self):
++        def change_surface(root, attempt):
++            tools = self.tools() if attempt == 1 else self.tools(arm='serena')
++            with (root / 'surface.jsonl').open('a') as stream:
++                stream.write(json.dumps({'event': 'surface', 'tools': tools}) + '\n')
++        connected = {'data': [{'name': 'serena', 'status': {'status': 'connected'}}]}
++        with tempfile.TemporaryDirectory() as folder:
++            result, events = self.invoke(Path(folder), [connected, connected], on_mcp=change_surface)
++            self.assertEqual([name for name, kwargs in events], ['mcp.list', 'mcp.list', 'session.create'])
++            self.assertEqual((result['reason'], result['exit_code'], result['calls_at_exit']), (None, 0, 0))
++
+     def test_invoke_failure_or_exhausted_time_prevents_session_and_runner(self):
+         for values, clock in [([{'data': [{'name': 'serena', 'status': {'status': 'failed', 'error': 'SECRET_ERROR'}}]}], None),
+                               ([{'data': []}], count(0, 100)), ([{'data': []}], count(0, 301))]:

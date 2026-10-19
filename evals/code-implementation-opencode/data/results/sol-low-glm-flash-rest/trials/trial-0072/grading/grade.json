@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/transfer_failure_checks.py": "\"\"\"Failure-path checks for src.service.transfer.\"\"\"\nimport os, sqlite3, sys\nsys.path.insert(0, os.getcwd())\n\nimport src.repository as repository\nfrom src.events import Recorder\nfrom src.service import transfer\n\n\ndef fresh(a=100, b=20):\n    c = sqlite3.connect(\":memory:\")\n    repository.initialize(c)\n    c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", a), (\"b\", b)])\n    c.commit()\n    return c\n\n\ndef ledger(c):\n    return c.execute(\"SELECT source, target, amount FROM ledger\").fetchall()\n\n\ndef expect_value_error(errors, label, **kwargs):\n    c = fresh()\n    p = Recorder()\n    try:\n        transfer(c, p, *kwargs[\"args\"])\n    except ValueError:\n        pass\n    else:\n        errors.append(f\"{label}: expected ValueError\")\n        return\n    if kwargs[\"args\"][0] == \"a\":\n        if repository.balance(c, \"a\") != 100 or repository.balance(c, \"b\") != 20:\n            errors.append(f\"{label}: balances changed\")\n    if ledger(c) != []:\n        errors.append(f\"{label}: ledger written\")\n    if p.events != []:\n        errors.append(f\"{label}: published event\")\n\nerrors = []\n\n# Rejections: no writes, no publication.\nexpect_value_error(errors, \"same account\", args=(\"a\", \"a\", 10))\nexpect_value_error(errors, \"missing source\", args=(\"x\", \"b\", 10))\nexpect_value_error(errors, \"missing target\", args=(\"a\", \"x\", 10))\nexpect_value_error(errors, \"zero amount\", args=(\"a\", \"b\", 0))\nexpect_value_error(errors, \"negative amount\", args=(\"a\", \"b\", -10))\nexpect_value_error(errors, \"float amount\", args=(\"a\", \"b\", 10.0))\nexpect_value_error(errors, \"bool amount\", args=(\"a\", \"b\", True))\nexpect_value_error(errors, \"string amount\", args=(\"a\", \"b\", \"10\"))\nexpect_value_error(errors, \"insufficient funds\", args=(\"a\", \"b\", 101))\n\n# Statement failure (denied UPDATE): rollback after a partial write, no publish.\nclass DenyUpdates:\n    def __call__(self, action, arg1, arg2, dbname, source, trigger):\n        if action == sqlite3.SQLITE_UPDATE:\n            return sqlite3.SQLITE_DENY\n        return sqlite3.SQLITE_OK\n\nc = fresh()\np = Recorder()\nbefore = repository.balance(c, \"a\")\nc.set_authorizer(DenyUpdates())\ntry:\n    transfer(c, p, \"a\", \"b\", 10)\nexcept sqlite3.DatabaseError:\n    pass\nelse:\n    errors.append(\"statement failure: expected DatabaseError\")\nc.set_authorizer(None)\nif repository.balance(c, \"a\") != before or repository.balance(c, \"b\") != 20:\n    errors.append(\"statement failure: partial write survived\")\nif ledger(c) != []:\n    errors.append(\"statement failure: ledger written\")\nif p.events != []:\n    errors.append(\"statement failure: published event\")\n# Connection stays usable afterwards.\ntransfer(c, p, \"a\", \"b\", 10)\nif repository.balance(c, \"a\") != 90 or repository.balance(c, \"b\") != 30 or ledger(c) != [(\"a\", \"b\", 10)]:\n    errors.append(\"statement failure: connection unusable after rollback\")\n\n# Commit failure: changes rolled back, never published.\nclass FailingCommit(sqlite3.Connection):\n    armed = False\n\n    def commit(self):\n        if FailingCommit.armed:\n            raise sqlite3.DatabaseError(\"commit failed\")\n        return super().commit()\n\nc = sqlite3.connect(\":memory:\", factory=FailingCommit)\nrepository.initialize(c)\nc.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\nc.commit()\nFailingCommit.armed = True\np = Recorder()\ntry:\n    transfer(c, p, \"a\", \"b\", 10)\nexcept sqlite3.DatabaseError:\n    pass\nelse:\n    errors.append(\"commit failure: expected DatabaseError\")\nif repository.balance(c, \"a\") != 100 or repository.balance(c, \"b\") != 20:\n    errors.append(\"commit failure: changes survived commit error\")\nif ledger(c) != []:\n    errors.append(\"commit failure: ledger written\")\nif p.events != []:\n    errors.append(\"commit failure: published event\")\n\n# Publication failure: propagates, transfer stays committed.\nclass BrokenPublisher:\n    def publish(self, event):\n        raise RuntimeError(\"publisher down\")\n\nc = fresh()\npublisher = BrokenPublisher()\nfailed = False\ntry:\n    transfer(c, publisher, \"a\", \"b\", 10)\nexcept RuntimeError:\n    failed = True\nif not failed:\n    errors.append(\"publication failure: expected RuntimeError\")\nif repository.balance(c, \"a\") != 90 or repository.balance(c, \"b\") != 30:\n    errors.append(\"publication failure: committed transfer was undone\")\nif ledger(c) != [(\"a\", \"b\", 10)]:\n    errors.append(\"publication failure: ledger row missing\")\n# Exactly one debit/credit per successful call.\ntransfer(c, Recorder(), \"b\", \"a\", 5)\nif repository.balance(c, \"a\") != 95 or repository.balance(c, \"b\") != 25 or ledger(c) != [(\"a\", \"b\", 10), (\"b\", \"a\", 5)]:\n    errors.append(\"exactly-once check failed\")\n\nif errors:\n    print(\"FAILURES:\")\n    for e in errors:\n        print(\" -\", e)\n    sys.exit(1)\nprint(\"all transfer failure checks passed\")\n",
+      "src/service.py": "import sqlite3\n\nfrom .repository import balance, move\n\n\ndef transfer(connection, publisher, source, target, amount):\n    # Validation: no connection writes may happen before every check passes.\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n    if isinstance(amount, bool) or not isinstance(amount, int):\n        raise ValueError(\"amount must be a positive integer\")\n    if amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n\n    try:\n        source_balance = balance(connection, source)\n        target_balance = balance(connection, target)\n        if source_balance is None:\n            raise ValueError(\"source account does not exist\")\n        if target_balance is None:\n            raise ValueError(\"target account does not exist\")\n        if amount > source_balance:\n            raise ValueError(\"amount exceeds source balance\")\n\n        # Exactly one debit, one credit, one ledger row.\n        move(connection, source, target, amount)\n        connection.commit()\n    except Exception:\n        # Any database failure (statement or commit) leaves no trace.\n        connection.rollback()\n        raise\n\n    # Publication happens only after a committed transfer; a failure here\n    # propagates without undoing the transfer.\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\n"
+    },
+    "changed_files": [
+      "checks/transfer_failure_checks.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 173,
+    "removed_lines": 6
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04685720900306478
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0449996670067776,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05116174998693168,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

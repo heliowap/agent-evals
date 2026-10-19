@@ -1,0 +1,21 @@
+`import_contacts` and `handle_import` are implemented. `python3 checks/public.py` passes, and the new `unittest` checks pass (7 tests).
+
+**Changes**
+
+- **`src/repository.py`**: added `existing_emails(connection, emails)`, which returns the subset of emails already in `contacts`. It queries in chunks of 500 to stay under SQLite's parameter limit. `put_contact`, `list_contacts`, and `initialize` are unchanged.
+- **`src/service.py`**: `import_contacts` validates the whole batch in Python before touching the database.
+  - Each row must be a dict with exactly `email` and `name`, both strings.
+  - Both values are trimmed. The email must contain exactly one `@`, with a nonempty local and domain part and no whitespace. The name must be nonempty.
+  - The email is lowercased. Duplicate normalized emails raise `ValueError`.
+  - An empty batch returns `{'inserted': 0, 'updated': 0}` without touching the database.
+  - Otherwise it runs inside `with connection:` after `BEGIN IMMEDIATE`. It counts existing emails, then upserts every row with `put_contact`. Any exception rolls back the whole batch.
+  - Every row counts as updated if its email already existed, even when the name is unchanged.
+- **`src/api.py`**: `handle_import` requires a dict whose only key is `contacts`, and that value must be a list. Anything else raises `ValueError`. It returns the service summary.
+- **`checks/import_contacts_checks.py`** (new): `unittest` coverage for insert/update counts, normalization, unchanged-name updates, empty batches, invalid rows that must leave the table unchanged, a simulated mid-batch database failure that must roll back everything, and envelope rejections.
+
+`add_contact` and the existing `handle_add` are byte-for-byte unchanged.
+
+**Caveats**
+
+- `add_contact` does not normalize emails, so a row stored as `A@B.com` won't match an incoming `a@b.com` and will be inserted as a new contact. I left it alone because the request said to preserve it.
+- The API rejects envelopes with extra keys, which is stricter than the spec strictly requires. The service also rejects tuples, accepting only lists.

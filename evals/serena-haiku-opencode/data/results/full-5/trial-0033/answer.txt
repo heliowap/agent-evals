@@ -1,0 +1,12 @@
+The access checks are now enforced in both `src/service.py` and `src/repository.py`, and both check scripts pass.
+
+**What changed**
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Every query filters on `tenant=?`, `owner=?`, and `deleted_at IS NULL`, with all values passed as bound parameters. `find` matches on `id` as well. Lists are ordered by `id`. The result shape is still `{id, title, body}`, so no deletion metadata is returned.
+- **`src/service.py`**: `get_document` and `list_documents` keep their signatures and pass `tenant` and `owner` through to the repository.
+- **`checks/security.py`** (new): covers a live document, a deleted record, a cross-tenant record, a cross-owner record, and a missing ID. All of these return `None` from `get_document`. It also checks that an owner name containing quotes and SQL text is handled as a plain value and that the table is left intact, and that lists are filtered and ordered by id.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 checks/security.py` passes.
+
+I did not run a broader test suite or a git diff, since the project isn't a git repo.

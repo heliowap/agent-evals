@@ -1,0 +1,31 @@
+## Verdict
+
+Not supported as a universal claim. In this snapshot, the federation serializer deliberately *drops* standard native histograms whenever the negotiated format is not one of the three protobuf encodings. Only native histograms with custom buckets (NHCBs) and ordinary float samples survive every negotiated format — and NHCBs only because they are downgraded to classic histograms.
+
+## The decisive closed skip branch
+
+`web/federate.go:190-203` contains a per-sample guard inside the emit loop:
+
+- `isHistogram := s.H != nil` — line 191;
+- `formatType := format.FormatType()` — line 192;
+- the condition — lines 193-197: skip when `isHistogram && !s.H.UsesCustomBuckets() && formatType != expfmt.TypeProtoDelim && formatType != expfmt.TypeProtoText && formatType != expfmt.TypeProtoCompact`;
+- explanatory comment — lines 198-201 ("Can't serve a native histogram with a non-protobuf format… TODO(codesome): Serve them when other protocols get the native histogram support.");
+- the action — `continue` at line 202, silently skipping the sample before any metric-family/label handling, so nothing is emitted in its place.
+
+It is "closed" because it is a negative-list closure: anything outside the three named protobuf categories falls through to `continue` by default. There is no fallback conversion and no warning for the skipped sample.
+
+## Formats permitted for histograms without custom buckets
+
+The branch permits exactly three categories (lines 195-197): `expfmt.TypeProtoDelim`, `expfmt.TypeProtoText`, `expfmt.TypeProtoCompact` — i.e., length-delimited binary protobuf, protobuf text, and protobuf compact text. Negotiation (line 75) offers only these three plus `expfmt.TypeTextPlain`, with `TypeProtoDelim` first in the candidate list; so within this snapshot the negotiated category it forbids is text/plain (0.0.4). OpenMetrics is not among the negotiated candidates here; because the guard is negative-list, a non-protobuf category like OpenMetrics would also be excluded should it ever be added. The native-histogram representation these three formats receive is built by `makeNativeHistogram` (`web/federate.go:315-346`), which carries Schema, Spans, and float bucket fields — protobuf-only payload that text/plain cannot express.
+
+## Contrast: custom-bucket histograms (NHCBs)
+
+The guard requires `!s.H.UsesCustomBuckets()`, so NHCBs bypass it in every format. `UsesCustomBuckets` is schema −53 (`model/histogram/generic.go:28,68-69`; `model/histogram/float_histogram.go:65-67`). For NHCBs the serializer takes the `makeClassicHistogram(s.H)` path (`web/federate.go:297-298`), producing explicit upper bounds and cumulative counts (`web/federate.go:350-372`); the comment at lines 198-200 states an NHCB "is converted to a classic histogram for federation," and lines 373-376 note `+Inf` is added by the format converter rather than the protobuf. So NHCBs are emittable in every negotiated format, but *as classic histograms*, losing native-only fields. `web/federate_test.go:346-356,398-446,507-508` asserts the protobuf-path result: the NHCB input yields `test_metric_count`/`_sum`/`_bucket` output.
+
+## Ordinary float samples
+
+The restriction does not apply. It is predicated on `isHistogram` (line 191), true only when `s.H != nil`; floats never satisfy the conjunction. They are encoded as `dto.Untyped{Value: s.F}` (lines 290-294) for every negotiated format, matching `docs/federation.md:15-16` ("float samples are always federated as `untyped`", while histograms carry their full type). The format restriction is thus specific to non-custom-bucket native histograms.
+
+## Limitations
+
+I read the serializer and the relevant test but ran no code or tests. The text/plain skip is established from the branch logic (`web/federate.go:193-202`); the visible test exercises only the protobuf-delimited path (`web/federate_test.go:463`), so the text/plain drop is code-evident rather than test-demonstrated here. Claims about categories never offered by line 75 (e.g., OpenMetrics) are analytic consequences of the negative-list guard, not observed behavior.

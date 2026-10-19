@@ -1,0 +1,62 @@
+{
+  "scope": {
+    "files": {
+      "checks/exporter_contract.py": "import copy, os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.exporter import export_rows\nfrom src.csv_exporter import export_csv\nfrom src.json_exporter import export_json\nfrom src.dispatcher import export\n\n# Wrappers and dispatcher agree with the shared entry point.\nrows = [{\"id\": 1, \"name\": \"Alice\"}, {\"id\": None, \"name\": 2.5}, {\"name\": \"Bo\"}]\nassert export_csv(rows) == export_rows(rows, \"csv\") == export(rows, \"csv\")\nassert export_json(rows) == export_rows(rows, \"json\") == export(rows, \"json\")\n\n# Normalization: only id/name, None/missing -> '', others str(), order kept.\nassert export_rows([{\"name\": \"b\", \"id\": 2, \"x\": 9}, {\"id\": 1, \"name\": \"a\"}], \"json\") == \\\n    '[{\"id\":\"2\",\"name\":\"b\"},{\"id\":\"1\",\"name\":\"a\"}]'\nassert export_rows([{\"id\": None, \"name\": None}, {}], \"json\") == '[{\"id\":\"\",\"name\":\"\"},{\"id\":\"\",\"name\":\"\"}]'\nassert export_rows([{\"id\": 0, \"name\": False}], \"csv\") == \"id,name\\n0,False\\n\"\n\n# CSV: header-only when empty, LF endings, standard quoting.\nassert export_rows([], \"csv\") == \"id,name\\n\"\nassert export_rows([{\"id\": 1, \"name\": 'a,\"b\"'}], \"csv\") == 'id,name\\n1,\"a,\"\"b\"\"\"\\n'\nassert \"\\r\\n\" not in export_rows([{\"id\": 1, \"name\": \"x\"}], \"csv\")\n\n# JSON: compact separators, no ASCII escaping, empty list.\nassert export_rows([], \"json\") == \"[]\"\nassert export_rows([{\"id\": 1, \"name\": \"héllo\"}], \"json\") == '[{\"id\":\"1\",\"name\":\"héllo\"}]'\n\n# Unsupported formats raise ValueError (case-sensitive, non-string included).\nfor bad in (\"xml\", \"CSV\", \"\", None, 1, [\"csv\"]):\n    try:\n        export_rows([{\"id\": 1, \"name\": \"x\"}], bad)\n    except ValueError:\n        pass\n    else:\n        raise AssertionError(f\"expected ValueError for {bad!r}\")\n\n# Inputs are not mutated.\nsrc = [{\"id\": 1, \"name\": \"A\", \"extra\": {\"k\": 1}}, {\"id\": None}]\nsnapshot = copy.deepcopy(src)\nexport_rows(src, \"csv\"); export_rows(src, \"json\")\nassert src == snapshot\n\n# One-shot iterables are accepted and consumed once per call.\ngen = ({\"id\": i, \"name\": f\"n{i}\"} for i in range(2))\nassert export_rows(gen, \"csv\") == \"id,name\\n0,n0\\n1,n1\\n\"\nassert export_rows(iter([{\"id\": 3, \"name\": \"z\"}]), \"json\") == '[{\"id\":\"3\",\"name\":\"z\"}]'\nprint(\"exporter contract OK\")\n",
+      "src/csv_exporter.py": "from .exporter import export_rows\n\n\ndef export_csv(rows):\n    return export_rows(rows, \"csv\")\n",
+      "src/dispatcher.py": "from .exporter import export_rows\n\n\ndef export(rows, format):\n    return export_rows(rows, format)\n",
+      "src/exporter.py": "import csv\nimport io\nimport json\n\n_FIELDS = (\"id\", \"name\")\n\n\ndef _normalize(rows):\n    \"\"\"Return a new list of {\"id\": str, \"name\": str} records, in input order.\n\n    Only the id and name fields are kept. Missing or None values become ''\n    and every other value is converted with str(). Inputs are not mutated and\n    one-shot iterables are consumed exactly once.\n    \"\"\"\n    records = []\n    for row in rows:\n        records.append({\n            key: \"\" if row.get(key) is None else str(row[key])\n            for key in _FIELDS\n        })\n    return records\n\n\ndef _serialize_csv(records):\n    buffer = io.StringIO(newline=\"\")\n    writer = csv.writer(buffer, lineterminator=\"\\n\")\n    writer.writerow(_FIELDS)\n    for record in records:\n        writer.writerow([record[key] for key in _FIELDS])\n    return buffer.getvalue()\n\n\ndef _serialize_json(records):\n    return json.dumps(records, ensure_ascii=False, separators=(\",\", \":\"))\n\n\n_SERIALIZERS = {\n    \"csv\": _serialize_csv,\n    \"json\": _serialize_json,\n}\n\n\ndef export_rows(rows, format):\n    \"\"\"Export rows as 'csv' or 'json' text.\n\n    Raises ValueError for any other format. The format is checked before\n    rows are read.\n    \"\"\"\n    if not isinstance(format, str) or format not in _SERIALIZERS:\n        raise ValueError(\"unsupported format\")\n    return _SERIALIZERS[format](_normalize(rows))\n",
+      "src/json_exporter.py": "from .exporter import export_rows\n\n\ndef export_json(rows):\n    return export_rows(rows, \"json\")\n"
+    },
+    "changed_files": [
+      "checks/exporter_contract.py",
+      "src/csv_exporter.py",
+      "src/dispatcher.py",
+      "src/exporter.py",
+      "src/json_exporter.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 5,
+    "added_lines": 113,
+    "removed_lines": 27
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.04446741699939594
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.044981000013649464,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.044135917036328465,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04827754199504852,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

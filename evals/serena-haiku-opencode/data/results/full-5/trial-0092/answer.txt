@@ -1,0 +1,21 @@
+`parse_amount` no longer goes through `float`, and `make_invoice` applies the same rules. `python3 checks/public.py` passes, and so does the new check file I added, `checks/test_amounts.py`.
+
+**`src/money.py`**
+- `parse_amount` accepts `Decimal`, integers (bools rejected), and strings matching `[+-]?` followed by digits with an optional fraction (e.g. `"+7"`, `".25"`, `"007.500"`). Whitespace, exponents, underscores, and non-ASCII digits are rejected.
+- Every other type, including floats, raises `ValueError`.
+- Non-finite values, zero, negatives, values above `1000000.00`, and values with a nonzero digit beyond the hundredths place raise `ValueError`. Nothing is rounded.
+- Validation is done with exact comparisons and tuple inspection, so it never depends on the active decimal context and doesn't rely on `float`.
+- Results are built from an integer cent count, so they always have exponent -2.
+- A new helper, `parse_amount_cents`, returns the validated value as integer cents. `cents_to_amount` converts back.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies the input into a list and does not modify it.
+- Each item goes through `parse_amount_cents`. The total is summed as integer cents and must not exceed `1000000.00`.
+- It returns `{"total": "<two decimals>", "count": N}`. An empty list gives `{"total": "0.00", "count": 0}`.
+
+**Verification**
+- `checks/test_amounts.py` covers accepted and rejected inputs, exponent -2, unchanged input, and an unchanged global context. It also runs `make_invoice` under a low-precision context with `Inexact` trapped and confirms the output is still correct.
+- The public check still passes.
+
+One choice to be aware of: strings like `"1."` (a trailing dot with no fraction digits) are accepted as plain decimals. If you want them rejected, change the regex.

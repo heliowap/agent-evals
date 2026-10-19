@@ -1,0 +1,47 @@
+{
+  "scope": {
+    "files": {
+      "checks/test_transfer.py": "import os\nimport sqlite3\nimport sys\nimport unittest\n\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n\nfrom src.events import Recorder\nfrom src.repository import balance, initialize\nfrom src.service import transfer\n\n\nclass FailingConnection:\n    def __init__(self, connection, statement=None, commit=False):\n        self.connection = connection\n        self.statement = statement\n        self.fail_commit = commit\n        self.statements = 0\n        self.rollbacks = 0\n\n    def execute(self, sql, parameters=()):\n        self.statements += 1\n        result = self.connection.execute(sql, parameters)\n        if self.statements == self.statement:\n            raise sqlite3.OperationalError(\"statement failed\")\n        return result\n\n    def commit(self):\n        if self.fail_commit:\n            raise sqlite3.OperationalError(\"commit failed\")\n        self.connection.commit()\n\n    def rollback(self):\n        self.rollbacks += 1\n        self.connection.rollback()\n\n\nclass TransferTests(unittest.TestCase):\n    def connect(self, autocommit=False):\n        connection = sqlite3.connect(\":memory:\", isolation_level=None if autocommit else \"\")\n        self.addCleanup(connection.close)\n        initialize(connection)\n        connection.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\n        connection.commit()\n        return connection\n\n    def assert_state(self, connection, balances, ledger):\n        self.assertEqual((balance(connection, \"a\"), balance(connection, \"b\")), balances)\n        self.assertEqual(connection.execute(\"SELECT * FROM ledger\").fetchall(), ledger)\n        self.assertFalse(connection.in_transaction)\n\n    def test_success_commits_before_publication(self):\n        for autocommit in (False, True):\n            for amount in (10, 100):\n                with self.subTest(autocommit=autocommit, amount=amount):\n                    connection = self.connect(autocommit)\n                    test = self\n\n                    class Publisher(Recorder):\n                        def publish(self, event):\n                            test.assert_state(connection, (100 - amount, 20 + amount), [(\"a\", \"b\", amount)])\n                            super().publish(event)\n\n                    publisher = Publisher()\n                    transfer(connection, publisher, \"a\", \"b\", amount)\n                    self.assertEqual(publisher.events, [{\"source\": \"a\", \"target\": \"b\", \"amount\": amount}])\n\n    def test_invalid_transfers_do_not_write(self):\n        cases = [(\"a\", \"a\", 10), (\"missing\", \"b\", 10), (\"a\", \"missing\", 10)]\n        cases += [(\"a\", \"b\", amount) for amount in (0, -1, 101, True, False, 1.0, \"10\", None)]\n        for source, target, amount in cases:\n            with self.subTest(source=source, target=target, amount=amount):\n                connection = self.connect()\n                statements = []\n                connection.set_trace_callback(statements.append)\n                publisher = Recorder()\n                with self.assertRaises(ValueError):\n                    transfer(connection, publisher, source, target, amount)\n                self.assertFalse(any(sql.startswith((\"UPDATE\", \"INSERT\", \"DELETE\")) for sql in statements))\n                self.assert_state(connection, (100, 20), [])\n                self.assertEqual(publisher.events, [])\n\n    def test_statement_and_commit_failures_roll_back(self):\n        # BEGIN, two balance reads, two updates, and the ledger insert.\n        for autocommit in (False, True):\n            for statement in range(1, 8):\n                with self.subTest(autocommit=autocommit, statement=statement):\n                    connection = self.connect(autocommit)\n                    failing = FailingConnection(connection, statement=statement, commit=statement == 7)\n                    publisher = Recorder()\n                    with self.assertRaises(sqlite3.OperationalError):\n                        transfer(failing, publisher, \"a\", \"b\", 10)\n                    self.assertEqual(failing.rollbacks, 1)\n                    self.assert_state(connection, (100, 20), [])\n                    self.assertEqual(publisher.events, [])\n\n    def test_publication_failure_does_not_roll_back(self):\n        connection = self.connect()\n        tracked = FailingConnection(connection)\n\n        class Publisher:\n            def publish(self, event):\n                raise RuntimeError(\"publication failed\")\n\n        with self.assertRaisesRegex(RuntimeError, \"publication failed\"):\n            transfer(tracked, Publisher(), \"a\", \"b\", 10)\n        self.assertEqual(tracked.rollbacks, 0)\n        self.assert_state(connection, (90, 30), [(\"a\", \"b\", 10)])\n\n\nif __name__ == \"__main__\":\n    unittest.main()\n",
+      "src/service.py": "from .repository import balance, move\n\n\ndef transfer(connection, publisher, source, target, amount):\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n    if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n\n    try:\n        connection.execute(\"BEGIN\")\n        source_balance = balance(connection, source)\n        target_balance = balance(connection, target)\n        if source_balance is None or target_balance is None:\n            raise ValueError(\"source and target must exist\")\n        if amount > source_balance:\n            raise ValueError(\"amount exceeds source balance\")\n        move(connection, source, target, amount)\n        connection.commit()\n    except Exception:\n        connection.rollback()\n        raise\n\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\n"
+    },
+    "changed_files": [
+      "checks/test_transfer.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 2,
+    "added_lines": 136,
+    "removed_lines": 6
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.049457083019660786
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05034754198277369,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04981458402471617,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

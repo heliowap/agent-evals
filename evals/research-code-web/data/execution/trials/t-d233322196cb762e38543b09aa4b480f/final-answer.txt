@@ -1,0 +1,51 @@
+Based on the assigned Prometheus codebase snapshot, the claim that **every selected native histogram can be emitted in every negotiated format is not supported**. 
+
+### 1. The Decisive Closed Skip Branch
+In `web/federate.go`, within the sample serialization loop in `Handler.federation`, lines 193–203 define the decisive skip branch:
+
+```go
+web/federate.go:193: 		if isHistogram &&
+web/federate.go:194: 			!s.H.UsesCustomBuckets() &&
+web/federate.go:195: 			formatType != expfmt.TypeProtoDelim &&
+web/federate.go:196: 			formatType != expfmt.TypeProtoText &&
+web/federate.go:197: 			formatType != expfmt.TypeProtoCompact {
+web/federate.go:198: 			// Can't serve a native histogram with a non-protobuf format.
+web/federate.go:199: 			// (We can serve an NHCB, though, as it is converted to a
+web/federate.go:200: 			// classic histogram for federation.)
+web/federate.go:201: 			// TODO(codesome): Serve them when other protocols get the native histogram support.
+web/federate.go:202: 			continue
+web/federate.go:203: 		}
+```
+
+If a selected sample is a native histogram without custom buckets (`isHistogram && !s.H.UsesCustomBuckets()`) and the negotiated exposition format is not one of the allowed protobuf formats, the loop silently skips emitting it via `continue` (`web/federate.go:202`).
+
+---
+
+### 2. Formats Permitted for Histograms Without Custom Buckets
+For histograms that do not use custom buckets (standard exponential native histograms), the branch permits only protobuf format categories (`web/federate.go:195-197`):
+- `expfmt.TypeProtoDelim` (delimited protocol buffer format)
+- `expfmt.TypeProtoText` (text protocol buffer format)
+- `expfmt.TypeProtoCompact` (compact protocol buffer format)
+
+Any non-protobuf negotiated formats (such as Prometheus text exposition formats or OpenMetrics text formats) cause standard native histograms to be skipped.
+
+---
+
+### 3. Contrast with Custom-Bucket Histograms
+Native histograms with custom buckets (NHCBs) are explicitly exempted from this skip branch by the condition `!s.H.UsesCustomBuckets()` at `web/federate.go:194`.
+- Because `s.H.UsesCustomBuckets()` is true, the `if` guard evaluates to `false` regardless of `formatType`.
+- When custom-bucket histograms proceed through serialization, they are converted to classic histograms via `protMetric.Histogram = makeClassicHistogram(s.H)` (`web/federate.go:297–298`).
+- As noted in code comments (`web/federate.go:199–200`), custom-bucket histograms can therefore be served in formats other than protobuf because they can be represented as classic histograms during federation. In contrast, standard exponential native histograms cannot be converted to classic histograms and are dropped unless a protobuf format is negotiated (`web/federate.go:198–202, 300`).
+
+---
+
+### 4. Applicability to Ordinary Float Samples
+This restriction **does not apply** to ordinary float samples:
+- Before checking format types, the condition requires `isHistogram` (`web/federate.go:193`), which is defined as `s.H != nil` (`web/federate.go:191`).
+- For ordinary float samples, `s.H` is `nil` (`isHistogram` is `false`), so the condition short-circuits to `false`.
+- Ordinary float samples bypass this skip branch completely and are serialized into untyped metric samples using `protMetric.Untyped = &dto.Untyped{ Value: proto.Float64(s.F) }` (`web/federate.go:290–294`) across all supported formats.
+
+---
+
+### Unresolved Limitations
+This analysis is strictly based on the static source code in `web/federate.go`. It does not examine client-side parser implementations, whether client negotiation headers can trigger fallback behaviors, or the full matrix of `expfmt` encoder capabilities outside `Handler.federation`.

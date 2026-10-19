@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/lifecycle.cjs": "const assert = require('node:assert/strict');\n\nconst { EventService } = require('../.build/service');\n\n// Builds a Source conforming to the interface in src/source.ts and records\n// every interaction (opens/reads/closes plus the raw operation order).\nfunction scriptedSource(options = {}) {\n  const values = [...(options.values ?? [])];\n  const state = { opens: 0, reads: 0, closes: 0, ops: [] };\n  const source = {\n    open: async () => {\n      state.opens++;\n      state.ops.push('open');\n      if (options.openError) throw options.openError;\n      return {\n        read: async () => {\n          state.reads++;\n          state.ops.push('read');\n          if (options.readError) throw options.readError;\n          const value = values.length > 0 ? values.shift() : null;\n          return value;\n        },\n        close: async () => {\n          state.closes++;\n          state.ops.push('close');\n          if (options.closeError) throw options.closeError;\n        },\n      };\n    },\n  };\n  return { source, state };\n}\n\nasync function lazyOpenAndNoEarlyClose() {\n  const { source, state } = scriptedSource({ values: ['a', 'b'] });\n  const service = new EventService(source);\n  const iterator = service.stream();\n  assert.equal(state.opens, 0, 'must not open before first next()');\n  assert.equal((await iterator.next()).value, 'A');\n  assert.equal(state.opens, 1, 'must open on first next()');\n  assert.equal(state.reads, 1, 'exactly one read per next()');\n  assert.equal(state.closes, 0, 'must not close while records are flowing');\n  await iterator.return();\n  assert.equal(state.closes, 1, 'return() closes the opened lease exactly once');\n  assert.deepEqual(state.ops, ['open', 'read', 'close']);\n}\n\nasync function returningUnopenedGeneratorIsInert() {\n  const { source, state } = scriptedSource({ values: ['a'] });\n  const service = new EventService(source);\n  const iterator = service.stream();\n  const result = await iterator.return();\n  assert.equal(result.done, true);\n  assert.equal(state.opens, 0, 'return() before first next() must not open');\n  assert.equal(state.closes, 0, 'return() before first next() must not close');\n  assert.deepEqual(state.ops, []);\n}\n\nasync function normalExhaustionClosesOnce() {\n  const { source, state } = scriptedSource({ values: ['a', 'b'] });\n  const service = new EventService(source);\n  const found = [];\n  for await (const value of service.stream()) found.push(value);\n  assert.deepEqual(found, ['A', 'B']);\n  assert.deepEqual(state.ops, ['open', 'read', 'read', 'read', 'close'], 'one read per next(); the third read establishes exhaustion');\n  assert.equal(state.closes, 1);\n}\n\nasync function consumerBreakClosesOnceWithoutReadAhead() {\n  const { source, state } = scriptedSource({ values: ['a', 'b', 'c'] });\n  const service = new EventService(source);\n  const found = [];\n  for await (const value of service.stream()) {\n    found.push(value);\n    if (found.length === 1) break;\n  }\n  assert.deepEqual(found, ['A']);\n  assert.deepEqual(state.ops, ['open', 'read', 'close'], 'break must not read ahead');\n  assert.equal(state.closes, 1);\n}\n\nasync function readFailureClosesAndPreservesReadError() {\n  const readError = new Error('read boom');\n  const closeError = new Error('close boom');\n  const { source, state } = scriptedSource({ values: ['a'], readError, closeError });\n  const service = new EventService(source);\n  await assert.rejects(\n    async () => {\n      for await (const value of service.stream()) void value;\n    },\n    (error) => error === readError,\n    'the original read error must win over a close failure',\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function mapperFailureClosesAndPreservesMapperError() {\n  const mapperError = new Error('mapper boom');\n  const closeError = new Error('close boom');\n  const { source, state } = scriptedSource({ values: ['a'], closeError });\n  const service = new EventService(source, () => {\n    throw mapperError;\n  });\n  await assert.rejects(\n    async () => {\n      for await (const value of service.stream()) void value;\n    },\n    (error) => error === mapperError,\n    'the original mapper error must win over a close failure',\n  );\n  assert.equal(state.closes, 1);\n  assert.deepEqual(state.ops, ['open', 'read', 'close']);\n}\n\nasync function injectedThrowClosesAndPreservesInjectedError() {\n  const injected = new Error('injected boom');\n  const closeError = new Error('close boom');\n  const { source, state } = scriptedSource({ values: ['a', 'b'], closeError });\n  const service = new EventService(source);\n  const iterator = service.stream();\n  assert.equal((await iterator.next()).value, 'A');\n  await assert.rejects(\n    () => iterator.throw(injected),\n    (error) => error === injected,\n    'the injected error must win over a close failure',\n  );\n  assert.equal(state.closes, 1);\n}\n\nasync function closeFailurePropagatesOnExhaustion() {\n  const closeError = new Error('close boom');\n  const { source, state } = scriptedSource({ values: ['a'], closeError });\n  const service = new EventService(source);\n  await assert.rejects(\n    async () => {\n      for await (const value of service.stream()) void value;\n    },\n    (error) => error === closeError,\n    'with no competing exception, the close failure must propagate',\n  );\n  assert.equal(state.closes, 1);\n  assert.deepEqual(state.ops, ['open', 'read', 'read', 'close']);\n}\n\nasync function main() {\n  await lazyOpenAndNoEarlyClose();\n  await returningUnopenedGeneratorIsInert();\n  await normalExhaustionClosesOnce();\n  await consumerBreakClosesOnceWithoutReadAhead();\n  await readFailureClosesAndPreservesReadError();\n  await mapperFailureClosesAndPreservesMapperError();\n  await injectedThrowClosesAndPreservesInjectedError();\n  await closeFailurePropagatesOnExhaustion();\n}\n\nmodule.exports = main();\n",
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\nconst { EventService } = require('../.build/service');\n\n// Original public behaviour: mapped records in order, lease closed once.\nasync function baseline() {\n  let closes = 0;\n  const values = ['a', 'b', null];\n  const service = new EventService({\n    open: async () => ({ read: async () => values.shift(), close: async () => { closes++; } }),\n  });\n  const found = [];\n  for await (const value of service.stream()) found.push(value);\n  assert.deepEqual(found, ['A', 'B']);\n  assert.equal(closes, 1);\n}\n\nasync function main() {\n  await baseline();\n  await require('./lifecycle.cjs');\n}\n\nmodule.exports = main();\n",
+      "src/service.ts": "import { Lease, Source } from './source';\nimport { mapEvent } from './mapper';\n\nexport class EventService {\n  constructor(private readonly source: Source, private readonly mapper: (value: string) => string = mapEvent) {}\n  async *stream(): AsyncGenerator<string> {\n    let lease: Lease | undefined;\n    let failed = false;\n    try {\n      for (;;) {\n        // The lease is opened lazily: only once the consumer actually asks for\n        // the first record. A generator that is returned before its first\n        // next() never reaches this line, so nothing is opened or closed.\n        lease ??= await this.source.open();\n        // Exactly one read per next(); the read that observes `null` is the\n        // one that establishes exhaustion, so there is no read ahead.\n        const value = await lease.read();\n        if (value === null) break;\n        yield this.mapper(value);\n      }\n    } catch (error) {\n      // A read failure, a mapper failure or a consumer-injected throw reaches\n      // this point; remember it so the finally block keeps it as the\n      // propagated error even when closing also fails.\n      failed = true;\n      throw error;\n    } finally {\n      const pending = lease;\n      lease = undefined;\n      if (pending !== undefined) {\n        if (failed) {\n          // Preserve the original read/mapper/injected exception: a close\n          // failure here must not mask it.\n          try {\n            await pending.close();\n          } catch {\n            // Swallowed on purpose; `error` continues to propagate.\n          }\n        } else {\n          // Normal exhaustion or consumer break/return: there is no\n          // underlying exception, so a close failure propagates.\n          await pending.close();\n        }\n      }\n    }\n  }\n}\n"
+    },
+    "changed_files": [
+      "checks/lifecycle.cjs",
+      "checks/public.cjs",
+      "src/service.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 226,
+    "removed_lines": 24
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.5940390409959946
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06566770799690858,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.0645847080159001,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

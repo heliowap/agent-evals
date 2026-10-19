@@ -1,0 +1,14 @@
+`import_contacts` is implemented in `src/service.py` and exposed through `handle_import` in `src/api.py`. The public check and a new test file both pass.
+
+**What changed**
+- **`src/service.py`**: `import_contacts` validates the whole batch before touching the database. It rejects non-object rows, unknown or missing fields, non-string values, and invalid emails or names. It also rejects duplicate normalized emails. Then it writes everything inside one `with connection:` block, so any database error rolls the entire batch back. Existing emails are counted as `updated` and new ones as `inserted`. An empty batch returns zero counts without touching the database. `add_contact` is unchanged.
+- **`src/repository.py`**: added `find_existing_emails`, which looks up existing emails in chunks of 500 to stay under SQLite's variable limit. `put_contact`, `list_contacts` and `initialize` are unchanged.
+- **`src/api.py`**: `handle_import` requires a payload with exactly the key `contacts`, whose value is a list, and raises `ValueError` otherwise. It then returns the summary from `import_contacts`. `handle_add` is unchanged.
+- **`checks/test_import.py`** (new): covers counts, name updates, empty batches, invalid rows leaving the table unchanged, a forced mid-batch database failure rolling back, envelope validation, and a batch of 1,200 rows that exercises the chunked lookup.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 -m unittest checks/test_import.py` runs 7 tests, all passing.
+
+**Caveat**
+`add_contact` stores emails as given, without lowercasing. If the table already holds a mixed-case email such as `A@B.com`, a batch import of `a@b.com` will not match it. It will insert a second row instead of updating the first. I left `add_contact` alone because the request says to preserve it. If existing data can contain mixed case, this needs a decision.

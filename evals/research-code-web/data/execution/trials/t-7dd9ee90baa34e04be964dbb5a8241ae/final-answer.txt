@@ -1,0 +1,44 @@
+## The test
+
+**`tests/test_commands.py:279-299`, `test_invoked_subcommand`.**
+
+The group is declared `@click.group(invoke_without_command=True)` (line 280). `chain` is not passed, so it keeps the `Group.__init__` default `chain: bool = False` (`src/click/core.py:1771`); this is therefore the non-chained case. Its callback (lines 281-291) branches on `ctx.invoked_subcommand is None`: in the `None` branch it echoes `"no subcommand, use default"` and calls `ctx.invoke(sync)`; otherwise it echoes `"invoke subcommand"`. The child `sync` echoes `"in subcommand"`.
+
+**Explicit child selection** (lines 293-295):
+```python
+result = runner.invoke(cli, ["sync"])
+assert not result.exception
+assert result.output == "invoke subcommand\nin subcommand\n"
+```
+So the test asserts the group callback ran with `invoked_subcommand` not `None`, and that only the explicit child then ran — no fallback text.
+
+**No selection** (lines 297-299):
+```python
+result = runner.invoke(cli)
+assert not result.exception
+assert result.output == "no subcommand, use default\nin subcommand\n"
+```
+Here the test asserts the group callback ran with `invoked_subcommand is None`, and that the callback's own `ctx.invoke(sync)` supplied the default child, printing only the subordinate line.
+
+Both invocations assert `not result.exception`; neither asserts the return value, result callbacks, or chain behavior. The test additionally does not assert the exact `invoked_subcommand` string (only truthiness via `is None`), nor anything about `sub_ctx.parent`, cleanup, or the missing-command failure path.
+
+## The implementation
+
+**Ordering and child-context creation for explicit selection — `Group.invoke`, `src/click/core.py:2052-2086`.** After `args = [*ctx._protected_args, *ctx.args]` and clearing both (2068-2071), the non-chain branch is taken (`if not self.chain:`, 2076):
+
+1. `with ctx:` (2077-2079) — the group context is entered first, so "we do not clean up resources until the result processor has worked."
+2. `cmd_name, cmd, args = self.resolve_command(ctx, args)` (2080).
+3. `ctx.invoked_subcommand = cmd_name` (2082) — **set before** the group callback runs.
+4. `super().invoke(ctx)` (2083) → `Command.invoke` (`1432-1446`) calls `ctx.invoke(self.callback, **ctx.params)` (1446), i.e. the group callback executes while `invoked_subcommand` is already the child name.
+5. `sub_ctx = cmd.make_context(cmd_name, args, parent=ctx)` (2084) — the child context is created *after* the group callback, via `Command.make_context` (`1359-1394`), which builds `self.context_class(self, info_name=info_name, parent=parent, **extra)` and parses inside `ctx.scope(cleanup=False)`.
+6. `with sub_ctx: return _process_result(sub_ctx.command.invoke(sub_ctx))` (2085-2086).
+
+**No-selection path — lines 2058-2066.** With `ctx._protected_args` empty and `invoke_without_command` truthy, it does `with ctx: rv = super().invoke(ctx)` then `return _process_result([] if self.chain else rv)` (2065). Otherwise `ctx.fail(_("Missing command."))` (2066). `invoked_subcommand` remains `None`, as initialized in `Context.__init__` (`436`; documented `426-435`).
+
+**The child context for the test's default child comes from `Context.invoke`, not `make_context`.** The test calls `ctx.invoke(sync)`. `Context.invoke` (`887-940`): since `sync` is a `Command` (907), it takes `other_cmd.callback` (910-915), then `ctx = self._make_sub_context(other_cmd)` (917), which is `type(self)(command, info_name=command.name, parent=self)` (`871-877`) — so the child shares the *type* of the current context and is parented to it. It fills `kwargs[param.name] = param.type_cast_value(ctx, default_value)` for params not supplied (919-931; `UNSET` mapped to `None`), records them in `ctx.params` (935), and finally invokes under `with augment_usage_errors(self), ctx:` (939-940).
+
+## Untested generalizations
+
+Chain-mode `invoked_subcommand = "*"` and `_process_result(rv_list)` (2093-2118) are not exercised by this test; neither is the result-callback interaction (2053-2056), the `ctx.fail("Missing command.")` path (2066), `no_args_is_help` defaulting to `not invoke_without_command` (`1785-1788`), nor the `make_context` route (2084). Any claim that the fallback child is *automatically* chosen by `Group.invoke` would be wrong on this evidence — the test's default is implemented by user code in the group callback.
+
+**Limitations:** I read only the cited spans of a 4038-line `core.py` and did not execute the test suite; assertions above are read from source, not observed runs.

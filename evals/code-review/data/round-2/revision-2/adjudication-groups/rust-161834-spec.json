@@ -1,0 +1,372 @@
+{
+  "case": "rust-161834",
+  "axis": "spec",
+  "decisions": [
+    {
+      "blind_id": "b0201", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "search.js:318 changes only semicolon parsing for the fuller [T; N] query. The original wildcard query contains no semicolon, and search_index.rs:2180 only adds a comment; neither change supplies the missing wildcard hit. No head std-index result was measured.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0204", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The two findings separate the original Box<_> search from the secondary [T; N] syntax error: search.js:318 changes semicolon parsing, while search_index.rs:2180 adds only a comment, leaving the wildcard result without a changed matching/indexing mechanism. The claimed actual head result is not measured.",
+      "additional_claims": [
+        {"quote": "it does not actually implement array syntax support", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 parses [T; N] as a []/slice node with T and N as two generic items, rather than discarding an array length; candidate-research.md:47 confirms only the syntax error disappears. This does not establish search-result behavior."},
+        {"quote": "Query parsing semantics are altered globally wherever `isSeparatorCharacter` is checked", "category": "valid_extra", "evidence": "Pinned search.js:496–500 and 1000–1006 call the global separator predicate; line 318 adds ; without limiting it to brackets."},
+        {"quote": "explicitly not requested as part of this issue", "category": "opinion_style", "evidence": "The issue calls the array-syntax problem separate, but reports it in Additional Details and the PR expressly promises a parser improvement; describing it as unrequested is a scope judgment, not a separate proven defect."}
+      ]
+    },
+    {
+      "blind_id": "b0208", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The answer contrasts the unchanged wildcard query and Type::Array indexing/comment with the semicolon parser edit for [T; N]; no changed code supplies its requested TryFrom hit. It qualifies the unmeasured head result.",
+      "additional_claims": [
+        {"quote": "`[T; N]` becomes a slice `[]` with two items, `T` and `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 stores T and N in the bracket node's generics, with name []/friendlyName slice."},
+        {"quote": "The full query may still find no results, or wrong ones", "category": "inconclusive", "evidence": "Only parser behavior was reproduced (candidate-research.md:47); no head std index or full search was run to decide result matching."},
+        {"quote": "silently accepts `;` in other positions, such as `Vec<A; B>` or `(A; B)`", "category": "valid_extra", "evidence": "Pinned search.js:496–500,638–682,697–705,1000–1006 uses the same semicolon-enabled separator within generic and parenthesized lists, not only arrays."},
+        {"quote": "with no query evaluation and no expected results", "category": "valid_extra", "evidence": "Pinned fixture diff tests/rustdoc-js/search-issue-161735.js:1–12 contains no parser/search call or EXPECTED/PARSED; tester.js:378–404 requires one before running checks."},
+        {"quote": "The file may be ignored by the harness or cause it to error", "category": "inconclusive", "evidence": "If runChecks processes it, tester.js:378–390 returns 1, but the full bootstrap/discovery of this unpaired .js was not run (candidate-research.md:48)."}
+      ]
+    },
+    {
+      "blind_id": "b0209", "target_hit": false, "target_quote": null,
+      "target_reason": "Only the empty tests in tests/rustdoc-js/search-issue-161735.js are criticized. It does not identify the semicolon-free original query's unchanged path or explain why the comment-only index change cannot provide the wildcard hit; coverage alone is not the Spec target.",
+      "additional_claims": [
+        {"quote": "neither runs a query nor checks parsing or search results", "category": "valid_extra", "evidence": "Pinned fixture diff tests/rustdoc-js/search-issue-161735.js:1–12 contains only an unused query assignment and comments; tester.js:378–404 sees no EXPECTED/PARSED."}
+      ]
+    },
+    {
+      "blind_id": "b0210", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Identifies search.js:318 as semicolon-only parser change, observes that the primary Vec<T> -> Result<Box<_>, _> query lacks it, and notes search_index.rs:2180 is only a comment. The secondary [T; N] parser issue is distinguished from the unaddressed wildcard hit.",
+      "additional_claims": [
+        {"quote": "neither the parse fix nor the `Box<_>` match is exercised", "category": "valid_extra", "evidence": "The pinned new test lacks EXPECTED/PARSED and search/parser calls; tester.js:378–404 will not run either check for that file."},
+        {"quote": "it would be collected as an additional item", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 collects both T and N into the [] node's generics after ; becomes a separator; full-search matching remains unmeasured."}
+      ]
+    },
+    {"blind_id": "b0214", "target_hit": false, "target_quote": null, "target_reason": "The response gives no finding, location, mechanism, or consequence for the primary wildcard query.", "additional_claims": []},
+    {"blind_id": "b0216", "target_hit": false, "target_quote": null, "target_reason": "The response gives no finding, location, mechanism, or consequence for the primary wildcard query.", "additional_claims": []},
+    {
+      "blind_id": "b0217", "target_hit": false, "target_quote": null,
+      "target_reason": "Identifies a real test-coverage gap, not the Spec target: it does not contrast the semicolon-free wildcard query with [T; N] syntax or show how the comment-only index change leaves matching unchanged.",
+      "additional_claims": [
+        {"quote": "Neither test invokes the search parser or checks a result", "category": "valid_extra", "evidence": "Pinned fixture diff tests/rustdoc-js/search-issue-161735.js:1–12 has no calls or assertions, and tester.js:378–404 requires EXPECTED/PARSED."}
+      ]
+    },
+    {
+      "blind_id": "b0218", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "At search.js:318 and search_index.rs:2179–2185 it explains that only the semicolon parser changes, the original wildcard query contains no semicolon, and the index hunk is comment-only. It thus identifies the missing fix path for the expected TryFrom hit without presenting a measured head result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0221", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The first finding identifies the original wildcard request and unchanged Type::Array arm; the second describes the semicolon parser change for [T; N]. Together they distinguish the secondary syntax change from the unchanged matching/indexing behind the requested hit.",
+      "additional_claims": [
+        {"quote": "`[T; N]` goes down the `[` branch as `\"[]\"`/\"slice\" with two elements, `T` and `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 constructs the []/slice query node with two generics after ; is treated as a separator."},
+        {"quote": "queries like `Vec<T; U>` or `a; b` are now silently accepted as comma lists", "category": "valid_extra", "evidence": "Pinned search.js:496–500,697–705,1000–1006 applies isSeparatorCharacter in generic and top-level lists, not just brackets."},
+        {"quote": "`[T; N]` queries may fail to match, or match wrongly", "category": "inconclusive", "evidence": "No full search against a regenerated head std index was performed; candidate-research.md:47 only proves parsing changed."},
+        {"quote": "Both `it` bodies contain no assertions", "category": "valid_extra", "evidence": "Pinned new test is a placeholder without EXPECTED/PARSED or assertions; tester.js:378–404 rejects it if processed."}
+      ]
+    },
+    {
+      "blind_id": "b0225", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Explicitly notes the original query has no ;, whereas search.js changes only ; parsing for the fuller array syntax; search_index.rs adds only a comment. This locates why the original requested wildcard result has no changed fix mechanism, while reserving the actual head result.",
+      "additional_claims": [
+        {"quote": "producing a slice type `[]` with generics `[T, N]`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 retains T and N as the two []/slice query generics; the index-side Type::Array code is unchanged."},
+        {"quote": "likely still fails to match the impl", "category": "inconclusive", "evidence": "No head std-index search or matching result was measured (candidate-research.md:47); parser shape alone does not settle matching."},
+        {"quote": "The file contains `describe`/`it` blocks with comments and no assertions", "category": "valid_extra", "evidence": "Pinned new test:1–12 has no EXPECTED/PARSED; documented search.md:432–449 and tester.js:378–390 require them."},
+        {"quote": "the test may not be executed by the harness at all", "category": "inconclusive", "evidence": "It lacks a companion .rs, but full bootstrap/discovery was not run; if processed, tester.js:386–390 instead returns failure before checking searches."}
+      ]
+    },
+    {
+      "blind_id": "b0227", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "It contrasts the original semicolon-free wildcard query and expected TryFrom hit with the search.js separator edit and comment-only search_index.rs edit; parsing and indexing relevant to the main query are unchanged. The result is a code-path omission, not a measured head search.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0228", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The first finding identifies the semicolon-free Box<_> query and missing TryFrom hit, ties search.js:318 only to semicolon parsing, and notes search_index.rs is comment-only. The second explicitly treats the fuller [T; N] parse as a separate claim.",
+      "additional_claims": [
+        {"quote": "No visible code discards `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 makes both T and N generics on the []/slice query node; the pinned index-side Type::Array branch only changes a comment."},
+        {"quote": "may parse but be represented differently from the index’s inner-`T` array form and still fail to match", "category": "inconclusive", "evidence": "Different parser/index shapes are visible, but no full head std-index matching run was made (candidate-research.md:47)."},
+        {"quote": "The added regression test performs no verification", "category": "valid_extra", "evidence": "Pinned new test lacks EXPECTED/PARSED, search/parser invocation, and assertions; tester.js:378–404 cannot run checks for it."}
+      ]
+    },
+    {
+      "blind_id": "b0235", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "At search.js:318 and search_index.rs:2180, distinguishes the original wildcard search from the semicolon parser change for [T; N]; the query has no semicolon and the indexing hunk is a comment. The missing hit has no changed fix path; head result is qualified as unmeasured.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0237", "target_hit": false, "target_quote": null,
+      "target_reason": "Only the nonfunctional test callbacks are analyzed. Missing regression coverage does not explain why the semicolon parser edit and comment-only index edit leave the original wildcard search unresolved.",
+      "additional_claims": [
+        {"quote": "neither invokes the parser or checks search results", "category": "valid_extra", "evidence": "Pinned new test:1–12 has no executable parser/search call or EXPECTED/PARSED; tester.js:378–404 rejects it if processed."}
+      ]
+    },
+    {
+      "blind_id": "b0239", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Identifies original semicolon-free wildcard query and expected TryFrom hit, observes that search.js only adds semicolon parsing and search_index.rs only a comment; neither changes the relevant index/match behavior. It does not purport to measure the head search result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0241", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The first finding states the original Box<_> query contains no ; and Type::Array has only a comment; the second describes the [T; N] parser path. It explains why the separator change cannot supply the reported wildcard result, with head output inferred rather than observed.",
+      "additional_claims": [
+        {"quote": "`[T; N]` parses as a slice with two items, `T` and `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 populates []/slice generics with T and N after treating ; as a separator."},
+        {"quote": "`;` is also accepted anywhere `,` is, for example `Vec<T; U>` or `Result<A; B>`", "category": "valid_extra", "evidence": "Pinned search.js:496–500,697–705,1000–1006 uses the same separator in generic argument lists, not only []."},
+        {"quote": "It may therefore still fail to match the array impl, or match unrelated items", "category": "inconclusive", "evidence": "No full head std-index search or matching proof is in candidate-research.md:47."},
+        {"quote": "The new file uses `describe`/`it` blocks with empty bodies", "category": "valid_extra", "evidence": "Pinned test:1–12 has no EXPECTED/PARSED; tester.js:378–390 returns 1 if it is processed."}
+      ]
+    },
+    {
+      "blind_id": "b0242", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "It explicitly distinguishes the issue's semicolon-free wildcard search from the [T; N] parser complaint: search.js:318 affects only the latter and search_index.rs:2180 is comment-only. The original hit lacks a changed mechanism; the response does not assert a measured head result.",
+      "additional_claims": [
+        {"quote": "there are no assertions, no `EXPECTED`", "category": "valid_extra", "evidence": "Pinned test:1–12 has only a string assignment and comments, without the documented EXPECTED/PARSED contract (search.md:432–449; tester.js:378–404)."}
+      ]
+    },
+    {
+      "blind_id": "b0245", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The answer locates search.js:318 and the comment-only index hunk, notes the original wildcard query has no semicolon unlike [T; N] syntax, and explains why the parser change cannot create its TryFrom hit. It disclaims a measured post-change search result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0246", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Distinguishes the original semicolon-free query and requested TryFrom result from the semicolon parser change; the search_index.rs array branch is comment-only. This identifies an unaddressed matching path without claiming an observed head result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0249", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 identifies the wildcard result and comment-only Type::Array edit; Finding 2 assigns the semicolon change to the fuller [T; N] syntax. Thus the original search has no changed parse/index/match path, though its exact head result was not measured.",
+      "additional_claims": [
+        {"quote": "`[T; N]` be parsed as a two-element slice/generic list `[T, N]` rather than an array specification", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 treats ; as a separator and stores two generic items under name []/friendlyName slice."},
+        {"quote": "globally permits `;` anywhere `,` or `=` is accepted across search queries", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 shares the separator predicate across list parsing, not just []."}
+      ]
+    },
+    {
+      "blind_id": "b0250", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The first finding contrasts the original Box<_> search (no ;) with the search.js separator change and comment-only search_index.rs hunk. The second separately identifies the fuller array syntax error; the alleged original missing result has no changed fix path.",
+      "additional_claims": [
+        {"quote": "neither invokes the parser or search nor asserts a result", "category": "valid_extra", "evidence": "Pinned test:1–12 has an unused query and comments, no EXPECTED/PARSED; tester.js:378–404 never calls parser/search for it."}
+      ]
+    },
+    {
+      "blind_id": "b0251", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 locates the sole semicolon parser change and unchanged Type::Array/comment, explicitly observes no semicolon in the original Box<_> query, and explains why its requested hit has no changed mechanism. Finding 2 treats [T; N] syntax separately.",
+      "additional_claims": [
+        {"quote": "a `[]` type with **two** generic arguments, `T` and `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 constructs a []/slice with T and N as generics for [T; N]."},
+        {"quote": "the issue's attempted workaround query still fails", "category": "inconclusive", "evidence": "This is conditional on matcher arity, which was not exercised against a head std index (candidate-research.md:47)."},
+        {"quote": "It verifies neither \"should parse … without error\" nor \"`Box<_>` should match `Box<[T; N]>`\"", "category": "valid_extra", "evidence": "Pinned test:1–12 lacks EXPECTED/PARSED or calls; tester.js:378–390 rejects it if processed."},
+        {"quote": "looks like an editing artifact rather than an explanation", "category": "opinion_style", "evidence": "The literal ponytail: comment is present in the pinned diff, but describing its intent/quality as an editing artifact is subjective."}
+      ]
+    },
+    {
+      "blind_id": "b0252", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 2 separates the semicolon-free wildcard issue from the secondary [T; N] syntax error: only search.js semicolon parsing changed, and search_index.rs adds a comment to existing Type::Array behavior. This explains the missing fix mechanism despite an unmeasured head result.",
+      "additional_claims": [
+        {"quote": "there is no parser invocation, no assertion, and no `EXPECTED` structure", "category": "valid_extra", "evidence": "Pinned test:1–12 and tester.js:378–404 show neither PARSED nor EXPECTED is declared, so no checks run."},
+        {"quote": "The suite passes regardless of implementation behavior", "category": "inconclusive", "evidence": "The full suite/CI and discovery were not run, so their pass state cannot be adjudicated. The narrower claim that this file passes when processed is contradicted by tester.js:378–390 and the pinned runChecks() reproduction returning 1; that does not establish the entire suite's outcome."},
+        {"quote": "`[T; N]` now parses as two generics (`T`, `N`)", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 stores both parsed items in the bracket node's generics."},
+        {"quote": "`;` becomes a separator everywhere, not only inside brackets", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 shares this separator across query lists."}
+      ]
+    },
+    {
+      "blind_id": "b0255", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Locates both changed paths, notes that only search.js accepts ; while the original wildcard query has none, and search_index.rs is comment-only. Distinguishes the parse of [T; N] from the unmet requested TryFrom result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0257", "target_hit": false, "target_quote": null,
+      "target_reason": "This is solely an empty-test finding. It does not connect the original semicolon-free wildcard query to the semicolon-only parser change and the unchanged search index, as the Spec target requires.",
+      "additional_claims": [
+        {"quote": "neither test callback invokes the parser or search", "category": "valid_extra", "evidence": "Pinned test:1–12 only declares an unused string; tester.js:378–404 requires EXPECTED/PARSED to run checks."},
+        {"quote": "Both pass regardless of whether parsing or matching works", "category": "refuted", "evidence": "If this rustdoc-js file is processed by its documented runner, tester.js:386–390 fails before callbacks run; candidate-research.md:48 reproduced return 1. Full CI discovery is unproven."}
+      ]
+    },
+    {
+      "blind_id": "b0261", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Explains that search.js:318 only recognizes ; for [T; N] syntax, the original wildcard query has none, and the Type::Array change is a comment. Thus the requested TryFrom result has no changed matching/indexing path; no head std result is asserted as measured.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0262", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 identifies the requested wildcard hit and missing semicolon in the original query, while the only executable change is semicolon parsing and search_index.rs only adds a comment. It separates the fuller [T; N] parser scenario from the unaddressed search result.",
+      "additional_claims": [
+        {"quote": "The added test is an empty placeholder", "category": "valid_extra", "evidence": "Pinned test:1–12 contains no EXPECTED/PARSED or parser/search calls; search.md:432–449 and tester.js:378–404 define the required test contract."},
+        {"quote": "cannot fail", "category": "refuted", "evidence": "Pinned tester.js:386–390 returns 1 for this file if processed; candidate-research.md:48 reproduced that failure, though full CI discovery was not run."},
+        {"quote": "`N` appears to become a second generic of the `[]` type", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 confirms T and N are collected as two generics of the []/slice query node."},
+        {"quote": "may still not match the indexed `Array<T>` form", "category": "inconclusive", "evidence": "Matching against a regenerated head std index was not run (candidate-research.md:47)."}
+      ]
+    },
+    {
+      "blind_id": "b0264", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 explicitly contrasts the semicolon-free original query and expected hit with search.js's separator change and the search_index.rs:2180 comment-only hunk. Finding 3 identifies the fuller syntax as secondary; no index or wildcard change supplies the original result.",
+      "additional_claims": [
+        {"quote": "no query is executed and no `EXPECTED` is declared", "category": "valid_extra", "evidence": "Pinned test:1–12 has no EXPECTED/PARSED; tester.js:378–404 never calls parser/search for it."},
+        {"quote": "it cannot fail", "category": "refuted", "evidence": "Pinned tester.js:386–390 returns failure if this test is processed; candidate-research.md:48 reproduced runChecks() returning 1. Full CI discovery is unknown."},
+        {"quote": "Parser change is unrequested scope", "category": "opinion_style", "evidence": "The issue distinguishes the two bugs but includes the syntax problem in Additional Details; the PR explicitly proposes a parser fix. Scope judgment alone is not a further functional defect."},
+        {"quote": "which could yield two generic arguments", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 confirms that [T; N] is parsed as [] with T and N generics; matching remains unmeasured."}
+      ]
+    },
+    {
+      "blind_id": "b0265", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 identifies the original wildcard result, notes it contains no ;, and explains why the only executable semicolon parser edit and comment-only search_index.rs change cannot fix it. Finding 2 separately treats [T; N] syntax.",
+      "additional_claims": [
+        {"quote": "`[T; N]` is parsed as having two generic arguments (`T` and `N`)", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 constructs the []/slice query with T and N as generics."},
+        {"quote": "Semicolons are parsed as generic/argument separators query-wide", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 uses isSeparatorCharacter in general list parsing."},
+        {"quote": "queries containing `[T; N]` match two parameters instead of an array with element `T`", "category": "inconclusive", "evidence": "The parser creates two generic items, but no full std-index matching result was measured; parsing shape does not prove which result matches (candidate-research.md:47)."}
+      ]
+    },
+    {
+      "blind_id": "b0266", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 distinguishes the original semicolon-free wildcard search from the [T; N] syntax change: search.js:318 changes only separator parsing and search_index.rs:2180 adds only a comment. Consequently the missing TryFrom hit has no changed matching/indexing mechanism.",
+      "additional_claims": [
+        {"quote": "Both `it` blocks contain no assertions and no parser invocation", "category": "valid_extra", "evidence": "Pinned test:1–12 contains only unused query/comment bodies, and lacks EXPECTED/PARSED (tester.js:378–404)."},
+        {"quote": "Both blocks pass trivially regardless of behavior", "category": "refuted", "evidence": "The rustdoc-js runner refuses this file before executing blocks: tester.js:386–390 returns 1; candidate-research.md:48 reproduced this. No full CI/bootstrap was run."},
+        {"quote": "CI stays green even if the issue reproduces", "category": "inconclusive", "evidence": "No CI or full rustdoc-js bootstrap was run; if processed, the new file instead fails at tester.js:386–390."},
+        {"quote": "`[T; N]` would parse as two items (`T`, `N`)", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 confirms two []/slice generic items after ; is accepted."},
+        {"quote": "the fuller query may parse without error yet still return no results", "category": "inconclusive", "evidence": "The parser error was removed (candidate-research.md:47), but no full head std-index search measured the result."}
+      ]
+    },
+    {
+      "blind_id": "b0268", "target_hit": false, "target_quote": null,
+      "target_reason": "Only the empty new test is discussed; it is a coverage finding rather than an explanation of why the parser-only semicolon change and comment-only index hunk cannot resolve the original wildcard hit.",
+      "additional_claims": [
+        {"quote": "neither invokes the parser or search, and neither asserts an outcome", "category": "valid_extra", "evidence": "Pinned test:1–12 contains an unused string and comments but no EXPECTED/PARSED or calls; tester.js:378–404 cannot run checks from it."}
+      ]
+    },
+    {
+      "blind_id": "b0269", "target_hit": false, "target_quote": null,
+      "target_reason": "Although it notes a comment-only index edit and discusses the fuller [T; N] query, it never identifies the original Vec<T> -> Result<Box<_>, _> semicolon-free search or explains why the separator branch cannot change that wildcard result. Its main finding is coverage.",
+      "additional_claims": [
+        {"quote": "no assertions, no EXPECTED structure", "category": "valid_extra", "evidence": "Pinned test:1–12 lacks EXPECTED/PARSED and working assertions; tester.js:378–390 fails if it processes this file."},
+        {"quote": "the query likely becomes a `[]` type with elements `[T, N]`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 stores T and N as the []/slice node's generic items."},
+        {"quote": "`Box<[T; N]>` may still not match `Box<[T; N]>`'s indexed form", "category": "inconclusive", "evidence": "No regenerated head std index/full matcher result was measured; candidate-research.md:47 verifies only parse."},
+        {"quote": "`;` as a global separator may alter parsing of unrelated queries", "category": "inconclusive", "evidence": "The predicate also applies outside brackets (pinned search.js:318,496–500,697–705), but this answer gives no concrete unrelated query or demonstrated user-facing consequence; the suggested separate regression remains conditional."}
+      ]
+    },
+    {
+      "blind_id": "b0270", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The response states the original wildcard query lacks ;, identifies search.js as changing only separator handling for [T; N], and notes search_index.rs:2179–2185 is comment-only. The expected TryFrom hit lacks a changed fix path, with actual head result unmeasured.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0271", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Identifies the original semicolon-free wildcard search and expected TryFrom hit, versus search.js:318's semicolon parser change and the comment-only Type::Array index edit. It articulates no changed mechanism for the primary hit, although the asserted head output is an inference rather than a measured result.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0273", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The first finding explains that the original wildcard query has no ; and the Type::Array change is a comment, so the separator parser edit cannot supply its missing hit; the second discusses separate [T; N] syntax. Head result is inferred, not measured.",
+      "additional_claims": [
+        {"quote": "That produces a `\"[]\"`/`\"slice\"` node with two generic items, `T` and `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 builds a []/slice element whose generics contain T and N."},
+        {"quote": "`;` would be accepted as a synonym for `,` in generic lists and argument lists", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 uses the same predicate beyond []."},
+        {"quote": "The fuller query may stop producing a parse error but still match nothing", "category": "inconclusive", "evidence": "The parse error demonstrably disappears (candidate-research.md:47), but no head std-index search measured matching."},
+        {"quote": "They contain no assertions and no `EXPECTED` export", "category": "valid_extra", "evidence": "Pinned test:1–12 lacks EXPECTED/PARSED, so tester.js:378–390 returns failure if processed."}
+      ]
+    },
+    {
+      "blind_id": "b0274", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "At search.js:318 and search_index.rs:2180 it separates the original semicolon-free wildcard query and expected hit from the [T; N] separator parsing and comment-only index hunk. It qualifies the actual head search result as unmeasured.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0278", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "States that search.js only adds ; to the parser, which the original Box<_> query lacks, while Type::Array indexing gains only a comment. Therefore the issue's missing TryFrom hit has no changed search/index mechanism; head result not measured.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0279", "target_hit": false, "target_quote": null,
+      "target_reason": "The response analyzes [T; N] parse semantics, empty tests, and possible global separator effects, but never explains that the original Vec<T> -> Result<Box<_>, _> query has no semicolon and that its wildcard matching/indexing is unchanged. It even treats the original objective as merely unverified, not a parser-irrelevant omission.",
+      "additional_claims": [
+        {"quote": "a bracketed list of **two** element types `T` and `N`, i.e. equivalent to `[T, N]`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 constructs []/slice with T and N as generics."},
+        {"quote": "if element-count matching applies, `Vec<T> -> Result<Box<[T; N]>, _>` would still miss the target impl", "category": "inconclusive", "evidence": "No head std-index full search or matcher-arity proof is available; candidate-research.md:47 reproduced parse only."},
+        {"quote": "no `EXPECTED` object, no `parseQuery` call, no assertions", "category": "valid_extra", "evidence": "Pinned test:1–12 has an unused query assignment but no EXPECTED/PARSED or parse/search call; tester.js:378–404 cannot run its checks."},
+        {"quote": "previously rejected malformed queries may now parse into unintended multi-element queries", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 broadens separator handling globally; whether this causes harmful results remains unmeasured."}
+      ]
+    },
+    {
+      "blind_id": "b0284", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Distinguishes the original semicolon-free wildcard search and requested TryFrom hit from the fuller [T; N] parse: search.js only recognizes ;, while search_index.rs Type::Array is unchanged but for a comment. It explicitly allows that the secondary parser error may improve.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0285", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The first finding ties the original wildcard hit to unchanged Type::Array indexing/comment, while the second identifies the only search.js change as accepting ; for the fuller [T; N] syntax. Together they explain why the reported wildcard miss has no modified fix path; the actual head result is qualified.",
+      "additional_claims": [
+        {"quote": "`[T; N]` parses the same as `[T, N]`: a `[]` (\"slice\") item with two elements", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 collects T and N in []/slice generics after the semicolon separator edit."},
+        {"quote": "`Vec<T; U>` or top-level `a; b` would now be accepted as if commas were used", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 applies isSeparatorCharacter across generic and top-level lists; this is the single broader-grammar finding, not a proven harmful search result."},
+        {"quote": "Both `it` bodies contain only comments and an unused `query`", "category": "valid_extra", "evidence": "Pinned new test:1–12 lacks EXPECTED/PARSED, so tester.js:378–390 rejects it if processed."}
+      ]
+    },
+    {
+      "blind_id": "b0288", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "It contrasts the secondary [T; N] parser error, addressed by search.js:318, with the original Box<_> wildcard search and expected TryFrom hit. The Type::Array change is comment-only, so there is no changed wildcard/index mechanism for the primary result.",
+      "additional_claims": [
+        {"quote": "The test does not test anything", "category": "valid_extra", "evidence": "Pinned new test:1–12 lacks assertions and EXPECTED/PARSED; tester.js:378–404 does not run its queries."},
+        {"quote": "`Box<[T; N]>` becomes a query for a two-element slice `[T, N]`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 parses [T; N] as []/slice generics T and N."},
+        {"quote": "may still fail to match a single-element `[T]` index entry", "category": "inconclusive", "evidence": "The parsed shape differs, but the full matcher and regenerated head std index were not exercised (candidate-research.md:47)."}
+      ]
+    },
+    {
+      "blind_id": "b0289", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 explicitly contrasts the original semicolon-free wildcard query and expected hit with search.js's ; parser change and search_index.rs's comment-only hunk. Finding 2 treats empty tests separately, without substituting coverage for the Spec mechanism.",
+      "additional_claims": [
+        {"quote": "It executes nothing and asserts nothing", "category": "valid_extra", "evidence": "Pinned new test:1–12 has no search/parser invocation or EXPECTED/PARSED; tester.js:378–390 rejects it if processed."}
+      ]
+    },
+    {
+      "blind_id": "b0290", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Identifies search.js:318 as ; parsing absent from the original wildcard query, search_index.rs as unchanged executable indexing, and the missing TryFrom hit as the consequence. The second bullet separately acknowledges the fuller array-query syntax, without asserting a measured head result.",
+      "additional_claims": [
+        {"quote": "these tests provide no regression protection for either objective", "category": "valid_extra", "evidence": "Pinned new test:1–12 lacks EXPECTED/PARSED and calls; tester.js:378–404 cannot execute either check for it."}
+      ]
+    },
+    {
+      "blind_id": "b0291", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Findings 1–2 separate the unchanged index-side wildcard search from the [T; N] parser syntax: only ; acceptance changes in search.js, and search_index.rs adds a comment. The original requested hit therefore has no changed fix mechanism; actual head output is not measured.",
+      "additional_claims": [
+        {"quote": "`[T; N]` parses the same as `[T, N]`, a slice with two generic elements `T` and `N`", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 constructs []/slice generics T and N."},
+        {"quote": "for example `Vec<T; U>` or at the top level", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 uses the separator in generic and top-level list parsing; the examples, not the answer's universal 'any position' wording, support this separate broader-grammar finding."},
+        {"quote": "Whether `[T, N]` matches an indexed array is not shown", "category": "inconclusive", "evidence": "No full head std-index search was run (candidate-research.md:47)."},
+        {"quote": "The new file uses `describe`/`it` blocks. They contain no assertions, no `EXPECTED`", "category": "valid_extra", "evidence": "Pinned new test:1–12 lacks EXPECTED/PARSED; tester.js:378–390 returns failure if it is processed."}
+      ]
+    },
+    {
+      "blind_id": "b0295", "target_hit": false, "target_quote": null,
+      "target_reason": "It criticizes missing tests, uncertain [T; N] parser semantics, and comment style but does not identify the semicolon-free original wildcard query as unaffected by search.js's ; branch. It even proposes the one-line parser change as a plausible mechanism for the primary issue, which the frozen target rejects.",
+      "additional_claims": [
+        {"quote": "Nothing executes the query against the search index", "category": "valid_extra", "evidence": "Pinned test:1–12 has no EXPECTED/PARSED or search call; tester.js:378–404 would reject it if processed."},
+        {"quote": "queries like `Box<[u8; 3]>` vs `Box<[u8]>` could mismatch", "category": "inconclusive", "evidence": "Pinned parser collects two items for [T; N], but no full head std-index matching proof is available (candidate-research.md:47)."},
+        {"quote": "The \"ponytail\" label is unrelated noise in a shipped comment", "category": "opinion_style", "evidence": "The label exists at pinned search_index.rs:2180; whether it is noise is an editorial judgment without a cited repository rule."},
+        {"quote": "plausibly addressed by the one-line JS change", "category": "inconclusive", "evidence": "A possibilidade foi expressamente qualificada na resposta. A consulta principal não contém ponto e vírgula e o índice std no head não foi executado; a mudança de separador não demonstra o resultado da busca (grading-rubric.md:22)."}
+      ]
+    },
+    {
+      "blind_id": "b0296", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Finding 1 identifies the original wildcard query, requested TryFrom hit, and unchanged Type::Array indexing/comment; Finding 2 identifies the sole functional ; parsing change for the fuller [T; N] syntax. This separates why the primary result has no modified fix path, though exact head output was not measured.",
+      "additional_claims": [
+        {"quote": "`[T; N]` as multi-element slice/tuple generics instead of array syntax", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 constructs a []/slice query node with T and N as generic items; it is not represented as an array with ignored length. Full matching remains unmeasured."}
+      ]
+    },
+    {
+      "blind_id": "b0297", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "Explicitly notes the original Box<_> query lacks ;, the only executable change is search.js's ; parser rule for [T; N], and search_index.rs adds only a comment. Neither changes its missing TryFrom result path; no post-change std-index result is claimed as observed.",
+      "additional_claims": []
+    },
+    {
+      "blind_id": "b0298", "target_hit": false, "target_quote": null,
+      "target_reason": "Only the non-executing regression test is criticized. There is no explanation of why the original semicolon-free wildcard search is unaffected by the parser-only change and comment-only index hunk.",
+      "additional_claims": [
+        {"quote": "The first test only assigns the query string; it never invokes the parser or asserts an outcome", "category": "valid_extra", "evidence": "Pinned test:1–12 contains an unused string and comments, no EXPECTED/PARSED; tester.js:378–404 cannot run its checks."}
+      ]
+    },
+    {
+      "blind_id": "b0300", "target_hit": true, "target_quote": "Vec<T> -> Result<Box<_>, _>",
+      "target_reason": "The response separates the original wildcard query and expected TryFrom hit (Finding 1) from the fuller [T; N] parser error (Finding 2). It identifies search_index.rs as comment-only and search.js as merely accepting ;, so the primary wildcard matching/indexing has no changed fix path, without a measured head search.",
+      "additional_claims": [
+        {"quote": "`N` to be parsed as an additional generic item rather than an array length/const generic", "category": "valid_extra", "evidence": "Pinned search.js:438–539,638–682 stores T and N in []/slice generics after ; becomes a separator."},
+        {"quote": "`;` is now treated as a delimiter globally in type parameter lists", "category": "valid_extra", "evidence": "Pinned search.js:318,496–500,697–705,1000–1006 shares isSeparatorCharacter beyond [] brackets."}
+      ]
+    }
+  ]
+}

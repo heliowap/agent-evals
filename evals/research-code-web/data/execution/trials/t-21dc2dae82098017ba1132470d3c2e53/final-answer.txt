@@ -1,0 +1,51 @@
+Based on the retrieved OpenCode snapshot files, here are the details of the request-preparation implementation that filters tools:
+
+---
+
+### 1. Implementation Path, Helper, and Caller
+* **Implementation File Path:**  
+  `packages/opencode/src/session/llm/request.ts` (lines 56–216, exported as `LLMRequestPrep` on line 228).
+* **Helper Function:**  
+  `resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">)`  
+  Defined at `packages/opencode/src/session/llm/request.ts:210-216`.
+* **Caller Function & Path:**  
+  `prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) { ... })`  
+  Defined at `packages/opencode/src/session/llm/request.ts:56-208` (specifically invoking `const tools = resolveTools(input)` at line 148).  
+  This is called during LLM inference execution in `packages/opencode/src/session/llm.ts` (e.g., preparing the `prepared` payload containing `prepared.tools` at lines 128, 150, 233, 318).
+
+---
+
+### 2. How Permissions Are Merged in Order
+In `resolveTools` (`packages/opencode/src/session/llm/request.ts:211-214`):
+```ts
+const disabled = Permission.disabled(
+  Object.keys(input.tools),
+  Permission.merge(input.agent.permission, input.permission ?? []),
+)
+```
+* `Permission.merge` receives the base agent ruleset first (`input.agent.permission`), followed by the session/request-level ruleset second (`input.permission ?? []`).
+* The rulesets are merged in order from agent defaults to session/call overrides.
+
+---
+
+### 3. Which Message-Toggle Values Exclude a Tool
+In `resolveTools` (`packages/opencode/src/session/llm/request.ts:215`):
+```ts
+return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+```
+* A tool key `k` is excluded if the per-message user toggle `input.user.tools?.[k]` equals boolean `false` (`input.user.tools?.[k] !== false`).
+* A tool is also excluded if its name is in the `disabled` set (`disabled.has(k)`).
+
+---
+
+### 4. Permission Rule Selection and Grouping for Editing & MCP Tools
+* **Invocation Point:**  
+  `resolveTools` computes `const disabled = Permission.disabled(Object.keys(input.tools), ...)` to determine which tool names are disabled for the prompt preparation step.
+* **Editing Grouping:**  
+  Corroborating comments in `packages/opencode/src/cli/cmd/agent.ts:17-18` document that editing operations (`write`, `edit`, `apply_patch`) gate together on the single `edit` permission.
+
+---
+
+### Unresolved Limitations
+Because execution steps were capped before reading `packages/opencode/src/permission/index.ts` and `packages/opencode/src/permission/evaluate.ts`:
+* The exact line-level logic inside `Permission.disabled(...)` for matching/selecting rule priority (e.g. glob matching vs exact match precedence) and the specific grouping identifiers for MCP-resource-reading tool names (e.g. `read_resource` or server-specific tool mapping) could not be directly inspected from those permission files and remain an unresolved limitation.

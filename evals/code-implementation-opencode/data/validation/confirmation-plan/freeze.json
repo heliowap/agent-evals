@@ -1,0 +1,840 @@
+{
+  "schema": 1,
+  "phase": "confirmation",
+  "source_hashes": {
+    ".dockerignore": "08bb7a70af4ae5a9c15226f499f2e76055ebd521550f87eb102a1316cdb9df38",
+    "Dockerfile": "085e13417a531c0f18bfada464eadef8737d6ff4ad12a2cd740a56248d3435d0",
+    "README.md": "2058e04278ba32af1e22356c034a0882d57bd6e651cb2596d80eb41cacc6fa9c",
+    "bench.py": "e1e5f9f1d6b4288d29bcf055d471f8daa09fd2ba3e8749ffea5d0d73e05afff8",
+    "controller.py": "2b2bcaafa85fe40bd7faa75586277b05340a5b1455f93459ce9b469ec4e62cb5",
+    "domain.py": "9394984dbd31564fae8f102f19449479d00baa5d8bbbc816c5df2518e115a9d2",
+    "grader.py": "36b2ad3876b279e8ec15e4cff9413ccf9d178de73807af34042d3a0d8fed705d",
+    "isolation.py": "bcea19d7b4f6a83f95dc02e474d814ad06629a27a3635d17bddb132a4b8fd950",
+    "observer.js": "7333d8689603f63f4d095629ecfb0edc38693367be39a4f709dc530134e23676",
+    "runtime.py": "d40c03f69dec8033820302975f3ad3c24d25a06d76cc05cc4da14cca036fa619",
+    "tasks.py": "731271f402541cf938986e7cd087e6f93297d7a743ab0aee86e14f445ea75758",
+    "tasks_python.py": "13c23cb17d43a11bfb94f8f695b92e68266ce8595b0199c9530cc4f218ecb0dd",
+    "tasks_typescript.py": "9af8e4b778002106809c1c09f097784597a86ffca2cecf795f39e2314fe15d30",
+    "terminal.js": "4a1cf06593bd6f9db50301f222e3e3e9c5992bbe2f71f1f01f60d96a9ea1471f",
+    "test_runtime.py": "e8bb62f260a324dc7e516f0a5d79c3698325b5958a0a632c0973c55f458c28ab",
+    "test_tasks_python.py": "d116ef40b35fa021d7a73f56b581cc8093381b7ff36381b9f0e0ec1f64c58754",
+    "test_tasks_typescript.py": "2d98c33e58e54622e6a69138a0bbc77e3715435012e882fff6a1e1cee0a50c5f"
+  },
+  "tool_surface": "isolated_terminal_only",
+  "candidates": [
+    {
+      "id": "sonnet-medium",
+      "provider": "cli_proxy",
+      "model": "cpa-claude-sonnet-5-5",
+      "variant": "medium",
+      "credential_provider": "cli_proxy",
+      "upstream": "http://127.0.0.1:8317/v1",
+      "effort": "medium",
+      "fast": false,
+      "wire_model": "claude-sonnet-5-5",
+      "protocol": "messages",
+      "auth_type": "key",
+      "selection": "cli_proxy/cpa-claude-sonnet-5-5#medium"
+    },
+    {
+      "id": "sol-fast-medium",
+      "provider": "openai",
+      "model": "gpt-6.1-sol-fast",
+      "variant": "medium",
+      "credential_provider": "openai",
+      "upstream": "https://chatgpt.com/backend-api/codex",
+      "effort": "medium",
+      "fast": true,
+      "wire_model": "gpt-6.1-sol",
+      "protocol": "responses",
+      "auth_type": "oauth",
+      "selection": "openai/gpt-6.1-sol-fast#medium"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "py-stock-reservations",
+      "phase": "confirmation",
+      "family": "feature",
+      "language": "python",
+      "request": "Add reserve(connection, key, items) in src/service.py and src/api.py.handle_reserve. items is a nonempty dict from nonempty SKU strings to positive integer quantities excluding bool, and key is a nonempty string. Atomically deduct available stock and persist a receipt using the key. Return {'key': key, 'items': a copy of items}. Reusing the same key and identical quantities returns that receipt without deducting again, even if stock is now insufficient. Dictionary insertion order is irrelevant to equality. Reusing a key with different items raises ValueError. Unknown SKUs, insufficient stock or invalid input raise ValueError with no reservation or stock changes. A database failure rolls back every change. Idempotency must survive closing and reopening the database. Preserve the stock listing. The API envelope has exactly key and items. Connections are idle at entry. Start in src/service.py, src/api.py and src/repository.py.",
+      "files": {
+        "src/repository.py": "def initialize(connection):\n    connection.executescript(\"CREATE TABLE stock(sku TEXT PRIMARY KEY, quantity INTEGER NOT NULL); CREATE TABLE reservations(key TEXT PRIMARY KEY, items TEXT NOT NULL);\")\n    connection.commit()\n\ndef list_stock(connection):\n    return dict(connection.execute(\"SELECT sku, quantity FROM stock ORDER BY sku\"))\n",
+        "src/service.py": "def reserve(connection, key, items):\n    raise NotImplementedError(\"Reservations are unavailable\")\n",
+        "src/api.py": "from .repository import list_stock\n\ndef handle_stock(connection):\n    return {\"stock\": list_stock(connection)}\n\ndef handle_reserve(connection, payload):\n    raise NotImplementedError(\"Reservation endpoint is unavailable\")\n",
+        "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.api import handle_stock\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nc.executemany(\"INSERT INTO stock VALUES (?, ?)\", [(\"a\", 4), (\"b\", 2)])\nc.commit()\nassert handle_stock(c) == {\"stock\": {\"a\": 4, \"b\": 2}}\n",
+        "src/__init__.py": "",
+        "README.md": "# Service component\n\nAdd reserve(connection, key, items) in src/service.py and src/api.py.handle_reserve. items is a nonempty dict from nonempty SKU strings to positive integer quantities excluding bool, and key is a nonempty string. Atomically deduct available stock and persist a receipt using the key. Return {'key': key, 'items': a copy of items}. Reusing the same key and identical quantities returns that receipt without deducting again, even if stock is now insufficient. Dictionary insertion order is irrelevant to equality. Reusing a key with different items raises ValueError. Unknown SKUs, insufficient stock or invalid input raise ValueError with no reservation or stock changes. A database failure rolls back every change. Idempotency must survive closing and reopening the database. Preserve the stock listing. The API envelope has exactly key and items. Connections are idle at entry. Start in src/service.py, src/api.py and src/repository.py.\n\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\n"
+      },
+      "reference": {
+        "src/service.py": "import json\n\ndef reserve(connection, key, items):\n    if not isinstance(key, str) or not key or not isinstance(items, dict) or not items:\n        raise ValueError(\"invalid reservation\")\n    if any(not isinstance(sku, str) or not sku or type(quantity) is not int or quantity <= 0 for sku, quantity in items.items()):\n        raise ValueError(\"invalid items\")\n    encoded = json.dumps(items, sort_keys=True, separators=(\",\", \":\"))\n    with connection:\n        previous = connection.execute(\"SELECT items FROM reservations WHERE key=?\", (key,)).fetchone()\n        if previous:\n            if json.loads(previous[0]) != items:\n                raise ValueError(\"key already used\")\n            return {\"key\": key, \"items\": json.loads(previous[0])}\n        for sku, quantity in items.items():\n            row = connection.execute(\"SELECT quantity FROM stock WHERE sku=?\", (sku,)).fetchone()\n            if row is None or row[0] < quantity:\n                raise ValueError(\"unavailable stock\")\n        for sku, quantity in items.items():\n            connection.execute(\"UPDATE stock SET quantity=quantity-? WHERE sku=?\", (quantity, sku))\n        connection.execute(\"INSERT INTO reservations VALUES (?, ?)\", (key, encoded))\n    return {\"key\": key, \"items\": dict(items)}\n",
+        "src/api.py": "from .repository import list_stock\nfrom .service import reserve\n\ndef handle_stock(connection):\n    return {\"stock\": list_stock(connection)}\n\ndef handle_reserve(connection, payload):\n    if not isinstance(payload, dict) or set(payload) != {\"key\", \"items\"}:\n        raise ValueError(\"invalid envelope\")\n    return reserve(connection, payload[\"key\"], payload[\"items\"])\n"
+      },
+      "acceptance": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3, tempfile\nfrom src.repository import initialize, list_stock\nfrom src.api import handle_reserve\nwith tempfile.TemporaryDirectory() as directory:\n    path = directory + \"/stock.db\"\n    c = sqlite3.connect(path)\n    initialize(c)\n    c.executemany(\"INSERT INTO stock VALUES (?, ?)\", [(\"a\", 5), (\"b\", 3)])\n    c.commit()\n    items = {\"b\": 2, \"a\": 4}\n    receipt = handle_reserve(c, {\"key\": \"one\", \"items\": items})\n    assert receipt == {\"key\": \"one\", \"items\": {\"a\": 4, \"b\": 2}}\n    receipt[\"items\"][\"a\"] = 999\n    assert items == {\"b\": 2, \"a\": 4}\n    assert list_stock(c) == {\"a\": 1, \"b\": 1}\n    c.close()\n    c = sqlite3.connect(path)\n    assert handle_reserve(c, {\"key\": \"one\", \"items\": {\"a\": 4, \"b\": 2}}) == {\"key\":\"one\",\"items\":{\"a\":4,\"b\":2}}\n    assert list_stock(c) == {\"a\": 1, \"b\": 1}\n    bad = [{\"key\":\"one\",\"items\":{\"a\":1}}, {\"key\":\"two\",\"items\":{\"a\":1,\"missing\":1}}, {\"key\":\"two\",\"items\":{\"a\":1,\"b\":2}}, {\"key\":\"two\",\"items\":{}}, {\"key\":\"two\",\"items\":{\"a\":True}}, {\"key\":\"two\",\"items\":{\"a\":0}}, {\"key\":\"two\",\"items\":{\"a\":-1}}, {\"key\":\"two\",\"items\":{\"a\":1.5}}, {\"key\":\"two\",\"items\":{\"\":1}}, {\"key\":\"\",\"items\":{\"a\":1}}, {\"key\":None,\"items\":{\"a\":1}}, {\"key\":\"two\",\"items\":[]}, {\"key\":\"two\",\"items\":{\"a\":1},\"extra\":1}, None]\n    for payload in bad:\n        try:\n            handle_reserve(c, payload)\n        except ValueError:\n            pass\n        else:\n            raise AssertionError(\"invalid reservation accepted\")\n        assert list_stock(c) == {\"a\":1,\"b\":1}\n        assert c.execute(\"SELECT COUNT(*) FROM reservations\").fetchone() == (1,)\n    c.execute(\"CREATE TRIGGER reject_receipt BEFORE INSERT ON reservations BEGIN SELECT RAISE(ABORT, 'receipt unavailable'); END\")\n    c.commit()\n    try:\n        handle_reserve(c, {\"key\":\"two\",\"items\":{\"a\":1,\"b\":1}})\n    except sqlite3.DatabaseError:\n        pass\n    else:\n        raise AssertionError(\"receipt error swallowed\")\n    assert list_stock(c) == {\"a\":1,\"b\":1}\n    assert c.execute(\"SELECT COUNT(*) FROM reservations\").fetchone() == (1,)\n    c.execute(\"DROP TRIGGER reject_receipt\")\n    c.commit()\n    assert handle_reserve(c, {\"key\":\"two\",\"items\":{\"a\":1,\"b\":1}}) == {\"key\":\"two\",\"items\":{\"a\":1,\"b\":1}}\n    assert list_stock(c) == {\"a\":0,\"b\":0}\n    c.close()\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "py-expiring-shares",
+      "phase": "confirmation",
+      "family": "authorization",
+      "language": "python",
+      "request": "Implement share-token access and revocation in src/service.py, preserving the ordinary owner lookup. read_shared(connection, token, now) returns only {'id': document_id, 'title': title} when the exact token exists, is not revoked, expires_at is strictly greater than now, and its document is active and belongs to the tenant recorded on the token. Otherwise return None, with no writes. revoke_share(connection, tenant, owner, token) returns True and commits revocation only when both the token and its active document belong to that tenant and the document belongs to that owner. Authorized repeated revocation returns True; unknown, wrong-tenant, wrong-owner or deleted-document tokens return False with no changes. Expiration does not prevent an authorized revocation. now and expires_at are integer epoch seconds supplied by callers, with no wall-clock dependency. Bind SQL parameters, including tokens with quotes. Start in src/service.py and src/repository.py.",
+      "files": {
+        "src/repository.py": "def initialize(connection):\n    connection.executescript(\"CREATE TABLE documents(id INTEGER PRIMARY KEY, tenant TEXT, owner TEXT, title TEXT, deleted INTEGER NOT NULL); CREATE TABLE shares(token TEXT PRIMARY KEY, document_id INTEGER, tenant TEXT, expires_at INTEGER, revoked INTEGER NOT NULL);\")\n    connection.commit()\n\ndef owner_document(connection, tenant, owner, document_id):\n    row = connection.execute(\"SELECT id, title FROM documents WHERE id=? AND tenant=? AND owner=? AND deleted=0\", (document_id, tenant, owner)).fetchone()\n    return None if row is None else {\"id\": row[0], \"title\": row[1]}\n",
+        "src/service.py": "from .repository import owner_document\n\ndef read_owned(connection, tenant, owner, document_id):\n    return owner_document(connection, tenant, owner, document_id)\n\ndef read_shared(connection, token, now):\n    row = connection.execute(\"SELECT d.id, d.title FROM shares s JOIN documents d ON d.id=s.document_id WHERE s.token=?\", (token,)).fetchone()\n    return None if row is None else {\"id\": row[0], \"title\": row[1]}\n\ndef revoke_share(connection, tenant, owner, token):\n    with connection:\n        cursor = connection.execute(\"UPDATE shares SET revoked=1 WHERE token=?\", (token,))\n    return cursor.rowcount == 1\n",
+        "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import read_owned, read_shared\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nc.execute(\"INSERT INTO documents VALUES (1, 'a', 'owner', 'Title', 0)\")\nc.execute(\"INSERT INTO shares VALUES ('token', 1, 'a', 200, 0)\")\nc.commit()\nassert read_owned(c, \"a\", \"owner\", 1) == {\"id\":1,\"title\":\"Title\"}\nassert read_owned(c, \"b\", \"owner\", 1) is None\nassert read_shared(c, \"token\", 100) == {\"id\":1,\"title\":\"Title\"}\n",
+        "src/__init__.py": "",
+        "README.md": "# Service component\n\nImplement share-token access and revocation in src/service.py, preserving the ordinary owner lookup. read_shared(connection, token, now) returns only {'id': document_id, 'title': title} when the exact token exists, is not revoked, expires_at is strictly greater than now, and its document is active and belongs to the tenant recorded on the token. Otherwise return None, with no writes. revoke_share(connection, tenant, owner, token) returns True and commits revocation only when both the token and its active document belong to that tenant and the document belongs to that owner. Authorized repeated revocation returns True; unknown, wrong-tenant, wrong-owner or deleted-document tokens return False with no changes. Expiration does not prevent an authorized revocation. now and expires_at are integer epoch seconds supplied by callers, with no wall-clock dependency. Bind SQL parameters, including tokens with quotes. Start in src/service.py and src/repository.py.\n\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\n"
+      },
+      "reference": {
+        "src/service.py": "from .repository import owner_document\n\ndef read_owned(connection, tenant, owner, document_id):\n    return owner_document(connection, tenant, owner, document_id)\n\ndef read_shared(connection, token, now):\n    row = connection.execute(\"SELECT d.id, d.title FROM shares s JOIN documents d ON d.id=s.document_id AND d.tenant=s.tenant WHERE s.token=? AND s.revoked=0 AND s.expires_at>? AND d.deleted=0\", (token, now)).fetchone()\n    return None if row is None else {\"id\": row[0], \"title\": row[1]}\n\ndef revoke_share(connection, tenant, owner, token):\n    with connection:\n        row = connection.execute(\"SELECT s.token FROM shares s JOIN documents d ON d.id=s.document_id AND d.tenant=s.tenant WHERE s.token=? AND s.tenant=? AND d.owner=? AND d.deleted=0\", (token, tenant, owner)).fetchone()\n        if row is None:\n            return False\n        connection.execute(\"UPDATE shares SET revoked=1 WHERE token=?\", (token,))\n    return True\n"
+      },
+      "acceptance": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize\nfrom src.service import read_owned, read_shared, revoke_share\nc = sqlite3.connect(\":memory:\")\ninitialize(c)\nc.executemany(\"INSERT INTO documents VALUES (?, ?, ?, ?, ?)\", [(1,\"a\",\"owner\",\"A\",0), (2,\"b\",\"owner\",\"B\",0), (3,\"a\",\"owner\",\"Deleted\",1), (4,\"a\",\"other\",\"Other\",0)])\nc.executemany(\"INSERT INTO shares VALUES (?, ?, ?, ?, ?)\", [(\"good\",1,\"a\",200,0), (\"expired\",1,\"a\",100,0), (\"revoked\",1,\"a\",200,1), (\"cross\",2,\"a\",200,0), (\"deleted\",3,\"a\",200,0), (\"other\",4,\"a\",200,0), (\"orphan\",99,\"a\",200,0), (\"q' OR 1=1 --\",1,\"a\",200,0)])\nc.commit()\nassert read_shared(c, \"good\", 199) == {\"id\":1,\"title\":\"A\"}\nfor token in (\"good\", \"expired\"):\n    assert read_shared(c, token, 200) is None\nassert read_shared(c, \"expired\", 100) is None\nfor token in (\"revoked\", \"cross\", \"deleted\", \"orphan\", \"missing\", \"' OR 1=1 --\"):\n    assert read_shared(c, token, 50) is None\nassert read_shared(c, \"q' OR 1=1 --\", 50) == {\"id\":1,\"title\":\"A\"}\nbefore = c.execute(\"SELECT * FROM shares ORDER BY token\").fetchall()\nfor tenant, owner, token in [(\"b\",\"owner\",\"good\"), (\"a\",\"wrong\",\"good\"), (\"a\",\"owner\",\"cross\"), (\"a\",\"owner\",\"deleted\"), (\"a\",\"owner\",\"other\"), (\"a\",\"owner\",\"missing\"), (\"a' OR 1=1 --\",\"owner\",\"good\")]:\n    assert revoke_share(c, tenant, owner, token) is False\n    assert c.execute(\"SELECT * FROM shares ORDER BY token\").fetchall() == before\nassert revoke_share(c, \"a\", \"owner\", \"good\") is True\nassert revoke_share(c, \"a\", \"owner\", \"good\") is True\nassert read_shared(c, \"good\", 50) is None\nassert revoke_share(c, \"a\", \"owner\", \"expired\") is True\nassert revoke_share(c, \"a\", \"owner\", \"q' OR 1=1 --\") is True\nassert read_owned(c, \"a\", \"owner\", 1) == {\"id\":1,\"title\":\"A\"}\nassert read_shared(c, \"other\", 50) == {\"id\":4,\"title\":\"Other\"}\nassert not c.in_transaction\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "py-layered-queue-config",
+      "phase": "confirmation",
+      "family": "contracts",
+      "language": "python",
+      "request": "Implement queue configuration overlays through src/service.py.build_queue. Defaults are retries=3, timeout_ms=1000 and label='jobs'. Resolve two dict layers in order, organization then job. Omitted fields inherit; an explicit None resets that field to its built-in default rather than inheriting the earlier layer. retries is an integer 0..10 and timeout_ms an integer 1..60000; bool is invalid. label is a string, trimmed, and must remain nonempty. Reject unknown fields, non-dict layers or any invalid layer values with ValueError, even when a later layer would replace them. Do not mutate either layer or share returned state between calls. Keep src/config.py.resolve as the shared entry and make build_queue return {'queue': resolved_config}. Preserve default-only calls. Start in src/config.py and src/service.py.",
+      "files": {
+        "src/config.py": "DEFAULTS = {\"retries\": 3, \"timeout_ms\": 1000, \"label\": \"jobs\"}\n\ndef resolve(organization, job):\n    result = DEFAULTS.copy()\n    result.update(organization)\n    result.update(job)\n    return result\n",
+        "src/service.py": "from .config import resolve\n\ndef build_queue(organization=None, job=None):\n    return {\"queue\": resolve({} if organization is None else organization, {} if job is None else job)}\n",
+        "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.service import build_queue\nassert build_queue() == {\"queue\":{\"retries\":3,\"timeout_ms\":1000,\"label\":\"jobs\"}}\nassert build_queue({\"retries\":5}, {\"timeout_ms\":200}) == {\"queue\":{\"retries\":5,\"timeout_ms\":200,\"label\":\"jobs\"}}\n",
+        "src/__init__.py": "",
+        "README.md": "# Service component\n\nImplement queue configuration overlays through src/service.py.build_queue. Defaults are retries=3, timeout_ms=1000 and label='jobs'. Resolve two dict layers in order, organization then job. Omitted fields inherit; an explicit None resets that field to its built-in default rather than inheriting the earlier layer. retries is an integer 0..10 and timeout_ms an integer 1..60000; bool is invalid. label is a string, trimmed, and must remain nonempty. Reject unknown fields, non-dict layers or any invalid layer values with ValueError, even when a later layer would replace them. Do not mutate either layer or share returned state between calls. Keep src/config.py.resolve as the shared entry and make build_queue return {'queue': resolved_config}. Preserve default-only calls. Start in src/config.py and src/service.py.\n\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\n"
+      },
+      "reference": {
+        "src/config.py": "DEFAULTS = {\"retries\": 3, \"timeout_ms\": 1000, \"label\": \"jobs\"}\n\ndef resolve(organization, job):\n    result = DEFAULTS.copy()\n    for layer in (organization, job):\n        if not isinstance(layer, dict) or not set(layer).issubset(DEFAULTS):\n            raise ValueError(\"invalid configuration layer\")\n        for field, value in layer.items():\n            if value is None:\n                result[field] = DEFAULTS[field]\n            elif field == \"label\":\n                if not isinstance(value, str) or not value.strip():\n                    raise ValueError(\"invalid label\")\n                result[field] = value.strip()\n            else:\n                lower, upper = (0, 10) if field == \"retries\" else (1, 60000)\n                if type(value) is not int or not lower <= value <= upper:\n                    raise ValueError(\"invalid numeric option\")\n                result[field] = value\n    return result\n"
+      },
+      "acceptance": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.config import resolve\nfrom src.service import build_queue\nassert resolve({\"retries\":8,\"timeout_ms\":60000,\"label\":\"Org\"}, {\"retries\":None,\"label\":None}) == {\"retries\":3,\"timeout_ms\":60000,\"label\":\"jobs\"}\nassert build_queue({\"timeout_ms\":50}, {\"timeout_ms\":None,\"retries\":0,\"label\":\" Custom \"}) == {\"queue\":{\"retries\":0,\"timeout_ms\":1000,\"label\":\"Custom\"}}\nassert resolve({\"retries\":10}, {\"timeout_ms\":1}) == {\"retries\":10,\"timeout_ms\":1,\"label\":\"jobs\"}\ninvalid = [{\"retries\":True}, {\"retries\":-1}, {\"retries\":11}, {\"retries\":1.5}, {\"timeout_ms\":False}, {\"timeout_ms\":0}, {\"timeout_ms\":60001}, {\"timeout_ms\":\"100\"}, {\"label\":\"  \"}, {\"label\":5}, {\"extra\":1}, [], \"text\", None]\nfor layer in invalid:\n    for layers in [(layer, {\"retries\":1,\"timeout_ms\":2,\"label\":\"override\"}), ({}, layer)]:\n        try:\n            resolve(*layers)\n        except ValueError:\n            pass\n        else:\n            raise AssertionError(\"invalid layer accepted\")\norganization = {\"label\":\" Org \",\"retries\":6}\njob = {\"retries\":None}\nfirst = build_queue(organization, job)\nfirst[\"queue\"][\"label\"] = \"mutated\"\nassert organization == {\"label\":\" Org \",\"retries\":6}\nassert job == {\"retries\":None}\nassert build_queue(organization, job) == {\"queue\":{\"retries\":3,\"timeout_ms\":1000,\"label\":\"Org\"}}\nassert build_queue() == {\"queue\":{\"retries\":3,\"timeout_ms\":1000,\"label\":\"jobs\"}}\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "py-incremental-lines",
+      "phase": "confirmation",
+      "family": "streaming",
+      "language": "python",
+      "request": "Fix iter_lines(source) in src/reader.py and src/service.py.collect_lines. source is an iterable yielding byte chunks with close(). Decode UTF-8 strictly across arbitrary chunk boundaries, including multibyte characters. Split on LF; remove one immediately preceding CR, preserve other characters and empty lines, and emit a nonempty final unterminated line. A trailing newline creates no additional line. Empty byte chunks have no effect and an empty source returns no lines. Be lazy: once a complete line is available, yield it before requesting another source chunk. No whole-source buffering. Close a started source exactly once on exhaustion, explicit iterator close(), source errors or decoding errors; an unstarted iterator has no source effects. collect_lines delegates to iter_lines and returns a list. Source.close does not raise. Start in src/reader.py and src/service.py.",
+      "files": {
+        "src/chunks.py": "class Chunks:\n    def __init__(self, chunks):\n        self.chunks = iter(chunks)\n        self.reads = 0\n        self.closes = 0\n\n    def __iter__(self):\n        return self\n\n    def __next__(self):\n        self.reads += 1\n        return next(self.chunks)\n\n    def close(self):\n        self.closes += 1\n",
+        "src/reader.py": "def iter_lines(source):\n    for chunk in source:\n        for line in chunk.decode(\"utf-8\").splitlines():\n            yield line\n    source.close()\n",
+        "src/service.py": "from .reader import iter_lines\n\ndef collect_lines(source):\n    return list(iter_lines(source))\n",
+        "checks/public.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.chunks import Chunks\nfrom src.service import collect_lines\nsource = Chunks([b\"one\\n\", b\"two\\n\"])\nassert collect_lines(source) == [\"one\", \"two\"]\nassert source.closes == 1\n",
+        "src/__init__.py": "",
+        "README.md": "# Service component\n\nFix iter_lines(source) in src/reader.py and src/service.py.collect_lines. source is an iterable yielding byte chunks with close(). Decode UTF-8 strictly across arbitrary chunk boundaries, including multibyte characters. Split on LF; remove one immediately preceding CR, preserve other characters and empty lines, and emit a nonempty final unterminated line. A trailing newline creates no additional line. Empty byte chunks have no effect and an empty source returns no lines. Be lazy: once a complete line is available, yield it before requesting another source chunk. No whole-source buffering. Close a started source exactly once on exhaustion, explicit iterator close(), source errors or decoding errors; an unstarted iterator has no source effects. collect_lines delegates to iter_lines and returns a list. Source.close does not raise. Start in src/reader.py and src/service.py.\n\nRun `python3 checks/public.py` from the project root. Implementation belongs in src/. Add checks under checks/.\n"
+      },
+      "reference": {
+        "src/reader.py": "import codecs\n\ndef iter_lines(source):\n    decoder = codecs.getincrementaldecoder(\"utf-8\")(\"strict\")\n    pending = \"\"\n    try:\n        for chunk in source:\n            pending += decoder.decode(chunk)\n            while \"\\n\" in pending:\n                line, pending = pending.split(\"\\n\", 1)\n                yield line[:-1] if line.endswith(\"\\r\") else line\n        pending += decoder.decode(b\"\", final=True)\n        if pending:\n            yield pending\n    finally:\n        source.close()\n"
+      },
+      "acceptance": "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom src.chunks import Chunks\nfrom src.reader import iter_lines\nfrom src.service import collect_lines\nencoded = \"á\\nβ\\r\\n\\nlast\\r\".encode(\"utf-8\")\nchunks = [encoded[index:index+1] for index in range(len(encoded))]\nsource = Chunks(chunks)\nassert collect_lines(source) == [\"á\", \"β\", \"\", \"last\\r\"]\nassert source.closes == 1\nfor chunks, expected in [([], []), ([b\"\", b\"\"], []), ([b\"\\n\"], [\"\"]), ([b\"a\\n\\n\"], [\"a\", \"\"]), ([b\"a\\r\", b\"\\n\", b\"b\"], [\"a\", \"b\"]), ([b\"a\\rb\\n\"], [\"a\\rb\"]), ([b\"head\", b\"\", b\"tail\"], [\"headtail\"])]:\n    source = Chunks(chunks)\n    assert collect_lines(source) == expected\n    assert source.closes == 1\nsource = Chunks([b\"one\\ntwo\\n\", b\"three\\n\"])\nstream = iter_lines(source)\nassert (source.reads, source.closes) == (0, 0)\nassert next(stream) == \"one\"\nassert next(stream) == \"two\"\nassert (source.reads, source.closes) == (1, 0)\nstream.close()\nstream.close()\nassert (source.reads, source.closes) == (1, 1)\nsource = Chunks([b\"unused\"])\niter_lines(source).close()\nassert (source.reads, source.closes) == (0, 0)\nfor chunks in ([b\"\\xff\"], [b\"\\xc3\"], [b\"ok\\n\", b\"\\xe2\", b\"bad\"]):\n    source = Chunks(chunks)\n    try:\n        collect_lines(source)\n    except UnicodeDecodeError:\n        pass\n    else:\n        raise AssertionError(\"malformed UTF-8 accepted\")\n    assert source.closes == 1\nfailure = RuntimeError(\"read failed\")\nclass FailingChunks(Chunks):\n    def __next__(self):\n        if self.reads == 1:\n            raise failure\n        return super().__next__()\nsource = FailingChunks([b\"first\\n\"])\nstream = iter_lines(source)\nassert next(stream) == \"first\"\ntry:\n    next(stream)\nexcept RuntimeError as exc:\n    assert exc is failure\nelse:\n    raise AssertionError(\"source error swallowed\")\nassert source.closes == 1\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "ts-atomic-reservation",
+      "phase": "confirmation",
+      "family": "feature-effects",
+      "language": "typescript",
+      "request": "Extend ReservationService.reserve in src/service.ts to reserve a whole batch atomically.\nLines contain sku and quantity. Quantity must be a positive safe integer and the batch\nmust be nonempty; otherwise throw Error('invalid reservation'). Aggregate repeated SKUs\nbefore checking stock; aggregate quantities must remain safe integers. A missing SKU, a foreign-tenant SKU or insufficient aggregate\nstock throws Error('stock unavailable'). No stock or reservation record may change on\nany failure, including a bad final line. A successful reservation deducts the aggregate\nonce and stores one record with lines sorted by sku using lexicographic string order.\nRequire nonempty tenant and key. Scope idempotency by tenant/key: an equivalent batch\nin any line order returns the existing record without another deduction. A changed\naggregate for the same tenant/key throws Error('key conflict'). Existing-record checks\nhappen after input validation but before availability checks. Keep input arrays unchanged.\n\nYou may change src/ and add or update checks/. Preserve public interfaces unless the request explicitly changes them. Run tsc -p tsconfig.json && node checks/public.cjs and describe the change.\n",
+      "files": {
+        "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"CommonJS\",\n    \"strict\": true,\n    \"outDir\": \".build\",\n    \"rootDir\": \"src\",\n    \"lib\": [\n      \"ES2022\",\n      \"DOM\"\n    ],\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\n    \"src/**/*.ts\"\n  ]\n}\n",
+        ".gitignore": ".build/\n",
+        "README.md": "# Service workspace\n\nRun `tsc -p tsconfig.json && node checks/public.cjs` from this directory.\n",
+        "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { Store } = require('../.build/store'); const { ReservationService } = require('../.build/service');\n        const store = new Store([{ tenant: 'a', sku: 'x', available: 5 }]);\n        assert.deepEqual(new ReservationService(store).reserve('a', 'one', [{ sku: 'x', quantity: 2 }]),\n          { id: 1, tenant: 'a', key: 'one', lines: [{ sku: 'x', quantity: 2 }] });\n        assert.equal(store.stock[0].available, 3);\n",
+        "src/types.ts": "export interface Line { sku: string; quantity: number }\nexport interface Stock { tenant: string; sku: string; available: number }\nexport interface Reservation { id: number; tenant: string; key: string; lines: Line[] }\n",
+        "src/store.ts": "import { Stock, Reservation } from './types';\nexport class Store {\n  readonly reservations: Reservation[] = [];\n  constructor(readonly stock: Stock[]) {}\n  find(tenant: string, sku: string): Stock | undefined {\n    return this.stock.find(row => row.tenant === tenant && row.sku === sku);\n  }\n}\n",
+        "src/service.ts": "import { Line, Reservation } from './types';\nimport { Store } from './store';\nexport class ReservationService {\n  constructor(private readonly store: Store) {}\n  reserve(tenant: string, key: string, lines: Line[]): Reservation {\n    if (!tenant || !key || !lines.length) throw new Error('invalid reservation');\n    for (const line of lines) {\n      if (!line.sku || !Number.isSafeInteger(line.quantity) || line.quantity <= 0) throw new Error('invalid reservation');\n      const row = this.store.find(tenant, line.sku);\n      if (!row || row.available < line.quantity) throw new Error('stock unavailable');\n      row.available -= line.quantity;\n    }\n    const record = { id: this.store.reservations.length + 1, tenant, key, lines: lines.map(line => ({ ...line })) };\n    this.store.reservations.push(record);\n    return record;\n  }\n}\n"
+      },
+      "reference": {
+        "src/service.ts": "import { Line, Reservation, Stock } from './types';\nimport { Store } from './store';\nexport class ReservationService {\n  constructor(private readonly store: Store) {}\n  reserve(tenant: string, key: string, lines: Line[]): Reservation {\n    if (!tenant || !key || !lines.length) throw new Error('invalid reservation');\n    const totals = new Map<string, number>();\n    for (const line of lines) {\n      if (!line.sku || !Number.isSafeInteger(line.quantity) || line.quantity <= 0) throw new Error('invalid reservation');\n      const total = (totals.get(line.sku) ?? 0) + line.quantity;\n      if (!Number.isSafeInteger(total)) throw new Error('invalid reservation');\n      totals.set(line.sku, total);\n    }\n    const normalized = [...totals].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([sku, quantity]) => ({ sku, quantity }));\n    const prior = this.store.reservations.find(record => record.tenant === tenant && record.key === key);\n    if (prior) {\n      if (JSON.stringify(prior.lines) !== JSON.stringify(normalized)) throw new Error('key conflict');\n      return prior;\n    }\n    const adjustments: { row: Stock; quantity: number }[] = [];\n    for (const line of normalized) {\n      const row = this.store.find(tenant, line.sku);\n      if (!row || row.available < line.quantity) throw new Error('stock unavailable');\n      adjustments.push({ row, quantity: line.quantity });\n    }\n    for (const adjustment of adjustments) adjustment.row.available -= adjustment.quantity;\n    const record = { id: this.store.reservations.length + 1, tenant, key, lines: normalized };\n    this.store.reservations.push(record);\n    return record;\n  }\n}\n"
+      },
+      "acceptance": "const assert = require('node:assert/strict');\n\n        const { Store } = require('./.build/store'); const { ReservationService } = require('./.build/service');\n        const fresh = () => new Store([{ tenant: 'a', sku: 'x', available: 5 },\n          { tenant: 'a', sku: 'y', available: 10 }, { tenant: 'b', sku: 'private', available: 100 }]);\n        for (const lines of [[{ sku: 'x', quantity: 3 }, { sku: 'x', quantity: 3 }],\n          [{ sku: 'x', quantity: 1 }, { sku: 'missing', quantity: 1 }],\n          [{ sku: 'x', quantity: 1 }, { sku: 'private', quantity: 1 }]]) {\n          const store = fresh(); const before = JSON.stringify(store);\n          assert.throws(() => new ReservationService(store).reserve('a', 'fail', lines), /^Error: stock unavailable$/);\n          assert.equal(JSON.stringify(store), before);\n        }\n        for (const quantity of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {\n          const store = fresh(); const before = JSON.stringify(store);\n          assert.throws(() => new ReservationService(store).reserve('a', 'bad', [{ sku: 'x', quantity: 1 }, { sku: 'y', quantity }]), /invalid reservation/);\n          assert.equal(JSON.stringify(store), before);\n        }\n        const store = fresh(); const service = new ReservationService(store);\n        const input = [{ sku: 'y', quantity: 2 }, { sku: 'x', quantity: 2 }, { sku: 'x', quantity: 3 }];\n        const before = JSON.stringify(input); const record = service.reserve('a', 'ok', input);\n        assert.deepEqual(record.lines, [{ sku: 'x', quantity: 5 }, { sku: 'y', quantity: 2 }]);\n        assert.equal(JSON.stringify(input), before);\n        assert.deepEqual(store.stock.map(row => row.available), [0, 8, 100]);\n        assert.deepEqual(service.reserve('a', 'ok', [{ sku: 'x', quantity: 5 }, { sku: 'y', quantity: 2 }]), record);\n        assert.deepEqual(store.stock.map(row => row.available), [0, 8, 100]); assert.equal(store.reservations.length, 1);\n        const snapshot = JSON.stringify(store);\n        assert.throws(() => service.reserve('a', 'ok', [{ sku: 'x', quantity: 4 }]), /^Error: key conflict$/);\n        assert.equal(JSON.stringify(store), snapshot);\n        assert.throws(() => service.reserve('a', 'ok', [{ sku: 'x', quantity: 0 }]), /^Error: invalid reservation$/);\n        assert.equal(JSON.stringify(store), snapshot);\n        assert.equal(service.reserve('b', 'ok', [{ sku: 'private', quantity: 1 }]).id, 2);\n        for (const [tenant, key, lines] of [['', 'k', [{ sku: 'x', quantity: 1 }]], ['a', '', [{ sku: 'x', quantity: 1 }]],\n          ['a', 'k', []], ['a', 'k', [{ sku: '', quantity: 1 }]],\n          ['a', 'big', [{ sku: 'x', quantity: Number.MAX_SAFE_INTEGER }, { sku: 'x', quantity: 1 }]]]) {\n          const snapshot = JSON.stringify(store);\n          assert.throws(() => service.reserve(tenant, key, lines), /invalid reservation/);\n          assert.equal(JSON.stringify(store), snapshot);\n        }\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "ts-singleflight-cache",
+      "phase": "confirmation",
+      "family": "streaming-effects",
+      "language": "typescript",
+      "request": "Repair CatalogService.get in src/service.ts so concurrent requests for the same\ntenant/key share one loader invocation, while unrelated keys and tenants remain independent.\nCache successful results for ttl milliseconds measured from successful completion using\nthe injected clock; an entry expires at now >= completedAt + ttl. ttl must be a nonnegative\nfinite number, validated by the constructor with Error('invalid ttl'). ttl zero still\ncoalesces simultaneous pending calls but does not cache completed results. A rejected\nload is not cached; all waiting callers receive the original error, and the next call\ncan load again. Only the leader starts the loader. Keep get returning Promise<string>\nand do not use real timers; fake clocks and controllable promises are supported.\n\nYou may change src/ and add or update checks/. Preserve public interfaces unless the request explicitly changes them. Run tsc -p tsconfig.json && node checks/public.cjs and describe the change.\n",
+      "files": {
+        "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"CommonJS\",\n    \"strict\": true,\n    \"outDir\": \".build\",\n    \"rootDir\": \"src\",\n    \"lib\": [\n      \"ES2022\",\n      \"DOM\"\n    ],\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\n    \"src/**/*.ts\"\n  ]\n}\n",
+        ".gitignore": ".build/\n",
+        "README.md": "# Service workspace\n\nRun `tsc -p tsconfig.json && node checks/public.cjs` from this directory.\n",
+        "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { CatalogService } = require('../.build/service');\n        async function main() {\n          let calls = 0; const service = new CatalogService(async () => { calls++; return 'book'; }, () => 0, 10);\n          assert.equal(await service.get('shop', 'book'), 'book'); assert.equal(await service.get('shop', 'book'), 'book');\n          assert.equal(calls, 1);\n        }\n        module.exports = main();\n",
+        "src/types.ts": "export type Loader = (tenant: string, key: string) => Promise<string>;\nexport type Clock = () => number;\n",
+        "src/cache.ts": "export interface CacheEntry { value: string; expires: number }\nexport class CatalogCache {\n  private readonly entries = new Map<string, Map<string, CacheEntry>>();\n  get(tenant: string, key: string): CacheEntry | undefined { return this.entries.get(tenant)?.get(key); }\n  set(tenant: string, key: string, entry: CacheEntry): void {\n    let items = this.entries.get(tenant);\n    if (!items) { items = new Map(); this.entries.set(tenant, items); }\n    items.set(key, entry);\n  }\n}\n",
+        "src/service.ts": "import { Loader, Clock } from './types';\nimport { CatalogCache } from './cache';\nexport class CatalogService {\n  private readonly cache = new CatalogCache();\n  constructor(private readonly loader: Loader, private readonly clock: Clock, private readonly ttl: number) {}\n  async get(tenant: string, key: string): Promise<string> {\n    const existing = this.cache.get(tenant, key);\n    if (existing && existing.expires > this.clock()) return existing.value;\n    const started = this.clock(); const value = await this.loader(tenant, key);\n    this.cache.set(tenant, key, { value, expires: started + this.ttl });\n    return value;\n  }\n}\n"
+      },
+      "reference": {
+        "src/service.ts": "import { Loader, Clock } from './types';\nimport { CatalogCache } from './cache';\nexport class CatalogService {\n  private readonly cache = new CatalogCache();\n  private readonly pending = new Map<string, Map<string, Promise<string>>>();\n  constructor(private readonly loader: Loader, private readonly clock: Clock, private readonly ttl: number) {\n    if (!Number.isFinite(ttl) || ttl < 0) throw new Error('invalid ttl');\n  }\n  async get(tenant: string, key: string): Promise<string> {\n    const existing = this.cache.get(tenant, key);\n    if (existing && existing.expires > this.clock()) return existing.value;\n    let items = this.pending.get(tenant);\n    const running = items?.get(key);\n    if (running) return running;\n    if (!items) { items = new Map(); this.pending.set(tenant, items); }\n    const tenantItems = items;\n    const promise = Promise.resolve().then(() => this.loader(tenant, key)).then(value => {\n      if (this.ttl > 0) this.cache.set(tenant, key, { value, expires: this.clock() + this.ttl });\n      return value;\n    }).finally(() => {\n      tenantItems.delete(key);\n      if (tenantItems.size === 0) this.pending.delete(tenant);\n    });\n    tenantItems.set(key, promise);\n    return promise;\n  }\n}\n"
+      },
+      "acceptance": "const assert = require('node:assert/strict');\n\n        const { CatalogService } = require('./.build/service');\n        function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }\n        async function main() {\n          let now = 0; const starts = []; let gate = deferred();\n          const service = new CatalogService((tenant, key) => { starts.push([tenant, key]); return gate.promise; }, () => now, 10);\n          const a = service.get('a', 'book'); const b = service.get('a', 'book');\n          await Promise.resolve(); assert.deepEqual(starts, [['a', 'book']]);\n          now = 100; gate.resolve('first'); assert.deepEqual(await Promise.all([a, b]), ['first', 'first']);\n          now = 109; assert.equal(await service.get('a', 'book'), 'first'); assert.equal(starts.length, 1);\n          now = 110; gate = deferred(); const expired = service.get('a', 'book');\n          await Promise.resolve(); assert.equal(starts.length, 2); gate.resolve('second'); assert.equal(await expired, 'second');\n          let calls = 0; const independent = new CatalogService(async (tenant, key) => { calls++; return tenant + '/' + key; }, () => 0, 100);\n          assert.deepEqual(await Promise.all([independent.get('a:b', 'c'), independent.get('a', 'b:c'), independent.get('a', 'c')]), ['a:b/c', 'a/b:c', 'a/c']);\n          assert.equal(calls, 3);\n          const error = new Error('backend down'); let failures = 0; let failGate = deferred();\n          const recovering = new CatalogService(() => { failures++; return failGate.promise; }, () => 0, 100);\n          const one = recovering.get('a', 'x'); const two = recovering.get('a', 'x');\n          const observed = Promise.allSettled([one, two]); await Promise.resolve(); assert.equal(failures, 1);\n          failGate.reject(error); const results = await observed;\n          assert.equal(results[0].status, 'rejected'); assert.equal(results[0].reason, error);\n          assert.equal(results[1].status, 'rejected'); assert.equal(results[1].reason, error);\n          failGate = deferred(); const retry = recovering.get('a', 'x'); await Promise.resolve(); assert.equal(failures, 2);\n          failGate.resolve('recovered'); assert.equal(await retry, 'recovered');\n          let zeroCalls = 0; let zeroGate = deferred();\n          const zero = new CatalogService(() => { zeroCalls++; return zeroGate.promise; }, () => 0, 0);\n          const z1 = zero.get('a', 'z'); const z2 = zero.get('a', 'z'); await Promise.resolve(); assert.equal(zeroCalls, 1);\n          zeroGate.resolve('zero'); assert.deepEqual(await Promise.all([z1, z2]), ['zero', 'zero']);\n          zeroGate = deferred(); const z3 = zero.get('a', 'z'); await Promise.resolve(); assert.equal(zeroCalls, 2);\n          zeroGate.resolve('again'); assert.equal(await z3, 'again');\n          for (const ttl of [-1, NaN, Infinity]) assert.throws(() => new CatalogService(async () => 'x', () => 0, ttl), /invalid ttl/);\n          const throwing = new CatalogService(() => { throw error; }, () => 0, 10);\n          await assert.rejects(throwing.get('a', 'x'), e => e === error);\n          await assert.rejects(throwing.get('a', 'x'), e => e === error);\n        }\n        module.exports = main();\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "ts-batch-job-cancel",
+      "phase": "confirmation",
+      "family": "authorization-feature",
+      "language": "typescript",
+      "request": "Implement atomic batch cancellation in JobService.cancel in src/service.ts. Accept\na nonempty list of unique job IDs; empty IDs, duplicates or an empty list throw\nError('invalid batch'). All jobs must exist in the actor's tenant or throw Error('not found').\nCheck visibility for the entire batch before permission or status, so a foreign ID does\nnot expose state. Only admin may cancel someone else's job; member may cancel only their\nown, and guest none. Then reject any running or completed job with Error('not cancellable').\nCheck all permissions before statuses; failures must not alter any job or audit.\nQueued jobs become cancelled; already cancelled jobs are idempotent and do not add audit.\nAdd audit {actor, id} for each changed job in request order. Return all requested IDs in\nrequest order, including already cancelled jobs. Preserve input arrays and existing public API.\n\nYou may change src/ and add or update checks/. Preserve public interfaces unless the request explicitly changes them. Run tsc -p tsconfig.json && node checks/public.cjs and describe the change.\n",
+      "files": {
+        "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"CommonJS\",\n    \"strict\": true,\n    \"outDir\": \".build\",\n    \"rootDir\": \"src\",\n    \"lib\": [\n      \"ES2022\",\n      \"DOM\"\n    ],\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\n    \"src/**/*.ts\"\n  ]\n}\n",
+        ".gitignore": ".build/\n",
+        "README.md": "# Service workspace\n\nRun `tsc -p tsconfig.json && node checks/public.cjs` from this directory.\n",
+        "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { JobStore } = require('../.build/store'); const { JobService } = require('../.build/service');\n        const store = new JobStore([{ id: 'job', tenant: 'a', owner: 'u', state: 'queued' }]);\n        assert.deepEqual(new JobService(store).cancel({ tenant: 'a', user: 'u', role: 'admin' }, ['job']), ['job']);\n        assert.equal(store.jobs[0].state, 'cancelled'); assert.deepEqual(store.audit, [{ actor: 'u', id: 'job' }]);\n",
+        "src/types.ts": "export interface Job { id: string; tenant: string; owner: string; state: 'queued' | 'running' | 'completed' | 'cancelled' }\nexport interface Actor { tenant: string; user: string; role: 'admin' | 'member' | 'guest' }\n",
+        "src/store.ts": "import { Job } from './types';\nexport class JobStore {\n  readonly audit: { actor: string; id: string }[] = [];\n  constructor(readonly jobs: Job[]) {}\n  find(id: string): Job | undefined { return this.jobs.find(job => job.id === id); }\n}\n",
+        "src/service.ts": "import { Actor } from './types';\nimport { JobStore } from './store';\nexport class JobService {\n  constructor(private readonly store: JobStore) {}\n  cancel(actor: Actor, ids: string[]): string[] {\n    for (const id of ids) {\n      const job = this.store.find(id);\n      if (!job) throw new Error('not found');\n      if (job.state !== 'cancelled') {\n        job.state = 'cancelled'; this.store.audit.push({ actor: actor.user, id });\n      }\n    }\n    return [...ids];\n  }\n}\n"
+      },
+      "reference": {
+        "src/service.ts": "import { Actor, Job } from './types';\nimport { JobStore } from './store';\nexport class JobService {\n  constructor(private readonly store: JobStore) {}\n  cancel(actor: Actor, ids: string[]): string[] {\n    if (!ids.length || ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error('invalid batch');\n    const jobs: Job[] = [];\n    for (const id of ids) {\n      const job = this.store.find(id);\n      if (!job || job.tenant !== actor.tenant) throw new Error('not found');\n      jobs.push(job);\n    }\n    for (const job of jobs) {\n      if (actor.role === 'guest' || (actor.role === 'member' && job.owner !== actor.user)) throw new Error('forbidden');\n    }\n    if (jobs.some(job => job.state === 'running' || job.state === 'completed')) throw new Error('not cancellable');\n    for (const job of jobs) {\n      if (job.state !== 'cancelled') {\n        job.state = 'cancelled'; this.store.audit.push({ actor: actor.user, id: job.id });\n      }\n    }\n    return [...ids];\n  }\n}\n"
+      },
+      "acceptance": "const assert = require('node:assert/strict');\n\n        const { JobStore } = require('./.build/store'); const { JobService } = require('./.build/service');\n        const fresh = () => new JobStore([\n          { id: 'q1', tenant: 'a', owner: 'u', state: 'queued' },\n          { id: 'q2', tenant: 'a', owner: 'u', state: 'queued' },\n          { id: 'other', tenant: 'a', owner: 'v', state: 'queued' },\n          { id: 'foreign', tenant: 'b', owner: 'u', state: 'running' },\n          { id: 'running', tenant: 'a', owner: 'u', state: 'running' },\n          { id: 'done', tenant: 'a', owner: 'u', state: 'completed' },\n          { id: 'cancelled', tenant: 'a', owner: 'u', state: 'cancelled' }\n        ]);\n        const bad = [\n          ['admin', [], 'invalid batch'], ['admin', ['q1', 'q1'], 'invalid batch'], ['admin', ['q1', ''], 'invalid batch'],\n          ['admin', ['q1', 'missing'], 'not found'], ['admin', ['q1', 'foreign'], 'not found'],\n          ['guest', ['running', 'foreign'], 'not found'], ['member', ['other', 'missing'], 'not found'],\n          ['guest', ['cancelled'], 'forbidden'], ['member', ['q1', 'other'], 'forbidden'],\n          ['member', ['running', 'other'], 'forbidden'], ['admin', ['q1', 'running'], 'not cancellable'],\n          ['admin', ['q1', 'done'], 'not cancellable']\n        ];\n        for (const [role, ids, message] of bad) {\n          const store = fresh(); const snapshot = JSON.stringify(store);\n          assert.throws(() => new JobService(store).cancel({ tenant: 'a', user: 'u', role }, ids), e => e.message === message);\n          assert.equal(JSON.stringify(store), snapshot);\n        }\n        const store = fresh(); const service = new JobService(store); const ids = ['q2', 'cancelled', 'q1'];\n        assert.deepEqual(service.cancel({ tenant: 'a', user: 'u', role: 'member' }, ids), ['q2', 'cancelled', 'q1']);\n        assert.deepEqual(ids, ['q2', 'cancelled', 'q1']);\n        assert.deepEqual(store.audit, [{ actor: 'u', id: 'q2' }, { actor: 'u', id: 'q1' }]);\n        service.cancel({ tenant: 'a', user: 'u', role: 'member' }, ids); assert.equal(store.audit.length, 2);\n        assert.deepEqual(store.jobs.map(job => job.state), ['cancelled', 'cancelled', 'queued', 'running', 'running', 'completed', 'cancelled']);\n        service.cancel({ tenant: 'a', user: 'boss', role: 'admin' }, ['other']);\n        assert.deepEqual(store.audit[2], { actor: 'boss', id: 'other' });\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": null
+    },
+    {
+      "id": "ts-versioned-mass",
+      "phase": "confirmation",
+      "family": "validation-refactor",
+      "language": "typescript",
+      "request": "Add version 2 mass records to ShipmentService.quote in src/service.ts and TrackingService\n.label in src/tracking.ts. Version 1 is exactly {version: 1, grams: number}; version 2 is\n exactly {version: 2, quantity: number, unit: 'g' | 'kg'}. Reject arrays, null, nonobjects,\n extra fields, missing fields, unsupported versions or units, numeric strings and nonfinite\n quantities with Error('invalid mass'). Converted grams must be greater than zero and at\n most 1000000; fractional grams are permitted and must not be rounded. Keep v1 quote\n output and label output unchanged. Consolidate parsing/conversion into src/mass.ts\n exporting parseMass(input: unknown): number. Both services must import and use it, and\n remove the old gramsFromRecord API and its callers from src/ code. legacy.ts can be\n deleted or left empty. Inputs must remain unchanged. The shipping price is ceil(grams / 100) * 2.\n\nYou may change src/ and add or update checks/. Preserve public interfaces unless the request explicitly changes them. Run tsc -p tsconfig.json && node checks/public.cjs and describe the change.\n",
+      "files": {
+        "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2022\",\n    \"module\": \"CommonJS\",\n    \"strict\": true,\n    \"outDir\": \".build\",\n    \"rootDir\": \"src\",\n    \"lib\": [\n      \"ES2022\",\n      \"DOM\"\n    ],\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\n    \"src/**/*.ts\"\n  ]\n}\n",
+        ".gitignore": ".build/\n",
+        "README.md": "# Service workspace\n\nRun `tsc -p tsconfig.json && node checks/public.cjs` from this directory.\n",
+        "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { ShipmentService } = require('../.build/service'); const { TrackingService } = require('../.build/tracking');\n        assert.deepEqual(new ShipmentService().quote({ version: 1, grams: 150 }), { grams: 150, price: 4 });\n        assert.equal(new TrackingService().label({ version: 1, grams: 0.5 }), '0.5 g');\n",
+        "src/legacy.ts": "export function gramsFromRecord(input: unknown): number {\n  if (typeof input !== 'object' || input === null || !('version' in input) || input.version !== 1 || !('grams' in input) ||\n      typeof input.grams !== 'number' || !Number.isFinite(input.grams) || input.grams <= 0 || input.grams > 1000000) {\n    throw new Error('invalid mass');\n  }\n  return input.grams;\n}\n",
+        "src/service.ts": "import { gramsFromRecord } from './legacy';\nexport class ShipmentService {\n  quote(input: unknown): { grams: number; price: number } {\n    const grams = gramsFromRecord(input); return { grams, price: Math.ceil(grams / 100) * 2 };\n  }\n}\n",
+        "src/tracking.ts": "import { gramsFromRecord } from './legacy';\nexport class TrackingService {\n  label(input: unknown): string { return gramsFromRecord(input) + ' g'; }\n}\n"
+      },
+      "reference": {
+        "src/legacy.ts": "export {};\n",
+        "src/mass.ts": "export function parseMass(input: unknown): number {\n  if (typeof input !== 'object' || input === null || Array.isArray(input) || !('version' in input)) throw new Error('invalid mass');\n  let grams: number;\n  if (input.version === 1) {\n    if (Object.keys(input).length !== 2 || !('grams' in input) || typeof input.grams !== 'number') throw new Error('invalid mass');\n    grams = input.grams;\n  } else if (input.version === 2) {\n    if (Object.keys(input).length !== 3 || !('quantity' in input) || typeof input.quantity !== 'number' ||\n        !('unit' in input) || (input.unit !== 'g' && input.unit !== 'kg')) throw new Error('invalid mass');\n    grams = input.quantity * (input.unit === 'kg' ? 1000 : 1);\n  } else throw new Error('invalid mass');\n  if (!Number.isFinite(grams) || grams <= 0 || grams > 1000000) throw new Error('invalid mass');\n  return grams;\n}\n",
+        "src/service.ts": "import { parseMass } from './mass';\nexport class ShipmentService {\n  quote(input: unknown): { grams: number; price: number } {\n    const grams = parseMass(input); return { grams, price: Math.ceil(grams / 100) * 2 };\n  }\n}\n",
+        "src/tracking.ts": "import { parseMass } from './mass';\nexport class TrackingService {\n  label(input: unknown): string { return parseMass(input) + ' g'; }\n}\n"
+      },
+      "acceptance": "const assert = require('node:assert/strict');\n\n        const { ShipmentService } = require('./.build/service'); const { TrackingService } = require('./.build/tracking');\n        const shipping = new ShipmentService(); const tracking = new TrackingService();\n        for (const [input, grams, price] of [\n          [{ version: 1, grams: 150 }, 150, 4], [{ version: 2, quantity: 1.5, unit: 'kg' }, 1500, 30],\n          [{ version: 2, quantity: 100, unit: 'g' }, 100, 2], [{ version: 2, quantity: 0.0005, unit: 'kg' }, 0.5, 2],\n          [{ version: 2, quantity: 1000, unit: 'kg' }, 1000000, 20000], [{ version: 1, grams: 1000000 }, 1000000, 20000]\n        ]) {\n          const before = JSON.stringify(input);\n          assert.deepEqual(shipping.quote(input), { grams, price }); assert.equal(tracking.label(input), grams + ' g');\n          assert.equal(JSON.stringify(input), before);\n        }\n        for (const input of [null, [], 4, 'x', {}, { version: 0, grams: 1 }, { version: '1', grams: 1 },\n          { version: 1 }, { version: 1, grams: '1' }, { version: 1, grams: NaN }, { version: 1, grams: Infinity },\n          { version: 1, grams: 0 }, { version: 1, grams: -1 }, { version: 1, grams: 1000001 }, { version: 1, grams: 1, unit: 'g' },\n          { version: 2, quantity: 1 }, { version: 2, quantity: '1', unit: 'g' }, { version: 2, quantity: 1, unit: 'lb' },\n          { version: 2, quantity: 0, unit: 'kg' }, { version: 2, quantity: -1, unit: 'g' },\n          { version: 2, quantity: NaN, unit: 'kg' }, { version: 2, quantity: Infinity, unit: 'g' },\n          { version: 2, quantity: 1000.001, unit: 'kg' }, { version: 2, quantity: 1, unit: 'g', grams: 1 }]) {\n          assert.throws(() => shipping.quote(input), /^Error: invalid mass$/);\n          assert.throws(() => tracking.label(input), /^Error: invalid mass$/);\n        }\n",
+      "allowed": [
+        "src/",
+        "checks/"
+      ],
+      "structural": "const fs = require('node:fs'); const path = require('node:path'); const assert = require('node:assert/strict');\nfunction texts(dir) { return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>\n  e.isDirectory() ? texts(path.join(dir, e.name)) : e.name.endsWith('.ts') ? [fs.readFileSync(path.join(dir, e.name), 'utf8')] : []); }\nassert.equal(/\\bgramsFromRecord\\b/.test(texts('src').join('\\n')), false, 'retire the old API and callers');\nconst mass = require('./.build/mass'); assert.equal(mass.parseMass({ version: 2, quantity: 1, unit: 'kg' }), 1000);\nfor (const name of ['service', 'tracking']) assert.match(fs.readFileSync('src/' + name + '.ts', 'utf8'), /from\\s*['\"]\\.\\/mass['\"]/);\nmass.parseMass = () => 250;\nassert.deepEqual(new (require('./.build/service').ShipmentService)().quote({}), { grams: 250, price: 6 });\nassert.equal(new (require('./.build/tracking').TrackingService)().label({}), '250 g');\n"
+    }
+  ],
+  "schedule": [
+    {
+      "id": "trial-0001",
+      "block": 0,
+      "task": "ts-versioned-mass",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0002",
+      "block": 0,
+      "task": "ts-versioned-mass",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0003",
+      "block": 1,
+      "task": "ts-versioned-mass",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0004",
+      "block": 1,
+      "task": "ts-versioned-mass",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0005",
+      "block": 2,
+      "task": "py-stock-reservations",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0006",
+      "block": 2,
+      "task": "py-stock-reservations",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0007",
+      "block": 3,
+      "task": "ts-versioned-mass",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0008",
+      "block": 3,
+      "task": "ts-versioned-mass",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0009",
+      "block": 4,
+      "task": "py-expiring-shares",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0010",
+      "block": 4,
+      "task": "py-expiring-shares",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0011",
+      "block": 5,
+      "task": "py-incremental-lines",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0012",
+      "block": 5,
+      "task": "py-incremental-lines",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0013",
+      "block": 6,
+      "task": "ts-singleflight-cache",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0014",
+      "block": 6,
+      "task": "ts-singleflight-cache",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0015",
+      "block": 7,
+      "task": "py-incremental-lines",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0016",
+      "block": 7,
+      "task": "py-incremental-lines",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0017",
+      "block": 8,
+      "task": "py-stock-reservations",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0018",
+      "block": 8,
+      "task": "py-stock-reservations",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0019",
+      "block": 9,
+      "task": "py-layered-queue-config",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0020",
+      "block": 9,
+      "task": "py-layered-queue-config",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0021",
+      "block": 10,
+      "task": "ts-batch-job-cancel",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0022",
+      "block": 10,
+      "task": "ts-batch-job-cancel",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0023",
+      "block": 11,
+      "task": "ts-singleflight-cache",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0024",
+      "block": 11,
+      "task": "ts-singleflight-cache",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0025",
+      "block": 12,
+      "task": "py-incremental-lines",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0026",
+      "block": 12,
+      "task": "py-incremental-lines",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0027",
+      "block": 13,
+      "task": "py-expiring-shares",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0028",
+      "block": 13,
+      "task": "py-expiring-shares",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0029",
+      "block": 14,
+      "task": "ts-atomic-reservation",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0030",
+      "block": 14,
+      "task": "ts-atomic-reservation",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0031",
+      "block": 15,
+      "task": "py-incremental-lines",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0032",
+      "block": 15,
+      "task": "py-incremental-lines",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0033",
+      "block": 16,
+      "task": "py-incremental-lines",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0034",
+      "block": 16,
+      "task": "py-incremental-lines",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0035",
+      "block": 17,
+      "task": "ts-batch-job-cancel",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0036",
+      "block": 17,
+      "task": "ts-batch-job-cancel",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0037",
+      "block": 18,
+      "task": "ts-atomic-reservation",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0038",
+      "block": 18,
+      "task": "ts-atomic-reservation",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0039",
+      "block": 19,
+      "task": "py-layered-queue-config",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0040",
+      "block": 19,
+      "task": "py-layered-queue-config",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0041",
+      "block": 20,
+      "task": "py-layered-queue-config",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0042",
+      "block": 20,
+      "task": "py-layered-queue-config",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0043",
+      "block": 21,
+      "task": "py-expiring-shares",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0044",
+      "block": 21,
+      "task": "py-expiring-shares",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0045",
+      "block": 22,
+      "task": "ts-versioned-mass",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0046",
+      "block": 22,
+      "task": "ts-versioned-mass",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0047",
+      "block": 23,
+      "task": "py-layered-queue-config",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0048",
+      "block": 23,
+      "task": "py-layered-queue-config",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0049",
+      "block": 24,
+      "task": "py-stock-reservations",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0050",
+      "block": 24,
+      "task": "py-stock-reservations",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0051",
+      "block": 25,
+      "task": "ts-batch-job-cancel",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0052",
+      "block": 25,
+      "task": "ts-batch-job-cancel",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0053",
+      "block": 26,
+      "task": "py-stock-reservations",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0054",
+      "block": 26,
+      "task": "py-stock-reservations",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0055",
+      "block": 27,
+      "task": "ts-atomic-reservation",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0056",
+      "block": 27,
+      "task": "ts-atomic-reservation",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0057",
+      "block": 28,
+      "task": "ts-singleflight-cache",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0058",
+      "block": 28,
+      "task": "ts-singleflight-cache",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0059",
+      "block": 29,
+      "task": "ts-singleflight-cache",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0060",
+      "block": 29,
+      "task": "ts-singleflight-cache",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0061",
+      "block": 30,
+      "task": "py-expiring-shares",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0062",
+      "block": 30,
+      "task": "py-expiring-shares",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0063",
+      "block": 31,
+      "task": "ts-atomic-reservation",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0064",
+      "block": 31,
+      "task": "ts-atomic-reservation",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0065",
+      "block": 32,
+      "task": "ts-versioned-mass",
+      "rep": 5,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0066",
+      "block": 32,
+      "task": "ts-versioned-mass",
+      "rep": 5,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0067",
+      "block": 33,
+      "task": "ts-atomic-reservation",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0068",
+      "block": 33,
+      "task": "ts-atomic-reservation",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0069",
+      "block": 34,
+      "task": "py-expiring-shares",
+      "rep": 4,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0070",
+      "block": 34,
+      "task": "py-expiring-shares",
+      "rep": 4,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0071",
+      "block": 35,
+      "task": "ts-singleflight-cache",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0072",
+      "block": 35,
+      "task": "ts-singleflight-cache",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0073",
+      "block": 36,
+      "task": "py-stock-reservations",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0074",
+      "block": 36,
+      "task": "py-stock-reservations",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0075",
+      "block": 37,
+      "task": "py-layered-queue-config",
+      "rep": 1,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0076",
+      "block": 37,
+      "task": "py-layered-queue-config",
+      "rep": 1,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0077",
+      "block": 38,
+      "task": "ts-batch-job-cancel",
+      "rep": 2,
+      "candidate": "sol-fast-medium"
+    },
+    {
+      "id": "trial-0078",
+      "block": 38,
+      "task": "ts-batch-job-cancel",
+      "rep": 2,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0079",
+      "block": 39,
+      "task": "ts-batch-job-cancel",
+      "rep": 3,
+      "candidate": "sonnet-medium"
+    },
+    {
+      "id": "trial-0080",
+      "block": 39,
+      "task": "ts-batch-job-cancel",
+      "rep": 3,
+      "candidate": "sol-fast-medium"
+    }
+  ],
+  "reps": 5,
+  "seed": 20261010,
+  "budget": {
+    "seconds": 1200,
+    "calls": 60,
+    "grace": 15
+  },
+  "global_seconds": 21600,
+  "opencode": "2.0.26",
+  "catalog_sha256": "f6a22feaaf4916289ead67712a27b2ba7ccdb38f6dc23ddfae11158b28a1a761",
+  "image_spec": {
+    "tag": "opencode-code-workspace:node24.9.0-ts5.9.3",
+    "dockerfile_sha256": "085e13417a531c0f18bfada464eadef8737d6ff4ad12a2cd740a56248d3435d0",
+    "image_id": null
+  },
+  "native_steps": null,
+  "call_limit_overshoot_allowed": 1,
+  "comparison_tie_ratio": [
+    0.95,
+    1.05
+  ],
+  "observation": "passive_native_provider",
+  "network": "none",
+  "filesystem": "workspace_only"
+}

@@ -1,0 +1,24 @@
+I'll start with the D1 overview and read replication docs.
+
+Now the Sessions API binding docs and batch/transaction behavior.
+
+Now SQL/transaction semantics and limits.
+
+One more: the e-commerce read-replication tutorial for cross-request bookmark patterns.
+
+**Decision: carry bookmarks between requests; do not use `first-primary` everywhere.**
+
+**Corrected premises**
+- Today your code does no replica reads at all: without the Sessions API *"all queries will continue to be executed only by the primary database"* ([read-replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#use-sessions-api)).
+- `first-primary` does **not** pin a session to the primary. It directs only the *first* query (read or write) to primary; *"Subsequent queries in the Session may use read replicas"*, still sequentially consistent ([d1-database#withsession](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession)). Writes are always forwarded to the primary regardless ([read-replication](https://developers.cloudflare.com/d1/best-practices/read-replication/#primary-database-instance-vs-read-replicas)).
+- Your teammate is wrong: `withSession()` equals `first-unconstrained`, routing the first query to *any* instance, replica included; it is *"best when your application does not require the latest database version"* ([#start-a-session-without-constraints](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-without-constraints)). `first-primary` is the latest-data option ([#start-a-session-with-all-latest-data](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-with-all-latest-data)).
+
+**Recommended contract**
+Writes: `withSession("first-primary")`, then return `session.getBookmark()` (null only if no query ran) as a header/cookie. Later requests carry that opaque bookmark into `env.DB.withSession(bookmark)`, guaranteeing a version *"at least as up-to-date"* as your checkout write, while replica routing still applies ([#start-a-session-from-previous-context-bookmark](https://developers.cloudflare.com/d1/best-practices/read-replication/#start-a-session-from-previous-context-bookmark)). Read paths tolerant of staleness should use `withSession()`. Note `first-primary` on every request spends each session's first query on the primary — blunt for latency. The e-commerce tutorial demonstrates exactly this cookie pattern ([tutorial](https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#1-post-apiproduct)).
+
+**Failure handling — premise is wrong**
+`batch()` statements are one SQL transaction: *"If a statement in the sequence fails... it aborts or rolls back the entire sequence"* ([d1-database#batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)). Earlier inserts do **not** stay committed. Put header plus line items in one `batch()`; the 30-second request limit applies to the whole batch ([limits](https://developers.cloudflare.com/d1/platform/limits/#footnote-label)). Retries risk duplicate inserts ([tutorial](https://developers.cloudflare.com/d1/tutorials/using-read-replication-for-e-com/#step-6-add-retry-logic)).
+
+**Product claims**
+- "Globally latest reads" — **not supported**: replicas *"may be arbitrarily out of date"*; guarantees are per-session sequential consistency ([#replica-lag-and-consistency-model](https://developers.cloudflare.com/d1/best-practices/read-replication/#replica-lag-and-consistency-model)).
+- "≤100 ms lag after commit" — **UNVERIFIED**; no first-party page states a bound. Resolve via Cloudflare support; verify routing with `served_by_region`/`served_by_primary` ([#observability](https://developers.cloudflare.com/d1/best-practices/read-replication/#observability)).

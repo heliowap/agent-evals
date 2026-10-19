@@ -1,0 +1,64 @@
+### Test of a Non-Chained Group with a Default Child
+
+In `tests/test_commands.py:279–300`, the test `test_invoked_subcommand(runner)` defines a non-chained group (`@click.group(invoke_without_command=True)`) that checks `ctx.invoked_subcommand` and falls back to invoking a default subcommand (`sync`) via `ctx.invoke(sync)` when no subcommand was selected.
+
+```python
+def test_invoked_subcommand(runner):
+    @click.group(invoke_without_command=True)
+    @click.pass_context
+    def cli(ctx):
+        if ctx.invoked_subcommand is None:
+            click.echo("no subcommand, use default")
+            ctx.invoke(sync)
+        else:
+            click.echo("invoke subcommand")
+
+    @cli.command()
+    def sync():
+        click.echo("in subcommand")
+```
+
+---
+
+### Assertions for Explicit Child Selection vs. No Selection
+
+The test makes explicit assertions on the `CliRunner` invocation results for both cases:
+
+1. **Explicit Child Selection (`runner.invoke(cli, ["sync"])`)**:
+   - `tests/test_commands.py:294`: `assert not result.exception` asserts that execution completed without raising an unhandled exception.
+   - `tests/test_commands.py:295`: `assert result.output == "invoke subcommand\nin subcommand\n"` asserts that the group branch for an explicit child ran first (`invoke subcommand`), followed by the child command body (`in subcommand`).
+
+2. **No Child Selection (`runner.invoke(cli)`)**:
+   - `tests/test_commands.py:298`: `assert not result.exception` asserts that execution completed without raising an unhandled exception.
+   - `tests/test_commands.py:299`: `assert result.output == "no subcommand, use default\nin subcommand\n"` asserts that the fallback branch executed (`no subcommand, use default`), and then the manually invoked child ran (`in subcommand`).
+
+---
+
+### Implementation: Callback Ordering and Child Context Creation for Explicit Selection
+
+In `src/click/core.py:2076–2086` (`Group.invoke`), when `not self.chain` and arguments remain:
+
+1. **Resolution and Subcommand Name**:
+   - `cmd_name, cmd, args = self.resolve_command(ctx, args)` resolves the child command object and remaining args (`src/click/core.py:2080`).
+   - `ctx.invoked_subcommand = cmd_name` records the name of the subcommand on the group's context (`src/click/core.py:2082`).
+
+2. **Group Callback Ordering**:
+   - `super().invoke(ctx)` executes before the child command is created or invoked (`src/click/core.py:2083`). Thus, the group callback runs **first**.
+
+3. **Child Context Creation and Invocation**:
+   - The child context is created **after** `super().invoke(ctx)` by calling `cmd.make_context(cmd_name, args, parent=ctx)` (`src/click/core.py:2084`).
+   - The child context is entered using a context manager (`with sub_ctx:`, `src/click/core.py:2085`).
+   - The child command is then executed via `sub_ctx.command.invoke(sub_ctx)`, with its result processed by `_process_result(...)` before returning (`src/click/core.py:2086`).
+
+---
+
+### Distinguishing Test Assertions from Untested Generalizations
+
+- **Directly asserted by `test_invoked_subcommand`**:
+  - `result.exception` is falsy for both `cli ["sync"]` and `cli []`.
+  - Exact printed standard output order: `"invoke subcommand\nin subcommand\n"` when `"sync"` is passed, and `"no subcommand, use default\nin subcommand\n"` when no args are passed.
+- **Untested generalizations in this specific test**:
+  - The test does not assert `result.exit_code == 0` directly (it checks `assert not result.exception` instead).
+  - It does not assert return values (`result.return_value`).
+  - It does not test child commands taking options or arguments, or default commands that accept options/parameters.
+  - It does not verify child context cleanup lifecycle hooks, result callbacks (`result_callback`), or behavior when exceptions are raised inside either callback.

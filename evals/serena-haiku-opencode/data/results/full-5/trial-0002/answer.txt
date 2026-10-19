@@ -1,0 +1,9 @@
+`get_document` and `list_documents` now only return documents that match the given tenant and owner and have `deleted_at IS NULL`. Both `python3 checks/public.py` and the new `checks/security.py` pass.
+
+**Changes**
+
+- **`src/repository.py`**: `find` and `listing` take `tenant` and `owner` and add `tenant=? AND owner=? AND deleted_at IS NULL` to their SQL. All values are bound parameters, so names containing quotes are safe. `listing` keeps `ORDER BY id`. Result dictionaries still contain only `id`, `title` and `body`.
+- **`src/service.py`**: `get_document` and `list_documents` pass `tenant` and `owner` through. Before this change, `tenant` was ignored and `list_documents` filtered only on `owner`.
+- **`checks/security.py`** (new): covers cross-tenant, cross-owner and deleted records returning `None` or being omitted from lists. It also checks quoted and SQL-injection-style tenant and owner values, list ordering, and that no `deleted_at` key appears in results.
+
+Neither function distinguishes a missing ID from a cross-tenant, cross-owner or deleted record, since all of them return `None`. Nothing else in the project called `find` or `listing`, so the signature change has no other callers to update.

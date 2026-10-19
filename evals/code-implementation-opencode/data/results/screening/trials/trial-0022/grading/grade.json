@@ -1,0 +1,49 @@
+{
+  "scope": {
+    "files": {
+      "checks/transfer.py": "import os, sys\nsys.path.insert(0, os.getcwd())\nimport sqlite3\nfrom src.repository import initialize, balance\nfrom src.service import transfer\nfrom src.events import Recorder\n\ndef db():\n    c = sqlite3.connect(\":memory:\")\n    initialize(c)\n    c.executemany(\"INSERT INTO accounts VALUES (?, ?)\", [(\"a\", 100), (\"b\", 20)])\n    c.commit()\n    return c\n\ndef state(c):\n    return (balance(c, \"a\"), balance(c, \"b\"), c.execute(\"SELECT count(*) FROM ledger\").fetchone()[0])\n\nfor args in [(\"a\",\"a\",5),(\"a\",\"x\",5),(\"x\",\"b\",5),(\"a\",\"b\",0),(\"a\",\"b\",-1),(\"a\",\"b\",True),(\"a\",\"b\",1.0),(\"a\",\"b\",101)]:\n    c, p = db(), Recorder()\n    try: transfer(c, p, *args); raise SystemExit(f\"no error {args}\")\n    except ValueError: pass\n    assert state(c) == (100, 20, 0) and p.events == [] and not c.in_transaction\n\nclass Boom:\n    def publish(self, e): raise RuntimeError\nc = db()\ntry: transfer(c, Boom(), \"a\", \"b\", 10); raise SystemExit(\"no error\")\nexcept RuntimeError: pass\nassert state(c) == (90, 30, 1)\n\nc, p = db(), Recorder()\nc.execute(\"CREATE TRIGGER t BEFORE INSERT ON ledger BEGIN SELECT RAISE(ABORT,'x'); END\")\ntry: transfer(c, p, \"a\", \"b\", 10); raise SystemExit(\"no error\")\nexcept sqlite3.Error: pass\nassert state(c)[:2] == (100, 20) and p.events == [] and not c.in_transaction\nprint(\"ok\")\n",
+      "src/repository.py": "def initialize(connection):\n    connection.executescript(\"CREATE TABLE accounts(id TEXT PRIMARY KEY, balance INTEGER NOT NULL); CREATE TABLE ledger(source TEXT, target TEXT, amount INTEGER);\")\n    connection.commit()\n\ndef balance(connection, account):\n    row = connection.execute(\"SELECT balance FROM accounts WHERE id=?\", (account,)).fetchone()\n    return None if row is None else row[0]\n\ndef move(connection, source, target, amount):\n    debit = connection.execute(\"UPDATE accounts SET balance=balance-? WHERE id=? AND balance>=?\", (amount, source, amount))\n    credit = connection.execute(\"UPDATE accounts SET balance=balance+? WHERE id=?\", (amount, target))\n    if debit.rowcount != 1 or credit.rowcount != 1:\n        raise ValueError(\"transfer could not be applied\")\n    connection.execute(\"INSERT INTO ledger VALUES (?, ?, ?)\", (source, target, amount))\n",
+      "src/service.py": "from .repository import balance, move\n\n\ndef transfer(connection, publisher, source, target, amount):\n    if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:\n        raise ValueError(\"amount must be a positive integer\")\n    if source == target:\n        raise ValueError(\"source and target must differ\")\n    try:\n        available = balance(connection, source)\n        if available is None or balance(connection, target) is None:\n            raise ValueError(\"unknown account\")\n        if amount > available:\n            raise ValueError(\"insufficient funds\")\n        move(connection, source, target, amount)\n        connection.commit()\n    except BaseException:\n        connection.rollback()\n        raise\n    publisher.publish({\"source\": source, \"target\": target, \"amount\": amount})\n"
+    },
+    "changed_files": [
+      "checks/transfer.py",
+      "src/repository.py",
+      "src/service.py"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 3,
+    "added_lines": 70,
+    "removed_lines": 18
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.045626375009305775
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.04988999999477528,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.052428958006203175,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

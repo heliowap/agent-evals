@@ -1,0 +1,64 @@
+{
+  "scope": {
+    "files": {
+      "checks/public.cjs": "const assert = require('node:assert/strict');\n\n        const { renderInvoice } = require('../.build/invoice'); const { renderReport } = require('../.build/report');\n        assert.equal(renderInvoice('inv', 123), 'inv: $1.23');\n        assert.equal(renderReport([{ id: 'a', cents: 0 }, { id: 'b', cents: -1 }]), 'a,0.00\\nb,-0.01');\n\n// formatAmount: whole units, exactly two fraction digits, no currency symbol.\nconst { formatAmount } = require('../.build/money');\nfor (const [cents, expected] of [\n  [0, '0.00'], [-0, '0.00'], [1, '0.01'], [5, '0.05'], [9, '0.09'], [10, '0.10'], [99, '0.99'],\n  [100, '1.00'], [123, '1.23'], [1234567, '12345.67'],\n  [-1, '-0.01'], [-5, '-0.05'], [-99, '-0.99'], [-100, '-1.00'], [-123, '-1.23'], [-1234567, '-12345.67'],\n  [Number.MAX_SAFE_INTEGER, '90071992547409.91'], [-Number.MAX_SAFE_INTEGER, '-90071992547409.91'],\n]) {\n  assert.equal(formatAmount(cents), expected, `formatAmount(${cents})`);\n}\n\n// Renderers keep their exact output and row order.\nassert.equal(renderInvoice('inv', 0), 'inv: $0.00');\nassert.equal(renderInvoice('inv', -5), 'inv: $-0.05');\nassert.equal(renderReport([]), '');\nassert.equal(renderReport([{ id: 'x', cents: 250 }, { id: 'y', cents: 7 }, { id: 'z', cents: -300 }]), 'x,2.50\\ny,0.07\\nz,-3.00');\n\n// Both renderers must delegate to the shared formatAmount (calls are recorded via a spy).\nconst money = require('../.build/money');\nconst realFormatAmount = money.formatAmount;\nconst seen = [];\nmoney.formatAmount = cents => { seen.push(cents); return realFormatAmount(cents); };\ntry {\n  assert.equal(renderInvoice('spy', 42), 'spy: $0.42');\n  assert.equal(renderReport([{ id: 'r', cents: -7 }]), 'r,-0.07');\n} finally {\n  money.formatAmount = realFormatAmount;\n}\nassert.deepEqual(seen, [42, -7]);\n\n// The old helper names must not be exported from any module.\nfor (const mod of ['invoice', 'report', 'money']) {\n  for (const name of ['invoiceAmount', 'reportAmount']) {\n    assert.equal(Object.hasOwn(require(`../.build/${mod}`), name), false, `${mod} must not export ${name}`);\n  }\n}\n",
+      "src/invoice.ts": "import { formatAmount } from './money';\nexport function renderInvoice(id: string, cents: number): string { return id + ': $' + formatAmount(cents); }\n",
+      "src/invoiceAmount.ts": null,
+      "src/money.ts": "/**\n * Formats an integer number of cents as whole currency units followed by exactly\n * two fraction digits, e.g. 123 -> \"1.23\" and -5 -> \"-0.05\". No currency symbol.\n */\nexport function formatAmount(cents: number): string {\n  const sign = cents < 0 ? '-' : '';\n  const absolute = Math.abs(cents);\n  return sign + Math.floor(absolute / 100) + '.' + String(absolute % 100).padStart(2, '0');\n}\n",
+      "src/report.ts": "import { formatAmount } from './money';\nexport function renderReport(rows: { id: string; cents: number }[]): string {\n  return rows.map(row => row.id + ',' + formatAmount(row.cents)).join('\\n');\n}\n",
+      "src/reportAmount.ts": null
+    },
+    "changed_files": [
+      "checks/public.cjs",
+      "src/invoice.ts",
+      "src/invoiceAmount.ts",
+      "src/money.ts",
+      "src/report.ts",
+      "src/reportAmount.ts"
+    ],
+    "violations": [],
+    "scope_correct": true,
+    "file_count": 6,
+    "added_lines": 57,
+    "removed_lines": 19
+  },
+  "criteria": {
+    "compilation": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "",
+      "stderr": "",
+      "wall_s": 0.48324324999703094
+    },
+    "regression": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.06599374994402751,
+      "check_completed": true
+    },
+    "acceptance": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.05493287497665733,
+      "check_completed": true
+    },
+    "structural": {
+      "passed": true,
+      "exit_code": 0,
+      "timeout": false,
+      "stdout": "[check completed]\n",
+      "stderr": "",
+      "wall_s": 0.055923459003679454,
+      "check_completed": true
+    }
+  },
+  "patch_correct": true,
+  "image": "sha256:5a3fe047f25468655ba68c3175b75ed9d184469370f957c5727763fa6d9f45ed"
+}

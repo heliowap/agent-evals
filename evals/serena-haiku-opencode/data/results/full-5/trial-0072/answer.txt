@@ -1,0 +1,14 @@
+I scoped `get_document` and `list_documents` to tenant and owner and excluded soft-deleted rows. Both the public check and a new security check pass.
+
+**Changes**
+- **`src/repository.py`**: `find` and `listing` now take `tenant` and `owner`. Every query uses bound parameters and adds `tenant=? AND owner=? AND deleted_at IS NULL`. `listing` keeps `ORDER BY id`. Results are still `{id, title, body}` only, with no deletion metadata.
+- **`src/service.py`**: passes `tenant` and `owner` through to the repository. The signatures are unchanged.
+- **`checks/test_service_security.py`** (new): covers a cross-tenant document, a cross-owner document, a soft-deleted document, a missing ID, owner and tenant names containing quotes, a classic `' OR '1'='1` injection string, list ordering, and the exact result keys.
+
+**Behavior**
+- `get_document` returns `None` for missing, cross-tenant, cross-owner, and deleted documents alike.
+- Lists include only the caller's live documents in the tenant, ordered by id.
+
+**Verification**
+- `python3 checks/public.py` passes.
+- `python3 checks/test_service_security.py` passes.

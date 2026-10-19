@@ -1,0 +1,18 @@
+I replaced the float-based parser in `src/money.py` and applied the same rules in `src/api.py`. The public check and the new checks all pass.
+
+**`src/money.py`**
+- `parse_amount` accepts `Decimal`, non-bool `int`, and strings matching `[+-]?[0-9]+(\.[0-9]+)?` (fullmatch, so no whitespace or exponents). Anything else raises `ValueError`, including floats and bools.
+- It rejects non-finite values (NaN, sNaN, ±Infinity), zero and negatives, and values above 1000000.00.
+- It quantizes with `ROUND_DOWN` and rejects any input that changes, so a nonzero fractional cent is never rounded. Trailing zeros are fine, and the result has exponent -2.
+- Quantizing runs in a private `Context`, so the caller's global decimal context is never read or changed.
+- `format_amount` is unchanged.
+
+**`src/api.py`**
+- `make_invoice` copies its input with `list(amounts)` and runs every item through `parse_amount`.
+- It sums integer cents and raises `ValueError` if the total exceeds 1000000.00.
+- It returns `{"total": "<two decimals>", "count": N}`, and an empty list gives `0.00`.
+
+**Checks**
+- `checks/test_rules.py` (new, unittest) covers accepted and rejected inputs, that the global context is unchanged, the total limit, that item rules apply, and that the input list is not mutated.
+- `python3 checks/public.py` passes.
+- `python3 -m unittest checks/test_rules.py` runs 7 tests, all passing.
