@@ -44,3 +44,7 @@ The studies were run between September and October 2026 with OpenCode, Codex CLI
 Each study has `README.md` (the paper), `harness/` and `data/`. See [docs/conventions.md](docs/conventions.md) for the paper structure, what is excluded and how data was anonymized. [tools/anonymize.py](tools/anonymize.py) copied every published file; [tools/scan.py](tools/scan.py) checks the repository for leftover identifiers and secrets.
 
 Model routes such as `cli_proxy/...` are provider IDs of a local OpenAI-compatible proxy; each paper says how the answering model was verified.
+
+## License
+
+Code (scripts, harnesses, `tools/`) is under the [MIT License](LICENSE). Papers, documentation and data are under [CC BY 4.0](LICENSE-DATA). Third-party material quoted or included in the data, such as Terminal-Bench task instructions, upstream source files edited by agents and model outputs about public repositories, stays under its original license; each paper cites its source.
